@@ -10,30 +10,20 @@ from .const import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup(hass: HomeAssistant, config: dict):
-    """Set up the Hangar Assistant integration global services."""
-    
-    async def handle_manual_cleanup(call: ServiceCall):
-        """Service to manually purge legal records past their retention date."""
-        # Retrieve the retention setting from the first available entry
-        entries = hass.config_entries.async_entries(DOMAIN)
-        if not entries:
-            _LOGGER.warning("No Hangar Assistant configuration found for cleanup.")
-            return
-
-        # Default to 7 months if not specified in briefing config
-        retention_months = 7
-        for entry in entries:
-            if "retention_months" in entry.data:
-                retention_months = entry.data["retention_months"]
-                break
+async def handle_manual_cleanup(call: ServiceCall):
+        """Service to manually purge legal records."""
+        # Get the value from the service call, fall back to entry data, then default to 7
+        retention_months = call.data.get("retention_months")
         
+        if not retention_months:
+            entries = hass.config_entries.async_entries(DOMAIN)
+            for entry in entries:
+                if "retention_months" in entry.data:
+                    retention_months = entry.data["retention_months"]
+                    break
+        
+        retention_months = retention_months or 7
         await async_cleanup_records(hass, retention_months)
-
-    # Register the service so it appears in Developer Tools > Services
-    hass.services.async_register(DOMAIN, "manual_cleanup", handle_manual_cleanup)
-    
-    return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""

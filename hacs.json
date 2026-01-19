@@ -1,7 +1,6 @@
 {
   "name": "Hangar Assistant",
-  "domains": ["sensor", "binary_sensor"],
-  "homeassistant": "2024.1.0",
+  "homeassistant": "2026.1.0",
   "render_readme": true,
   "issue_tracker": "https://github.com/fregster/ha-hangar-assistant/issues"
 }

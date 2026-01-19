@@ -4,14 +4,9 @@
     "step": {
       "user": {
         "title": "Hangar Assistant Setup",
-        "description": "Choose which component you would like to configure for your hangar.",
-        "menu_options": {
-          "airfield": "Add Airfield",
-          "aircraft": "Add Aircraft",
-          "pilot": "Add Pilot (PIC)",
-          "briefing": "Automated Briefing & Retention"
-        }
-      },
+        "description": "Welcome to Hangar Assistant. This integration will help you monitor aviation safety metrics. Click 'Submit' to get started, then use the 'Configure' button to add your airfields and aircraft."
+      }
+    },
       "airfield": {
         "title": "Configure Airfield",
         "description": "Enter the details for your local airfield and link the weather sensors.",
@@ -64,6 +59,56 @@
     },
     "abort": {
       "already_configured": "This component is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hangar Assistant Configuration",
+        "description": "Choose which component you would like to configure.",
+        "menu_options": {
+          "airfield": "Add Airfield",
+          "aircraft": "Add Aircraft",
+          "pilot": "Add Pilot (PIC)",
+          "briefing": "Automated Briefing & Retention"
+        }
+      },
+      "airfield": {
+        "title": "Configure Airfield",
+        "description": "Enter the details for your local airfield and link the weather sensors.",
+        "data": {
+          "name": "Airfield Name",
+          "temp_sensor": "Temperature Sensor",
+          "dp_sensor": "Dew Point Sensor",
+          "wind_sensor": "Wind Speed (kt)",
+          "wind_dir_sensor": "Wind Direction (degrees)",
+          "runways": "Runways (e.g., 09, 27)",
+          "runway_lengths": "Lengths in Meters (e.g., 800, 1200)"
+        }
+      },
+      "aircraft": {
+        "title": "Configure Aircraft",
+        "description": "Enter the performance limits and specifications for your aircraft.",
+        "data": {
+          "reg": "Registration",
+          "model": "Model",
+          "empty_weight": "Empty Weight (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Max X-Wind (kt)",
+          "baseline_roll": "SL Ground Roll (m)",
+          "baseline_50ft": "SL 50ft Distance (m)"
+        }
+      },
+      "pilot": {
+        "title": "Pilot Information",
+        "description": "Enter Pilot in Command (PIC) details for legal documentation.",
+        "data": {
+          "name": "Full Name",
+          "licence_number": "Licence Number",
+          "licence_type": "Licence Type (e.g., PPL, LAPL)",
+          "medical_expiry": "Medical/Declaration Expiry Date"
+        }
+      }
     }
   },
   "entity": {

@@ -16,12 +16,12 @@
         "title": "Hangar Management",
         "description": "Manage your virtual hangar. Select an action below:",
         "menu_options": {
-          "add_airfield": "Add New Airfield",
-          "add_aircraft": "Add New Aircraft",
-          "add_pilot": "Add Pilot Details"
+          "airfield": "Add New Airfield",
+          "aircraft": "Add New Aircraft",
+          "pilot": "Add Pilot Details"
         }
       },
-      "add_airfield": {
+      "airfield": {
         "title": "Add Airfield",
         "description": "Link your weather sensors to a specific airfield profile.",
         "data": {
@@ -34,7 +34,7 @@
           "runway_lengths": "Runway Lengths in Meters"
         }
       },
-      "add_aircraft": {
+      "aircraft": {
         "title": "Add Aircraft",
         "description": "Enter the POH performance data for this aircraft.",
         "data": {
@@ -46,7 +46,7 @@
           "baseline_roll": "Baseline SL Ground Roll (m)"
         }
       },
-      "add_pilot": {
+      "pilot": {
         "title": "Pilot Information",
         "description": "Configure PIC details for legal cost-sharing declarations.",
         "data": {

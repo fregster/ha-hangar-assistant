@@ -1,15 +1,31 @@
+from __future__ import annotations
+
 """Sensor platform for Hangar Assistant."""
+import logging
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
 )
 from homeassistant.const import (
     UnitOfLength,
+    STATE_UNKNOWN,
+    STATE_UNAVAILABLE,
 )
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.config_entries import ConfigEntry
+
 from .const import DOMAIN
 
-async def async_setup_entry(hass, entry, async_add_entities):
+_LOGGER = logging.getLogger(__name__)
+
+async def async_setup_entry(
+    hass: HomeAssistant, 
+    entry: ConfigEntry, 
+    async_add_entities: AddEntitiesCallback
+) -> None:
     """Set up Hangar Assistant sensors dynamically from config entry lists."""
     entities = []
     
@@ -32,7 +48,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class HangarSensorBase(SensorEntity):
     """Common logic for all Hangar Assistant sensors."""
     
-    def __init__(self, hass, config):
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, hass: HomeAssistant, config: dict):
         """Initialize the sensor."""
         self.hass = hass
         self._config = config
@@ -47,14 +66,32 @@ class HangarSensorBase(SensorEntity):
             manufacturer="Fregster Aviation",
             model="Hangar Assistant v2601.1",
         )
+        self._source_entities: list[str] = []
 
-    def _get_sensor_value(self, entity_id):
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks for source entities."""
+        if not self._source_entities:
+            return
+
+        @callback
+        def _update_state(event):
+            """Update the sensor state when a source entity changes."""
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, self._source_entities, _update_state
+            )
+        )
+
+    def _get_sensor_value(self, entity_id: str) -> float | None:
         """Safely fetch and convert a sensor state to float."""
         state = self.hass.states.get(entity_id)
-        if state and state.state not in ("unknown", "unavailable"):
+        if state and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             try:
                 return float(state.state)
             except ValueError:
+                _LOGGER.warning("Could not convert %s state to float: %s", entity_id, state.state)
                 return None
         return None
 
@@ -65,13 +102,17 @@ class DensityAltSensor(HangarSensorBase):
     _attr_native_unit_of_measurement = UnitOfLength.FEET
     _attr_device_class = SensorDeviceClass.DISTANCE
 
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return f"{self._config['name']} Density Altitude"
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        self._source_entities = [config['temp_sensor']]
 
     @property
-    def native_value(self):
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Density Altitude"
+
+    @property
+    def native_value(self) -> float | None:
         """Return the state of the sensor."""
         temp = self._get_sensor_value(self._config['temp_sensor'])
         if temp is None:
@@ -83,13 +124,17 @@ class CloudBaseSensor(HangarSensorBase):
     """Estimates Cloud Base height (AGL) for a specific airfield."""
     _attr_native_unit_of_measurement = UnitOfLength.FEET
 
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return f"{self._config['name']} Est Cloud Base"
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        self._source_entities = [config['temp_sensor'], config['dp_sensor']]
 
     @property
-    def native_value(self):
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Est Cloud Base"
+
+    @property
+    def native_value(self) -> float | None:
         """Return the state of the sensor."""
         t = self._get_sensor_value(self._config['temp_sensor'])
         dp = self._get_sensor_value(self._config['dp_sensor'])
@@ -100,14 +145,15 @@ class CloudBaseSensor(HangarSensorBase):
 class DataFreshnessSensor(HangarSensorBase):
     """Monitors age of weather data in minutes."""
     _attr_native_unit_of_measurement = "min"
+    _attr_should_poll = True
 
     @property
-    def name(self):
+    def name(self) -> str:
         """Return the name of the sensor."""
-        return f"{self._config['name']} Weather Data Age"
+        return "Weather Data Age"
 
     @property
-    def native_value(self):
+    def native_value(self) -> int | None:
         """Return the state of the sensor."""
         state = self.hass.states.get(self._config['temp_sensor'])
         if not state:
@@ -119,13 +165,17 @@ class DataFreshnessSensor(HangarSensorBase):
 class CarbRiskSensor(HangarSensorBase):
     """Assesses Carb Icing Risk level."""
     
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return f"{self._config['name']} Carb Risk"
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        self._source_entities = [config['temp_sensor'], config['dp_sensor']]
 
     @property
-    def native_value(self):
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Carb Risk"
+
+    @property
+    def native_value(self) -> str:
         """Return the state of the sensor."""
         t = self._get_sensor_value(self._config['temp_sensor'])
         dp = self._get_sensor_value(self._config['dp_sensor'])
@@ -145,13 +195,33 @@ class GroundRollSensor(HangarSensorBase):
     """Calculates adjusted Takeoff Ground Roll for a specific aircraft."""
     _attr_native_unit_of_measurement = UnitOfLength.METERS
 
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return f"{self._config['reg']} Ground Roll"
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        if airfield_name := config.get("linked_airfield"):
+            # Predict the DA sensor ID for the linked airfield
+            slug = airfield_name.lower().replace(" ", "_")
+            self._da_sensor_id = f"sensor.{slug}_density_altitude"
+            self._source_entities = [self._da_sensor_id]
+        else:
+            self._da_sensor_id = None
 
     @property
-    def native_value(self):
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Calculated Ground Roll"
+
+    @property
+    def native_value(self) -> int | None:
         """Return the state of the sensor."""
         base = self._config.get("baseline_roll", 0)
+        
+        if self._da_sensor_id:
+            da = self._get_sensor_value(self._da_sensor_id)
+            if da is not None:
+                # Rule of thumb: 10% increase per 1000ft DA above sea level
+                # We cap DA at 0 for this simple calculation
+                factor = 1 + (max(0, da) / 1000) * 0.10
+                return round(base * factor)
+        
+        # Fallback to a static safety factor if no DA is available
         return round(base * 1.15)

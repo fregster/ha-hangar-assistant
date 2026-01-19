@@ -65,7 +65,12 @@ This integration is designed to assist pilots but **MUST NOT** be used as the pr
 Found a bug? [Open an issue on GitHub](https://github.com/fregster/ha-hangar-assistant/issues).
 Created by **@fregster**.
 
-# ✈️ Hangar Assistant
+---
+
+## Intergration testing
+
 [![Hassfest](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml/badge.svg?job=validate-hassfest)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
 [![HACS Validation](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml/badge.svg?job=validate-hacs)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
 [![Linting](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml/badge.svg?job=validate-lint)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+
+# ✈️ Hangar Assistant

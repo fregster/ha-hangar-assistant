@@ -1,0 +1,14 @@
+manual_cleanup:
+  name: Manual Record Cleanup
+  description: Purges aviation records (PDFs) that are older than the specified retention period.
+  fields:
+    retention_months:
+      name: Retention Period
+      description: Number of months to keep records for. Files older than this will be deleted.
+      example: 7
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 24
+          unit_of_measurement: months

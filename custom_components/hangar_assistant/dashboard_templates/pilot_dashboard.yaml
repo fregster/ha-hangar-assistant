@@ -1,0 +1,73 @@
+# --- HANGAR ASSISTANT: MULTI-AIRFIELD COCKPIT ---
+title: Pilot Command Center
+views:
+  - title: Airfields
+    icon: mdi:airport
+    path: airfields
+    type: sidebar
+    cards:
+      # --- DYNAMIC AIRFIELD SELECTOR ---
+      - type: custom:auto-entities
+        card:
+          type: custom:tabbed-card
+          styles:
+            --mdc-theme-primary: "#2196f3" # Aviation Blue
+        filter:
+          template: |
+            {% set airfields = states.sensor 
+              | selectattr('entity_id', 'search', '_density_altitude$') 
+              | map(attribute='entity_id') | list %}
+            
+            {% for sensor in airfields %}
+              {% set slug = sensor.split('.')[1].replace('_density_altitude', '') %}
+              {% set name = state_attr(sensor, 'friendly_name').replace(' Density Altitude', '') %}
+              
+              {{
+                {
+                  "attributes": {"label": name},
+                  "card": {
+                    "type": "vertical-stack",
+                    "cards": [
+                      {
+                        "type": "custom:mushroom-template-card",
+                        "primary": name | upper,
+                        "secondary": "Master Safety Status",
+                        "icon": "mdi:airport",
+                        "icon_color": "blue",
+                        "layout": "horizontal"
+                      },
+                      {
+                        "type": "grid",
+                        "columns": 2,
+                        "square": false,
+                        "cards": [
+                          {
+                            "type": "custom:mushroom-entity-card",
+                            "entity": "sensor." ~ slug ~ "_density_altitude",
+                            "name": "Density Alt",
+                            "icon_color": "blue"
+                          },
+                          {
+                            "type": "custom:mushroom-entity-card",
+                            "entity": "sensor." ~ slug ~ "_est_cloud_base",
+                            "name": "Cloud Base",
+                            "icon_color": "cyan"
+                          },
+                          {
+                            "type": "custom:mushroom-entity-card",
+                            "entity": "sensor." ~ slug ~ "_weather_data_age",
+                            "name": "Data Age",
+                            "icon_color": "orange"
+                          },
+                          {
+                            "type": "custom:mushroom-entity-card",
+                            "entity": "binary_sensor." ~ slug ~ "_master_safety_alert",
+                            "name": "Safety Status"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }},
+            {% endfor %}

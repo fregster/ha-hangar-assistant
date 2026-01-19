@@ -3,67 +3,88 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
 )
+from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up the binary sensors from a config entry."""
-    config = config_entry.data
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Set up Hangar Assistant binary sensors dynamically."""
+    entities = []
     
-    # Safety alerts are specifically for Airfield configurations
-    if config.get("type") == "airfield":
-        async_add_entities([HangarMasterSafetyAlert(hass, config)])
+    # Generate a Master Safety Alert for every Airfield in the list
+    for airfield in entry.data.get("airfields", []):
+        entities.append(HangarMasterSafetyAlert(hass, airfield))
+
+    async_add_entities(entities)
 
 class HangarMasterSafetyAlert(BinarySensorEntity):
-    """Annunciator that trips if any safety parameter is exceeded."""
+    """Annunciator that trips if airfield-specific safety parameters are exceeded."""
 
     def __init__(self, hass, config):
         """Initialize the safety alert."""
         self.hass = hass
         self._config = config
+        
+        # Unique ID and Slugification (matches sensor.py logic)
+        self._id_slug = config["name"].lower().replace(" ", "_")
+        self._attr_unique_id = f"{self._id_slug}_master_safety_alert"
         self._attr_name = f"{config['name']} Master Safety Alert"
-        self._attr_unique_id = f"{config['name']}_master_safety_alert"
-        # 'PROBLEM' shows OK/Problem; 'SAFETY' shows Safe/Unsafe in UI
+        
+        # Setting Device Class to SAFETY ensures 'Safe/Unsafe' in UI
         self._attr_device_class = BinarySensorDeviceClass.SAFETY
+        
+        # Link to the same Device as the sensors for this airfield
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, self._id_slug)},
+            name=config["name"],
+            manufacturer="Fregster Aviation",
+            model="Hangar Assistant v2601.1",
+        )
 
     @property
     def is_on(self) -> bool:
-        """Return True if an alert condition exists (Unsafe)."""
+        """Return True if an alert condition exists for THIS airfield."""
         
-        # 1. Check Data Freshness (Stale data is a safety risk)
-        freshness_id = f"sensor.{self._config['name'].lower().replace(' ', '_')}_data_freshness"
+        # 1. Check Data Freshness
+        # This matches the entity_id pattern: sensor.[slug]_weather_data_age
+        freshness_id = f"sensor.{self._id_slug}_weather_data_age"
         freshness_state = self.hass.states.get(freshness_id)
         
         if freshness_state and freshness_state.state not in ("unknown", "unavailable"):
-            if int(freshness_state.state) > 30:
-                return True  # ALERT: Data is older than 30 minutes
+            try:
+                if int(float(freshness_state.state)) > 30:
+                    return True  # ALERT: Weather data is stale (>30 mins)
+            except ValueError:
+                pass
 
         # 2. Check Carb Icing Risk
-        carb_id = f"sensor.{self._config['name'].lower().replace(' ', '_')}_carb_risk"
+        carb_id = f"sensor.{self._id_slug}_carb_risk"
         carb_state = self.hass.states.get(carb_id)
         
-        if carb_state and "Serious Risk" in carb_state.state:
-            return True  # ALERT: Serious icing risk detected
-
-        # 3. Check Backup Integrity for Legal Records
-        backup_id = f"sensor.{self._config['name'].lower().replace(' ', '_')}_backup_integrity"
-        backup_state = self.hass.states.get(backup_id)
-        
-        if backup_state and "WARNING" in backup_state.state:
-            return True  # ALERT: Legal records not backed up off-site
+        if carb_state and carb_state.state == "Serious Risk":
+            return True  # ALERT: Atmospheric conditions favor serious icing
 
         return False
 
     @property
     def extra_state_attributes(self):
-        """Return the specific cause of the alert for the UI."""
-        reasons = []
+        """Provide detailed reasons for the alert state."""
+        active_reasons = []
         
-        # Logic to populate the reason for the Red light
-        freshness = self.hass.states.get(f"sensor.{self._config['name'].lower().replace(' ', '_')}_data_freshness")
-        if freshness and int(freshness.state) > 30:
-            reasons.append("Stale Weather Data")
-            
+        # Logic for attributes
+        f_state = self.hass.states.get(f"sensor.{self._id_slug}_weather_data_age")
+        if f_state and f_state.state not in ("unknown", "unavailable"):
+            try:
+                if int(float(f_state.state)) > 30:
+                    active_reasons.append("Stale Weather Data")
+            except ValueError:
+                pass
+
+        c_state = self.hass.states.get(f"sensor.{self._id_slug}_carb_risk")
+        if c_state and c_state.state == "Serious Risk":
+            active_reasons.append("Serious Carb Icing Risk")
+                
         return {
-            "active_alerts": reasons,
-            "pilot_action_required": len(reasons) > 0
+            "airfield": self._config["name"],
+            "active_alerts": active_reasons,
+            "pilot_action_required": len(active_reasons) > 0
         }

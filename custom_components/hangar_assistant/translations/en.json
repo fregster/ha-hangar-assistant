@@ -11,18 +11,32 @@
     }
   },
   "options": {
+    "abort": {
+      "reconfigure_successful": "Settings saved successfully."
+    },
     "step": {
       "init": {
         "title": "Hangar Management",
         "description": "Manage your virtual hangar. Select an action below:",
         "menu_options": {
-          "airfield": "Add New Airfield",
-          "aircraft": "Add New Aircraft",
-          "pilot": "Add Pilot Details",
-          "briefing": "Automated Briefing & Retention"
+          "airfield": "Add or Edit an Airfield",
+          "aircraft": "Add or Edit an Aircraft",
+          "pilot": "Add or Edit a Pilot",
+          "ai": "Configure AI Assistant",
+          "briefing": "Add or Edit Automated Briefings",
+          "retention": "Configure Data Retention Policy",
+          "dashboard": "Dashboard Management"
         }
       },
       "airfield": {
+        "title": "Airfield Management",
+        "description": "Add or manage your airfield weather sensor profiles.",
+        "menu_options": {
+          "airfield_add": "Add New Airfield",
+          "airfield_manage": "Manage Existing Airfields"
+        }
+      },
+      "airfield_add": {
         "title": "Add Airfield",
         "description": "Link your weather sensors to a specific airfield profile.",
         "data": {
@@ -32,10 +46,50 @@
           "wind_sensor": "Wind Speed Sensor",
           "wind_dir_sensor": "Wind Direction Sensor",
           "runways": "Available Runways (e.g., 03, 21)",
-          "runway_lengths": "Runway Lengths in Meters"
+          "runway_lengths": "Runway Length (m)",
+          "latitude": "Latitude (DD.DDDD)",
+          "longitude": "Longitude (DD.DDDD)"
+        }
+      },
+      "airfield_manage": {
+        "title": "Manage Airfields",
+        "description": "Select an airfield to edit or delete.",
+        "data": {
+          "index": "Select Airfield",
+          "action": "Action"
+        }
+      },
+      "airfield_edit": {
+        "title": "Edit Airfield",
+        "description": "Update airfield profile details.",
+        "data": {
+          "name": "Airfield Name",
+          "temp_sensor": "Outside Air Temp Sensor",
+          "dp_sensor": "Dew Point Sensor",
+          "wind_sensor": "Wind Speed Sensor",
+          "wind_dir_sensor": "Wind Direction Sensor",
+          "runways": "Available Runways",
+          "runway_lengths": "Runway Length (m)",
+          "latitude": "Latitude",
+          "longitude": "Longitude"
+        }
+      },
+      "airfield_delete": {
+        "title": "Delete Airfield",
+        "description": "Are you sure you want to delete the airfield {name}?",
+        "data": {
+          "confirm": "Confirm Deletion"
         }
       },
       "aircraft": {
+        "title": "Aircraft Management",
+        "description": "Add or manage your aircraft performance profiles.",
+        "menu_options": {
+          "aircraft_add": "Add New Aircraft",
+          "aircraft_manage": "Manage Existing Aircraft"
+        }
+      },
+      "aircraft_add": {
         "title": "Add Aircraft",
         "description": "Enter the POH performance data for this aircraft.",
         "data": {
@@ -44,12 +98,69 @@
           "empty_weight": "Empty Weight (kg)",
           "max_tow": "MTOW (kg)",
           "max_xwind": "Max Demonstrated Crosswind (kt)",
-          "baseline_roll": "Baseline SL Ground Roll (m)"
+          "baseline_roll": "Baseline SL Ground Roll (m)",
+          "baseline_50ft": "Baseline SL 50ft Distance (m)",
+          "linked_airfield": "Linked Airfield"
+        }
+      },
+      "aircraft_manage": {
+        "title": "Manage Aircraft",
+        "description": "Select an aircraft to edit or delete.",
+        "data": {
+          "index": "Select Aircraft",
+          "action": "Action"
+        }
+      },
+      "aircraft_edit": {
+        "title": "Edit Aircraft",
+        "description": "Update aircraft performance profile.",
+        "data": {
+          "reg": "Registration",
+          "model": "Aircraft Model",
+          "empty_weight": "Empty Weight (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Max Demonstrated Crosswind (kt)",
+          "baseline_roll": "Baseline SL Ground Roll (m)",
+          "baseline_50ft": "Baseline SL 50ft Distance (m)",
+          "linked_airfield": "Linked Airfield"
+        }
+      },
+      "aircraft_delete": {
+        "title": "Delete Aircraft",
+        "description": "Are you sure you want to delete the aircraft {reg}?",
+        "data": {
+          "confirm": "Confirm Deletion"
         }
       },
       "pilot": {
-        "title": "Pilot Information",
-        "description": "Configure PIC details for legal cost-sharing declarations.",
+        "title": "Pilot Management",
+        "description": "Manage pilot in command (PIC) information for legal cost-sharing declarations.",
+        "menu_options": {
+          "pilot_add": "Add New Pilot",
+          "pilot_manage": "Manage Existing Pilots"
+        }
+      },
+      "pilot_add": {
+        "title": "Add Pilot",
+        "description": "Enter PIC details for legal documentation.",
+        "data": {
+          "name": "Full Legal Name",
+          "licence_number": "Pilot Licence Number",
+          "licence_type": "Licence Type (e.g., PPL, LAPL, CPL)",
+          "medical_expiry": "Medical/Self-Declaration Expiry"
+        }
+      },
+      "pilot_manage": {
+        "title": "Manage Pilots",
+        "description": "Select a pilot to edit or delete.",
+        "data": {
+          "index": "Select Pilot",
+          "action": "Action"
+        }
+      },
+      "pilot_edit": {
+        "title": "Edit Pilot",
+        "description": "Update PIC details.",
         "data": {
           "name": "Full Legal Name",
           "licence_number": "Pilot Licence Number",
@@ -57,16 +168,80 @@
           "medical_expiry": "Medical/Self-Declaration Expiry"
         }
       },
+      "pilot_delete": {
+        "title": "Delete Pilot",
+        "description": "Are you sure you want to delete pilot {name}?",
+        "data": {
+          "confirm": "Confirm Deletion"
+        }
+      },
+      "ai": {
+        "title": "AI Conversation Assistant",
+        "description": "Configure a generic AI assistant for generating reports, briefings, and analyses across all tools.\n\nDefault System Prompt: {default_prompt_preview}",
+        "data": {
+          "ai_agent_entity": "AI Agent (conversation service)",
+          "use_custom_system_prompt": "Override with Custom Prompt",
+          "custom_system_prompt": "Custom System Prompt (shown when override enabled)"
+        }
+      },
       "briefing": {
-        "title": "Automated Briefing & Retention",
-        "description": "Configure daily briefings and legal record retention policies.",
+        "title": "Automated Briefings",
+        "description": "Manage automated weather briefings sent to your email.",
+        "menu_options": {
+          "add_briefing": "Add New Briefing",
+          "manage_briefings": "Manage Existing Briefings"
+        }
+      },
+      "briefing_add": {
+        "title": "Add Briefing",
+        "description": "Set up a new automated briefing schedule.",
         "data": {
           "airfield_name": "Linked Airfield",
           "aircraft_reg": "Linked Aircraft",
           "briefing_time": "Daily Briefing Time (HH:MM)",
           "email_recipient": "Email Address",
-          "auto_delete_enabled": "Enable Automatic Deletion of Old Records",
+          "enable_ai_reporting": "Include AI-Generated Report"
+        }
+      },
+      "briefing_manage": {
+        "title": "Manage Briefings",
+        "description": "Select a briefing to edit or delete.",
+        "data": {
+          "briefing_index": "Select Briefing",
+          "action": "Action"
+        }
+      },
+      "briefing_edit": {
+        "title": "Edit Briefing",
+        "description": "Update briefing details.",
+        "data": {
+          "airfield_name": "Linked Airfield",
+          "aircraft_reg": "Linked Aircraft",
+          "briefing_time": "Daily Briefing Time (HH:MM)",
+          "email_recipient": "Email Address",
+          "enable_ai_reporting": "Include AI-Generated Report"
+        }
+      },
+      "briefing_delete": {
+        "title": "Delete Briefing",
+        "description": "Are you sure you want to delete the briefing for {briefing}?",
+        "data": {
+          "confirm_delete": "Confirm Deletion"
+        }
+      },
+      "retention": {
+        "title": "Data Retention Policy",
+        "description": "Configure how long legal records and PDF declarations are kept.",
+        "data": {
+          "auto_delete_enabled": "Enable Automatic Deletion",
           "retention_months": "Retention Period (Months)"
+        }
+      },
+      "dashboard": {
+        "title": "Dashboard Management",
+        "description": "Rebuild the Hangar Assistant dashboard if it was deleted or to apply template updates.\n\nCurrent Dashboard Version: {current_version}\nTemplate Version: {template_version}\nLast Updated: {last_updated}",
+        "data": {
+          "action": "Action"
         }
       }
     }

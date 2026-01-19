@@ -39,7 +39,8 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         self._config = config
         
         # Unique ID and Slugification (matches sensor.py logic)
-        self._id_slug = config["name"].lower().replace(" ", "_")
+        name_or_reg = config.get("name") or config.get("reg") or "unknown"
+        self._id_slug = name_or_reg.lower().replace(" ", "_")
         self._attr_unique_id = f"{self._id_slug}_master_safety_alert"
         
         # Setting Device Class to SAFETY ensures 'Safe/Unsafe' in UI
@@ -48,7 +49,7 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         # Link to the same Device as the sensors for this airfield
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._id_slug)},
-            name=config["name"],
+            name=config.get("name") or config.get("reg"),
             manufacturer="Fregster Aviation",
             model="Hangar Assistant v2601.1",
         )

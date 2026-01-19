@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Sensor platform for Hangar Assistant."""
 import logging
+import math
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -35,7 +36,8 @@ async def async_setup_entry(
             DensityAltSensor(hass, airfield),
             CloudBaseSensor(hass, airfield),
             DataFreshnessSensor(hass, airfield),
-            CarbRiskSensor(hass, airfield)
+            CarbRiskSensor(hass, airfield),
+            BestRunwaySensor(hass, airfield)
         ])
 
     # 2. Process Aircraft from the list
@@ -68,6 +70,34 @@ class HangarSensorBase(SensorEntity):
             model="Hangar Assistant v2601.1",
         )
         self._source_entities: list[str] = []
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes of the sensor."""
+        attrs = {}
+        
+        # Add relevant config data to attributes for UI visibility
+        if "reg" in self._config:
+            # Aircraft specific attributes
+            attrs.update({
+                "registration": self._config.get("reg"),
+                "model": self._config.get("model"),
+                "mtow_kg": self._config.get("max_tow"),
+                "empty_weight_kg": self._config.get("empty_weight"),
+                "max_xwind_kt": self._config.get("max_xwind"),
+                "poh_ground_roll_m": self._config.get("baseline_roll"),
+                "poh_50ft_dist_m": self._config.get("baseline_50ft"),
+            })
+        elif "runways" in self._config:
+            # Airfield specific attributes
+            attrs.update({
+                "runways": self._config.get("runways"),
+                "runway_length_m": self._config.get("runway_lengths"),
+                "latitude": self._config.get("latitude"),
+                "longitude": self._config.get("longitude"),
+            })
+            
+        return attrs
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks for source entities."""
@@ -105,7 +135,8 @@ class DensityAltSensor(HangarSensorBase):
 
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
-        self._source_entities = [config['temp_sensor']]
+        if sensor := config.get('temp_sensor'):
+            self._source_entities = [sensor]
 
     @property
     def name(self) -> str:
@@ -115,7 +146,11 @@ class DensityAltSensor(HangarSensorBase):
     @property
     def native_value(self) -> float | None:
         """Return the state of the sensor."""
-        temp = self._get_sensor_value(self._config['temp_sensor'])
+        sensor_id = self._config.get('temp_sensor')
+        if not sensor_id:
+            return None
+            
+        temp = self._get_sensor_value(sensor_id)
         if temp is None:
             return None
         # Standard Aviation Formula: DA = Pressure Alt + (120 * (OAT - ISA_Temp))
@@ -127,7 +162,10 @@ class CloudBaseSensor(HangarSensorBase):
 
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
-        self._source_entities = [config['temp_sensor'], config['dp_sensor']]
+        t_sensor = config.get('temp_sensor')
+        dp_sensor = config.get('dp_sensor')
+        if t_sensor and dp_sensor:
+            self._source_entities = [t_sensor, dp_sensor]
 
     @property
     def name(self) -> str:
@@ -137,8 +175,13 @@ class CloudBaseSensor(HangarSensorBase):
     @property
     def native_value(self) -> float | None:
         """Return the state of the sensor."""
-        t = self._get_sensor_value(self._config['temp_sensor'])
-        dp = self._get_sensor_value(self._config['dp_sensor'])
+        t_id = self._config.get('temp_sensor')
+        dp_id = self._config.get('dp_sensor')
+        if not t_id or not dp_id:
+            return None
+            
+        t = self._get_sensor_value(t_id)
+        dp = self._get_sensor_value(dp_id)
         if t is None or dp is None:
             return None
         return round(((t - dp) / 2.5) * 1000)
@@ -156,7 +199,11 @@ class DataFreshnessSensor(HangarSensorBase):
     @property
     def native_value(self) -> int | None:
         """Return the state of the sensor."""
-        state = self.hass.states.get(self._config['temp_sensor'])
+        sensor_id = self._config.get('temp_sensor')
+        if not sensor_id:
+            return None
+            
+        state = self.hass.states.get(sensor_id)
         if not state:
             return None
         from homeassistant.util import dt as dt_util
@@ -168,7 +215,10 @@ class CarbRiskSensor(HangarSensorBase):
     
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
-        self._source_entities = [config['temp_sensor'], config['dp_sensor']]
+        t_sensor = config.get('temp_sensor')
+        dp_sensor = config.get('dp_sensor')
+        if t_sensor and dp_sensor:
+            self._source_entities = [t_sensor, dp_sensor]
 
     @property
     def name(self) -> str:
@@ -178,8 +228,13 @@ class CarbRiskSensor(HangarSensorBase):
     @property
     def native_value(self) -> str:
         """Return the state of the sensor."""
-        t = self._get_sensor_value(self._config['temp_sensor'])
-        dp = self._get_sensor_value(self._config['dp_sensor'])
+        t_id = self._config.get('temp_sensor')
+        dp_id = self._config.get('dp_sensor')
+        if not t_id or not dp_id:
+            return "Unknown"
+            
+        t = self._get_sensor_value(t_id)
+        dp = self._get_sensor_value(dp_id)
         if t is None or dp is None:
             return "Unknown"
         
@@ -189,6 +244,96 @@ class CarbRiskSensor(HangarSensorBase):
         if t < 30 and spread < 10:
             return "Moderate Risk"
         return "Low Risk"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return additional attributes for the card to use."""
+        attrs = super().extra_state_attributes
+        risk_level = self.native_value
+        color_map = {
+            "Serious Risk": "red",
+            "Moderate Risk": "amber",
+            "Low Risk": "green",
+            "Unknown": "gray"
+        }
+        attrs["color"] = color_map.get(risk_level, "gray")
+        return attrs
+
+class BestRunwaySensor(HangarSensorBase):
+    """Determines the best runway based on current wind."""
+
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        w_sensor = config.get('wind_sensor')
+        wd_sensor = config.get('wind_dir_sensor')
+        if w_sensor and wd_sensor:
+            self._source_entities = [w_sensor, wd_sensor]
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Best Runway"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the best runway identifier."""
+        wd_id = self._config.get('wind_dir_sensor')
+        if not wd_id:
+            return None
+            
+        wind_dir = self._get_sensor_value(wd_id)
+        if wind_dir is None:
+            return None
+
+        # Parse runways (e.g., "03, 21")
+        config_runways = self._config.get("runways")
+        if not config_runways:
+            return None
+            
+        runways = [r.strip() for r in config_runways.split(",")]
+        if not runways:
+            return None
+
+        best_runway = None
+        min_diff = 360
+
+        for r in runways:
+            try:
+                # Convert runway "03" to 30 degrees
+                heading = int(r) * 10
+                diff = abs((wind_dir - heading + 180) % 360 - 180)
+                if diff < min_diff:
+                    min_diff = diff
+                    best_runway = r
+            except ValueError:
+                continue
+
+        return best_runway
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return crosswind and headwind components."""
+        attrs = super().extra_state_attributes
+        w_id = self._config.get('wind_sensor')
+        wd_id = self._config.get('wind_dir_sensor')
+        
+        if not w_id or not wd_id:
+            return attrs
+            
+        wind_speed = self._get_sensor_value(w_id)
+        wind_dir = self._get_sensor_value(wd_id)
+        best_rwy = self.native_value
+
+        if wind_speed is not None and wind_dir is not None and best_rwy:
+            try:
+                rwy_heading = int(best_rwy) * 10
+                angle_rad = math.radians(wind_dir - rwy_heading)
+                attrs["crosswind_component"] = round(abs(wind_speed * math.sin(angle_rad)), 1)
+                attrs["headwind_component"] = round(wind_speed * math.cos(angle_rad), 1)
+            except ValueError:
+                pass
+        
+        return attrs
 
 # --- AIRCRAFT ENTITIES ---
 

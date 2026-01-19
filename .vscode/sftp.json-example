@@ -12,6 +12,10 @@
     "ignore": [
         ".git",
         ".vscode",
-        "__pycache__"
+        ".venv",
+        "__pycache__",
+        "tests",
+        "pytest.ini",
+        "requirements_test.txt"
     ]
 }

@@ -1,110 +1,103 @@
-# --- HANGAR ASSISTANT GLASS COCKPIT (v2601.1) ---
-title: Hangar Assistant PFD
+# --- HANGAR ASSISTANT CONSOLIDATED GLASS COCKPIT (v2601.1) ---
+# NOTE: This template uses placeholder slugs. Replace 'airfield_slug' and 'aircraft_slug' 
+# with your actual entity IDs (e.g. 'sensor.popham_carb_risk').
+
+title: Hangar Assistant
 views:
-  - title: Primary Flight Display
-    icon: mdi:airplane
+  - title: Hangar Overview
+    icon: mdi:home-group
     type: sections
     max_columns: 3
     sections:
-      # --- COLUMN 1: ATMOSPHERICS & SAFETY ---
-      - title: Flight Environment
+      - title: Quick Status
         cards:
-          - type: custom:mushroom-template-card
-            primary: "FLIGHT STATUS"
-            secondary: >-
-              {% if is_state('binary_sensor.fairways_safety_alert', 'off') %}
-                GO - All parameters safe
-              {% else %}
-                NO-GO - Check safety gauges
-              {% endif %}
-            icon: mdi:airplane-takeoff
-            icon_color: "{{ 'green' if is_state('binary_sensor.fairways_safety_alert', 'off') else 'red' }}"
-            fill_container: true
-            layout: horizontal
+          - type: custom:mushroom-chips-card
+            chips:
+              - type: template
+                content: "Data Age: {{ states('sensor.airfield_slug_weather_data_age') }}m"
+                icon: mdi:clock-outline
+                icon_color: "{{ 'green' if states('sensor.airfield_slug_weather_data_age')|int < 30 else 'red' }}"
+              - type: template
+                content: "Density Alt: {{ states('sensor.airfield_slug_density_altitude') }}ft"
+                icon: mdi:elevation-rise
 
-          - type: custom:mushroom-entity-card
-            entity: sensor.fairways_density_altitude
-            name: "Density Alt"
-            icon: mdi:elevation-rise
-            icon_color: blue
-
-          - type: custom:mushroom-entity-card
-            entity: sensor.fairways_est_cloud_base
-            name: "Cloud Base"
-            icon: mdi:cloud-upload
-            icon_color: light-blue
-
-      # --- COLUMN 2: RUNWAY PERFORMANCE ---
-      - title: Takeoff & Landing
+      - title: Primary Airfield Briefing
         cards:
           - type: custom:mushroom-template-card
             primary: "RECOMMENDED RUNWAY"
             secondary: >-
-              RWY {{ states('sensor.fairways_best_runway') }} 
-              ({{ state_attr('sensor.fairways_best_runway', 'crosswind_component') }}kt X-Wind)
-            icon: mdi:airplane-landing
-            icon_color: >-
-              {% set xw = state_attr('sensor.fairways_best_runway', 'crosswind_component') | float %}
-              {% if xw > 15 %} red
-              {% elif xw > 10 %} orange
-              {% else %} green {% endif %}
+              {% set rwy = states('sensor.airfield_slug_best_runway') %}
+              {% set xw = state_attr('sensor.airfield_slug_best_runway', 'crosswind_component') | float(0) %}
+              RWY {{ rwy }} | {{ xw }}kt Crosswind
+            icon: mdi:airport
+            icon_color: "{{ 'green' if xw < 12 else 'orange' if xw < 15 else 'red' }}"
+            tap_action:
+              action: more-info
+            entity: sensor.airfield_slug_best_runway
 
-          - type: custom:mushroom-template-card
-            primary: "RUNWAY MARGIN"
-            secondary: "{{ states('sensor.fairways_takeoff_margin') }}m Remaining"
-            icon: mdi:ruler-square
-            icon_color: amber
-
-          - type: custom:mushroom-chips-card
-            chips:
-              - type: template
-                content: "Data Age: {{ states('sensor.fairways_data_freshness') }}m"
-                icon: mdi:clock-outline
-                icon_color: "{{ 'green' if states('sensor.fairways_data_freshness')|int < 30 else 'red' }}"
-
-      # --- COLUMN 3: ENGINE & TRENDS ---
-      - title: Engine & Trends
-        cards:
-          - type: custom:mushroom-template-card
-            primary: "CARB ICING RISK"
-            secondary: "{{ states('sensor.fairways_carb_risk') }}"
-            icon: mdi:engine-alert
-            icon_color: >-
-              {% if 'Serious' in states('sensor.fairways_carb_risk') %} red
-              {% elif 'Moderate' in states('sensor.fairways_carb_risk') %} orange
-              {% else %} green {% endif %}
-
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: "12h Environment Trend"
-              show_states: true
-            graph_span: 12h
-            series:
-              - entity: sensor.fairways_risk_altitude
-                name: Icing Alt
-                type: area
-                color: "#ff9800"
-                opacity: 0.3
-              - entity: sensor.fairways_est_cloud_base
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: sensor.airfield_slug_carb_risk
+                name: Carb Icing
+                icon_color: "{{ state_attr('sensor.airfield_slug_carb_risk', 'color') }}"
+              - type: custom:mushroom-entity-card
+                entity: sensor.airfield_slug_est_cloud_base
                 name: Cloud Base
-                type: line
-                color: "#03a9f4"
+                icon: mdi:cloud-upload
 
-      # --- LEGAL & COMPLIANCE ---
-      - title: Compliance
+      - title: Map & Location
         cards:
-          - type: custom:mushroom-entity-card
-            entity: sensor.fairways_backup_integrity
-            name: "Backup Safety"
-            icon: mdi:cloud-sync
-            layout: horizontal
+          - type: map
+            entities:
+              - entity: sensor.airfield_slug_best_runway
+            aspect_ratio: "16:9"
+            default_zoom: 14
+
+  - title: Pre-Flight Calculator
+    icon: mdi:calculator
+    type: sections
+    sections:
+      - title: Weight & Performance
+        cards:
+          - type: markdown
+            content: >
+              ### Performance Calculation
+              Adjust passenger/cargo loads to see impact on takeoff distance.
           
+          # These entities require manual creation as Number Helpers in HA
+          - type: entities
+            entities:
+              - entity: input_number.pilot_luggage_weight
+                name: Pilot + Bag (kg)
+              - entity: input_number.passenger_weight
+                name: Passenger (kg)
+
           - type: custom:mushroom-template-card
-            primary: "Digital PD&C"
-            secondary: "Start Passenger Declaration"
+            primary: "Calculated Ground Roll"
+            secondary: "{{ states('sensor.aircraft_slug_calculated_ground_roll') }}m (MTOW)"
+            icon: mdi:ruler-square
+            icon_color: blue
+            
+          - type: custom:mushroom-template-card
+            primary: "50ft Clearance Dist"
+            secondary: "{{ state_attr('sensor.aircraft_slug_calculated_ground_roll', 'poh_50ft_dist_m') }}m"
+            icon: mdi:tree
+            icon_color: green
+
+  - title: Compliance & Logs
+    icon: mdi:file-document-outline
+    type: sections
+    sections:
+      - title: Records
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "CAP 1590B Declaration"
+            secondary: "Generate Cost Sharing Form"
             icon: mdi:file-sign
             icon_color: purple
             tap_action:
               action: call-service
-              service: script.generate_briefing_record # Link to your PDF script
+              service: hangar_assistant.manual_cleanup # Replace with PDF service when ready

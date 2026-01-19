@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import yaml
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -11,7 +12,7 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS
+from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS, DEFAULT_DASHBOARD_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +29,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         
         await async_cleanup_records(hass, retention_months)
 
-    # Register the service globally
+    async def handle_rebuild_dashboard(call: ServiceCall) -> None:
+        """Service to rebuild the Hangar Assistant dashboard."""
+        _LOGGER.info("Rebuild dashboard service called")
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            _LOGGER.warning("No Hangar Assistant config entry found for dashboard rebuild")
+            return
+        
+        entry = entries[0]  # Use the first (and typically only) entry
+        _LOGGER.info("Starting dashboard rebuild with force_rebuild=True")
+        result = await async_create_dashboard(hass, entry, force_rebuild=True)
+        if result:
+            _LOGGER.info("✅ Hangar Assistant dashboard rebuilt successfully")
+        else:
+            _LOGGER.warning("⚠️ Dashboard rebuild completed but may not have created/updated the file")
+
+    # Register the manual cleanup service
     hass.services.async_register(
         DOMAIN, 
         "manual_cleanup", 
@@ -38,10 +55,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         })
     )
     
+    # Register the dashboard rebuild service
+    hass.services.async_register(
+        DOMAIN,
+        "rebuild_dashboard",
+        handle_rebuild_dashboard,
+        schema=vol.Schema({})
+    )
+    
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""
+    # Create the dashboard on first setup or if template version changed
+    await async_create_dashboard(hass, entry)
+    
     # Forward setup to sensor and binary_sensor platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -68,6 +96,100 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
     await hass.config_entries.async_reload(entry.entry_id)
 
+async def async_create_dashboard(hass: HomeAssistant, entry: ConfigEntry = None, force_rebuild: bool = False) -> bool:
+    """Create the Hangar Assistant dashboard from template."""
+    
+    def _generate_dashboard():
+        """Sync function to perform blocking I/O."""
+        try:
+            # Get the template file path
+            template_path = os.path.join(
+                os.path.dirname(__file__),
+                "dashboard_templates",
+                "glass_cockpit.yaml"
+            )
+            
+            # Verify template exists
+            if not os.path.exists(template_path):
+                _LOGGER.error("Dashboard template not found at: %s", template_path)
+                return False
+            
+            # Check if dashboard file exists
+            dashboards_path = hass.config.path("dashboards")
+            dashboard_yaml_path = os.path.join(dashboards_path, "hangar_assistant.yaml")
+            
+            # Get current dashboard version from config entry
+            stored_version = 0
+            if entry:
+                dashboard_info = entry.data.get("dashboard_info", {})
+                stored_version = dashboard_info.get("version", 0)
+            
+            # Check if we need to rebuild
+            dashboard_exists = os.path.exists(dashboard_yaml_path)
+            version_mismatch = stored_version < DEFAULT_DASHBOARD_VERSION
+            
+            if dashboard_exists and not force_rebuild and not version_mismatch:
+                return False
+            
+            # Read the template file
+            with open(template_path, "r", encoding="utf-8") as f:
+                dashboard_config = yaml.safe_load(f)
+            
+            # Create dashboards directory if it doesn't exist
+            os.makedirs(dashboards_path, exist_ok=True)
+            
+            # Write the dashboard to the dashboards directory
+            with open(dashboard_yaml_path, "w", encoding="utf-8") as f:
+                yaml.dump(dashboard_config, f, default_flow_style=False, allow_unicode=True)
+            
+            return True
+        except Exception as e:
+            _LOGGER.error("Error in dashboard file operations: %s", e)
+            return False
+
+    # Run the blocking I/O in the executor
+    result = await hass.async_add_executor_job(_generate_dashboard)
+    
+    if not result:
+        return False
+
+    try:
+        # Update config entry with new dashboard version ONLY if changed
+        if entry:
+            dashboard_info = entry.data.get("dashboard_info", {})
+            current_stored_version = dashboard_info.get("version", 0)
+            
+            if current_stored_version < DEFAULT_DASHBOARD_VERSION:
+                _LOGGER.debug("Updating dashboard version in config entry from %s to %s", 
+                             current_stored_version, DEFAULT_DASHBOARD_VERSION)
+                new_data = dict(entry.data)
+                new_data["dashboard_info"] = {
+                    "version": DEFAULT_DASHBOARD_VERSION,
+                    "last_updated": dt_util.now().isoformat()
+                }
+                hass.config_entries.async_update_entry(entry, data=new_data)
+        
+        # Trigger dashboard reload via service if available
+        if hass.services.has_service("frontend", "reload_themes"):
+            await hass.services.async_call("frontend", "reload_themes")
+        
+        if hass.services.has_service("lovelace", "reload_dashboards"):
+            try:
+                await hass.services.async_call("lovelace", "reload_dashboards")
+            except Exception as e:
+                _LOGGER.debug("Could not reload dashboards via lovelace service: %s", e)
+        
+        _LOGGER.info("Dashboard creation completed for Hangar Assistant")
+        return True
+        
+    except Exception as e:
+        _LOGGER.error("Error updating Hangar Assistant dashboard state: %s", e)
+        return False
+
+async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update by reloading the integration."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -79,17 +201,20 @@ async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
     cutoff_seconds = months * 30.44 * 24 * 60 * 60
     now = dt_util.as_timestamp(dt_util.utcnow())
 
-    if os.path.exists(path):
-        for filename in os.listdir(path):
-            file_path = os.path.join(path, filename)
-            if os.path.isfile(file_path):
-                file_mtime = os.path.getmtime(file_path)
-                if (now - file_mtime) > cutoff_seconds:
+    def _cleanup():
+        if os.path.exists(path):
+            for filename in os.listdir(path):
+                file_path = os.path.join(path, filename)
+                if os.path.isfile(file_path):
                     try:
-                        os.remove(file_path)
-                        _LOGGER.info("Deleted expired aviation record: %s", filename)
-                    except OSError as e:
-                        _LOGGER.error("Error deleting record %s: %s", filename, e)
+                        file_mtime = os.path.getmtime(file_path)
+                        if (now - file_mtime) > cutoff_seconds:
+                            os.remove(file_path)
+                            _LOGGER.info("Deleted expired aviation record: %s", filename)
+                    except (OSError, FileNotFoundError) as e:
+                        _LOGGER.error("Error managing record %s: %s", filename, e)
+
+    await hass.async_add_executor_job(_cleanup)
 
 async def async_send_briefing(hass: HomeAssistant, briefing: dict) -> None:
     """Compose and send the briefing email."""

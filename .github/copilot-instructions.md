@@ -27,6 +27,19 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 - **Config Flow**: `HangarAssistantConfigFlow` (single instance). `HangarOptionsFlowHandler` handles updates (`airfield`, `aircraft` menus) using `EntitySelector`.
 - **Time Tracking**: `async_track_time_change` used for briefing schedules in `__init__.py`.
 
+### Sensor Implementation
+- Derive from `SensorEntity` (imported from `homeassistant.components.sensor`)
+- Filter config entries by type in `async_setup_entry()` before creating entities
+- Access Home Assistant state machine via `self.hass.states.get(entity_id)` for sensor reads
+- Name pattern: `f"{config['name']} {metric_name}"` (e.g., "The Airfield Carb Risk")
+- **Best Runway Logic**: Uses `BestRunwaySensor` to calculate optimal runway based on wind and provides `crosswind_component` as an attribute.
+- **Map Integration**: Sensors for airfields should include `latitude` and `longitude` attributes to enable automatic plotting on map cards.
+
+### Dashboard & UI
+- Template located in `dashboard_templates/glass_cockpit.yaml`.
+- Uses Mushroom cards and ApexCharts (suggest these to users).
+- Performance sliders: Uses `input_number` helpers (user-defined) to drive dynamic ground roll adjustments.
+
 ## Developer Workflow & Testing
 - **Testing**: Local tests in `tests/`. Run with `pytest`.
   - `test_formulas.py`: Pure python unit tests for aviation math.

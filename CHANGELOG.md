@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2601.1.1] - 2026-01-19
+
+### Fixed
+- **Hotfix**: Resolved `AttributeError` in `async_setup` caused by incorrect use of `cv.Optional`. Replaced with `vol.Optional`.
+
 ## [2601.1.0] - 2026-01-19
 
 ### Added

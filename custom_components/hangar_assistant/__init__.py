@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -32,8 +33,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DOMAIN, 
         "manual_cleanup", 
         handle_manual_cleanup,
-        schema=cv.make_entity_service_schema({
-            cv.Optional("retention_months"): cv.positive_int
+        schema=vol.Schema({
+            vol.Optional("retention_months"): cv.positive_int
         })
     )
     

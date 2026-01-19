@@ -56,7 +56,8 @@ class HangarSensorBase(SensorEntity):
         self.hass = hass
         self._config = config
         # Use Name or Reg to create a safe unique ID 
-        self._id_slug = (config.get("name") or config.get("reg")).lower().replace(" ", "_")
+        name_or_reg = config.get("name") or config.get("reg") or "unknown"
+        self._id_slug = name_or_reg.lower().replace(" ", "_")
         self._attr_unique_id = f"{self._id_slug}_{self.__class__.__name__.lower()}"
         
         # Link to a Device in the UI for cleaner grouping
@@ -197,13 +198,12 @@ class GroundRollSensor(HangarSensorBase):
 
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
+        self._da_sensor_id: str | None = None
         if airfield_name := config.get("linked_airfield"):
             # Predict the DA sensor ID for the linked airfield
             slug = airfield_name.lower().replace(" ", "_")
             self._da_sensor_id = f"sensor.{slug}_density_altitude"
             self._source_entities = [self._da_sensor_id]
-        else:
-            self._da_sensor_id = None
 
     @property
     def name(self) -> str:

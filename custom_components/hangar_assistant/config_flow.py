@@ -4,7 +4,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 from .const import DOMAIN
 
-class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle initial onboarding for Hangar Assistant."""
     VERSION = 1
 

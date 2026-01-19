@@ -1,0 +1,110 @@
+# --- HANGAR ASSISTANT GLASS COCKPIT (v2601.1) ---
+title: Hangar Assistant PFD
+views:
+  - title: Primary Flight Display
+    icon: mdi:airplane
+    type: sections
+    max_columns: 3
+    sections:
+      # --- COLUMN 1: ATMOSPHERICS & SAFETY ---
+      - title: Flight Environment
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "FLIGHT STATUS"
+            secondary: >-
+              {% if is_state('binary_sensor.fairways_safety_alert', 'off') %}
+                GO - All parameters safe
+              {% else %}
+                NO-GO - Check safety gauges
+              {% endif %}
+            icon: mdi:airplane-takeoff
+            icon_color: "{{ 'green' if is_state('binary_sensor.fairways_safety_alert', 'off') else 'red' }}"
+            fill_container: true
+            layout: horizontal
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.fairways_density_altitude
+            name: "Density Alt"
+            icon: mdi:elevation-rise
+            icon_color: blue
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.fairways_est_cloud_base
+            name: "Cloud Base"
+            icon: mdi:cloud-upload
+            icon_color: light-blue
+
+      # --- COLUMN 2: RUNWAY PERFORMANCE ---
+      - title: Takeoff & Landing
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "RECOMMENDED RUNWAY"
+            secondary: >-
+              RWY {{ states('sensor.fairways_best_runway') }} 
+              ({{ state_attr('sensor.fairways_best_runway', 'crosswind_component') }}kt X-Wind)
+            icon: mdi:airplane-landing
+            icon_color: >-
+              {% set xw = state_attr('sensor.fairways_best_runway', 'crosswind_component') | float %}
+              {% if xw > 15 %} red
+              {% elif xw > 10 %} orange
+              {% else %} green {% endif %}
+
+          - type: custom:mushroom-template-card
+            primary: "RUNWAY MARGIN"
+            secondary: "{{ states('sensor.fairways_takeoff_margin') }}m Remaining"
+            icon: mdi:ruler-square
+            icon_color: amber
+
+          - type: custom:mushroom-chips-card
+            chips:
+              - type: template
+                content: "Data Age: {{ states('sensor.fairways_data_freshness') }}m"
+                icon: mdi:clock-outline
+                icon_color: "{{ 'green' if states('sensor.fairways_data_freshness')|int < 30 else 'red' }}"
+
+      # --- COLUMN 3: ENGINE & TRENDS ---
+      - title: Engine & Trends
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "CARB ICING RISK"
+            secondary: "{{ states('sensor.fairways_carb_risk') }}"
+            icon: mdi:engine-alert
+            icon_color: >-
+              {% if 'Serious' in states('sensor.fairways_carb_risk') %} red
+              {% elif 'Moderate' in states('sensor.fairways_carb_risk') %} orange
+              {% else %} green {% endif %}
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: "12h Environment Trend"
+              show_states: true
+            graph_span: 12h
+            series:
+              - entity: sensor.fairways_risk_altitude
+                name: Icing Alt
+                type: area
+                color: "#ff9800"
+                opacity: 0.3
+              - entity: sensor.fairways_est_cloud_base
+                name: Cloud Base
+                type: line
+                color: "#03a9f4"
+
+      # --- LEGAL & COMPLIANCE ---
+      - title: Compliance
+        cards:
+          - type: custom:mushroom-entity-card
+            entity: sensor.fairways_backup_integrity
+            name: "Backup Safety"
+            icon: mdi:cloud-sync
+            layout: horizontal
+          
+          - type: custom:mushroom-template-card
+            primary: "Digital PD&C"
+            secondary: "Start Passenger Declaration"
+            icon: mdi:file-sign
+            icon_color: purple
+            tap_action:
+              action: call-service
+              service: script.generate_briefing_record # Link to your PDF script

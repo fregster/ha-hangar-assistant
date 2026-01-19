@@ -1,0 +1,38 @@
+name: Hangar Assistant Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Validates manifest.json and HACS structure
+      - name: HACS Action
+        uses: hacs/action@main
+        with:
+          category: integration
+
+      # Checks for Python syntax errors and common bugs
+      - name: Lint with Flake8
+        run: |
+          pip install flake8
+          # E9, F63, F7, and F82 are critical syntax/logic errors
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      # Optional: Verifies that the version in manifest matches a tag (if needed)
+      - name: Verify Manifest Version
+        run: |
+          VERSION=$(jq -r '.version' custom_components/hangar_assistant/manifest.json)
+          echo "Manifest version is $VERSION"

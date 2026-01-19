@@ -1,0 +1,31 @@
+name: Hangar Assistant Release
+
+on:
+  push:
+    tags:
+      - '*'  # Triggers on any tag push (e.g., 2601.1)
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to create the release and upload assets
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Create Zip Archive
+        run: |
+          # Zip the integration folder for HACS
+          zip -r hangar_assistant.zip custom_components/hangar_assistant/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: hangar_assistant.zip
+          generate_release_notes: true  # Auto-generates notes from PRs/commits
+          name: "Release ${{ github.ref_name }}"
+          tag_name: ${{ github.ref }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

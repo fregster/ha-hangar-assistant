@@ -12,3 +12,11 @@ manual_cleanup:
           min: 1
           max: 24
           unit_of_measurement: months
+
+rebuild_dashboard:
+  name: Rebuild Dashboard
+  description: Forces a fresh generation of the Hangar Assistant dashboard from the template.
+
+refresh_ai_briefings:
+  name: Refresh AI Briefings
+  description: Manually triggers the AI to generate new pre-flight briefings for all configured airfields.

@@ -58,6 +58,7 @@
         "description": "Link your weather sensors to a specific airfield profile.",
         "data": {
           "name": "Airfield Name (e.g., Popham)",
+          "icao_code": "ICAO Code (e.g., EGHP)",
           "latitude": "Latitude (DD.DDDD)",
           "longitude": "Longitude (DD.DDDD)",
           "elevation": "Elevation (Meters Above Mean Sea Level)",
@@ -84,6 +85,7 @@
         "description": "Update airfield profile details.",
         "data": {
           "name": "Airfield Name",
+          "icao_code": "ICAO Code",
           "latitude": "Latitude (DD.DDDD)",
           "longitude": "Longitude (DD.DDDD)",
           "elevation": "Elevation (Meters Above Mean Sea Level)",

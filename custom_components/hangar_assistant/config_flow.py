@@ -103,6 +103,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="airfield_add",
             data_schema=vol.Schema({
                 vol.Required("name"): str,
+                vol.Optional("icao_code"): str,
                 vol.Required("latitude", default=51.47): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=-90, max=90, step="any", mode=selector.NumberSelectorMode.BOX)
                 ),
@@ -191,6 +192,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="airfield_edit",
             data_schema=vol.Schema({
                 vol.Required("name", default=airfield.get("name")): str,
+                vol.Optional("icao_code", default=airfield.get("icao_code", "")): str,
                 vol.Required("latitude", default=airfield.get("latitude")): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=-90, max=90, step="any", mode=selector.NumberSelectorMode.BOX)
                 ),

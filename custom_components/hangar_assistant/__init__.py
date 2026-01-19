@@ -45,6 +45,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         else:
             _LOGGER.warning("⚠️ Dashboard rebuild completed but may not have created/updated the file")
 
+    async def handle_refresh_ai_briefings(call: ServiceCall) -> None:
+        """Service to manually refresh AI pre-flight briefings."""
+        _LOGGER.info("Manual AI briefing refresh requested")
+        entries = hass.config_entries.async_entries(DOMAIN)
+        for entry in entries:
+            await async_generate_all_ai_briefings(hass, entry)
+
     # Register the manual cleanup service
     hass.services.async_register(
         DOMAIN, 
@@ -60,6 +67,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DOMAIN,
         "rebuild_dashboard",
         handle_rebuild_dashboard,
+        schema=vol.Schema({})
+    )
+
+    # Register the AI briefing refresh service
+    hass.services.async_register(
+        DOMAIN,
+        "refresh_ai_briefings",
+        handle_refresh_ai_briefings,
         schema=vol.Schema({})
     )
     
@@ -240,30 +255,52 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
     if not agent_id:
         return
 
-    from .const import DEFAULT_AI_SYSTEM_PROMPT
+    # Load system prompt from file
+    prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "preflight_brief.txt")
+    system_instructions = ""
+    if os.path.exists(prompt_path):
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                system_instructions = f.read()
+        except Exception as e:
+            _LOGGER.error("Error reading preflight_brief.txt: %s", e)
     
     # Generate briefings for each airfield
     for airfield in entry.data.get("airfields", []):
         airfield_name = airfield["name"]
         slug = airfield_name.lower().replace(" ", "_")
+        icao = airfield.get("icao_code", "unknown")
         
         # Get current data from our sensors
         da = hass.states.get(f"sensor.{slug}_density_altitude")
         carb = hass.states.get(f"sensor.{slug}_carb_risk")
         wind_speed = hass.states.get(f"sensor.{slug}_weather_wind_speed")
         wind_dir = hass.states.get(f"sensor.{slug}_weather_wind_direction")
+        cloud_base = hass.states.get(f"sensor.{slug}_est_cloud_base")
+        best_rwy = hass.states.get(f"sensor.{slug}_best_runway")
         
+        # Get sunset/sunrise
+        sun = hass.states.get("sun.sun")
+        next_event = "unknown"
+        if sun:
+            next_rising = sun.attributes.get("next_rising")
+            next_setting = sun.attributes.get("next_setting")
+            next_event = f"Next Sunrise: {next_rising}, Next Sunset: {next_setting}"
+
         user_prompt = (
-            f"Please provide a pre-flight briefing for {airfield_name} for the next 12 hours. "
-            f"Current conditions: Density Altitude {da.state if da else 'unknown'} ft, "
-            f"Carb Risk {carb.state if carb else 'unknown'}, "
-            f"Wind {wind_speed.state if wind_speed else 'unknown'}kt at {wind_dir.state if wind_dir else 'unknown'} degrees. "
-            f"Include a safety outlook for the next 12 hours based on this data and any other aviation weather data you have access to."
+            f"{system_instructions}\n\n"
+            f"### LIVE DATA FOR {airfield_name} ({icao}):\n"
+            f"- Wind: {wind_speed.state if wind_speed else 'unknown'}kt at {wind_dir.state if wind_dir else 'unknown'}°\n"
+            f"- Recommended Runway: {best_rwy.state if best_rwy else 'unknown'}\n"
+            f"- Density Altitude: {da.state if da else 'unknown'} ft\n"
+            f"- Est. Cloud Base: {cloud_base.state if cloud_base else 'unknown'} ft\n"
+            f"- Carburettor Icing Risk: {carb.state if carb else 'unknown'}\n"
+            f"- Solar: {next_event}\n\n"
+            f"Please provide the briefing based on this data and your general aviation knowledge."
         )
 
         try:
-            # Call the conversation service
-            # We use return_response=True to get the result back
+            _LOGGER.debug("Requesting AI briefing for %s from %s", airfield_name, agent_id)
             result = await hass.services.async_call(
                 "conversation",
                 "process",
@@ -276,13 +313,18 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
             )
             
             if result and "response" in result:
-                response_text = result["response"]["speech"]["plain"]["speech"]
-                # Fire event that the sensors are listening for
-                hass.bus.async_fire("hangar_assistant_ai_briefing", {
-                    "airfield_name": airfield_name,
-                    "text": response_text
-                })
-                _LOGGER.debug("AI Briefing generated for %s", airfield_name)
+                try:
+                    response_text = result["response"]["speech"]["plain"]["speech"]
+                    # Fire event that the sensors are listening for
+                    hass.bus.async_fire("hangar_assistant_ai_briefing", {
+                        "airfield_name": airfield_name,
+                        "text": response_text
+                    })
+                    _LOGGER.info("Successfully generated AI briefing for %s", airfield_name)
+                except (KeyError, TypeError) as e:
+                    _LOGGER.error("AI Agent returned an unexpected response format for %s: %s", airfield_name, result)
+            else:
+                _LOGGER.warning("AI Agent %s returned no response for %s", agent_id, airfield_name)
         except Exception as e:
             _LOGGER.error("Error generating AI briefing for %s: %s", airfield_name, e)
 

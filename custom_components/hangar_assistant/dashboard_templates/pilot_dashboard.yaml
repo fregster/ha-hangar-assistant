@@ -65,6 +65,11 @@ views:
                             "name": "Safety Status"
                           }
                         ]
+                      },
+                      {
+                        "type": "markdown",
+                        "title": "AI Pre-flight Briefing",
+                        "content": "{{ state_attr('sensor.' ~ slug ~ '_ai_pre_flight_briefing', 'briefing') }}"
                       }
                     ]
                   }

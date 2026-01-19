@@ -20,13 +20,14 @@ ATTR_PILOT_NAME = "pilot_in_command"
 DEFAULT_RETENTION_MONTHS = 7
 
 # Dashboard version for tracking template updates
-DEFAULT_DASHBOARD_VERSION = 1
+DEFAULT_DASHBOARD_VERSION = 2
 
 # Default AI system prompt for aviation briefings
 DEFAULT_AI_SYSTEM_PROMPT = """You are an aviation safety assistant specializing in pre-flight briefings and CAP 1590B compliance.
 
 Your role:
-- Provide clear, concise weather briefings for pilot decision-making
+- Provide clear, concise briefings for pilot decision-making this should include the current weather, aircraft performance considerations, legal compliance checks, and safety recommendations.
+- Use up-to-date weather and performance data to inform your briefings.
 - Highlight safety concerns and crosswind/performance limitations
 - Reference configuration data (aircraft type, airfield, pilot qualifications)
 - Suggest go/no-go decisions based on available data

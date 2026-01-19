@@ -59,6 +59,7 @@
         "description": "Enter the details for your local airfield and link the weather sensors.",
         "data": {
           "name": "Airfield Name",
+          "icao_code": "ICAO Code",
           "latitude": "Latitude",
           "longitude": "Longitude",
           "elevation": "Elevation (m AMSL)",
@@ -85,6 +86,7 @@
         "description": "Update airfield profile details.",
         "data": {
           "name": "Airfield Name",
+          "icao_code": "ICAO Code",
           "latitude": "Latitude",
           "longitude": "Longitude",
           "elevation": "Elevation (m AMSL)",

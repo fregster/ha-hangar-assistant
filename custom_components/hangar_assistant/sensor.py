@@ -17,6 +17,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 
@@ -101,6 +102,7 @@ class HangarSensorBase(SensorEntity):
         elif "runways" in self._config:
             # Airfield specific attributes
             attrs.update({
+                "icao_code": self._config.get("icao_code"),
                 "runways": self._config.get("runways"),
                 "primary_runway": self._config.get("primary_runway"),
                 "runway_length_m": self._config.get("runway_length"),
@@ -441,11 +443,11 @@ class IdealRunwayCrosswindSensor(HangarSensorBase):
 class AIBriefingSensor(HangarSensorBase):
     """Stores the latest AI-generated pre-flight briefing for the airfield."""
     
-    _attr_icon = "mdi:robot-confused" # Default icon until text arrives
+    _attr_icon = "mdi:robot"
 
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
-        self._state = "Waiting for first briefing..."
+        self._briefing_text = "Waiting for first briefing..."
         self._last_update = None
 
     @property
@@ -454,12 +456,15 @@ class AIBriefingSensor(HangarSensorBase):
 
     @property
     def native_value(self) -> str:
-        return self._state
+        if self._last_update:
+            return "Ready"
+        return "Waiting"
 
     @property
     def extra_state_attributes(self) -> dict:
         attrs = super().extra_state_attributes
         attrs["last_updated"] = self._last_update
+        attrs["briefing"] = self._briefing_text
         return attrs
 
     async def async_added_to_hass(self) -> None:
@@ -470,18 +475,17 @@ class AIBriefingSensor(HangarSensorBase):
         def _handle_ai_update(event):
             """Update state when a new AI briefing is received."""
             if event.data.get("airfield_name") == self._config.get("name"):
-                # Use a task to update since we might be in a sync context
-                self.hass.async_create_task(self.async_update_briefing(event.data.get("text")))
+                self.async_update_briefing(event.data.get("text"))
         
         self.async_on_remove(
             self.hass.bus.async_listen("hangar_assistant_ai_briefing", _handle_ai_update)
         )
 
-    async def async_update_briefing(self, briefing_text: str):
+    @callback
+    def async_update_briefing(self, briefing_text: str):
         """Update the sensor state with new AI text."""
-        self._state = briefing_text
+        self._briefing_text = briefing_text
         self._last_update = dt_util.now().isoformat()
-        self._attr_icon = "mdi:robot-astray"
         self.async_write_ha_state()
 
 class AirfieldWeatherPassThrough(HangarSensorBase):

@@ -10,7 +10,9 @@ from .const import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
-async def handle_manual_cleanup(call: ServiceCall):
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Hangar Assistant integration."""
+    async def handle_manual_cleanup(call: ServiceCall):
         """Service to manually purge legal records."""
         # Get the value from the service call, fall back to entry data, then default to 7
         retention_months = call.data.get("retention_months")
@@ -24,6 +26,9 @@ async def handle_manual_cleanup(call: ServiceCall):
         
         retention_months = retention_months or 7
         await async_cleanup_records(hass, retention_months)
+    
+    hass.services.async_register(DOMAIN, "manual_cleanup", handle_manual_cleanup)
+    return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""

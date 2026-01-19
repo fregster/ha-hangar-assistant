@@ -50,11 +50,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements_test.txt
+
       - name: Lint with Flake8
         run: |
-          pip install flake8
           # Stop the build if there are Python syntax errors or undefined names
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings.
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Verify Version consistency
         run: |
@@ -64,3 +69,45 @@ jobs:
             echo "Error: Version not found in manifest.json"
             exit 1
           fi
+
+  # 4. Type Checking (MyPy)
+  validate-types:
+    runs-on: ubuntu-latest
+    name: Type Check (MyPy)
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements_test.txt
+
+      - name: Run MyPy
+        run: |
+          mypy custom_components/hangar_assistant --ignore-missing-imports
+
+  # 5. Unit & Integration Tests
+  validate-tests:
+    runs-on: ubuntu-latest
+    name: Tests (Pytest)
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements_test.txt
+
+      - name: Run Tests
+        run: |
+          pytest tests/

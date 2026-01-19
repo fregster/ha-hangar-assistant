@@ -69,6 +69,6 @@ Created by **@fregster**.
 
 ## Integration Testing
 
-[![Hassfest](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=Hassfest&job=validate-hassfest)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
-[![HACS Validation](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=HACS%20Validation&job=validate-hacs)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
-[![Linting](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=Linting&job=validate-lint)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+[![Hassfest](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=Hassfest&job=Hassfest%20(HA%20Official))](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+[![HACS Validation](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=HACS%20Validation&job=HACS%20(Store%20Compliance))](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+[![Linting](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=Linting&job=Lint%20(Code%20Quality))](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)

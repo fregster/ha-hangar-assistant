@@ -18,7 +18,8 @@
         "menu_options": {
           "airfield": "Add New Airfield",
           "aircraft": "Add New Aircraft",
-          "pilot": "Add Pilot Details"
+          "pilot": "Add Pilot Details",
+          "briefing": "Automated Briefing & Retention"
         }
       },
       "airfield": {
@@ -54,6 +55,18 @@
           "licence_number": "Pilot Licence Number",
           "licence_type": "Licence Type",
           "medical_expiry": "Medical/Self-Declaration Expiry"
+        }
+      },
+      "briefing": {
+        "title": "Automated Briefing & Retention",
+        "description": "Configure daily briefings and legal record retention policies.",
+        "data": {
+          "airfield_name": "Linked Airfield",
+          "aircraft_reg": "Linked Aircraft",
+          "briefing_time": "Daily Briefing Time (HH:MM)",
+          "email_recipient": "Email Address",
+          "auto_delete_enabled": "Enable Automatic Deletion of Old Records",
+          "retention_months": "Retention Period (Months)"
         }
       }
     }

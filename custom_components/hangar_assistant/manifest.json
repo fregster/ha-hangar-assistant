@@ -1,6 +1,7 @@
 {
   "domain": "hangar_assistant",
   "name": "Hangar Assistant",
+  "after_dependencies": ["binary_sensor", "sensor"],
   "codeowners": ["@fregster"],
   "config_flow": true,
   "dependencies": ["backup", "conversation"],

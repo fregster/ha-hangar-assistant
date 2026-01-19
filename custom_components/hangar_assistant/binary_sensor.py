@@ -24,12 +24,12 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         self.hass = hass
         self._config = config
         
-        # Unique ID and Slugification
+        # Unique ID and Slugification (matches sensor.py logic)
         self._id_slug = config["name"].lower().replace(" ", "_")
         self._attr_unique_id = f"{self._id_slug}_master_safety_alert"
         self._attr_name = f"{config['name']} Master Safety Alert"
         
-        # Setting Device Class to SAFETY ensures 'Safe/Unsafe' or 'Clear/Alert' in UI
+        # Setting Device Class to SAFETY ensures 'Safe/Unsafe' in UI
         self._attr_device_class = BinarySensorDeviceClass.SAFETY
         
         # Link to the same Device as the sensors for this airfield
@@ -44,19 +44,23 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
     def is_on(self) -> bool:
         """Return True if an alert condition exists for THIS airfield."""
         
-        # 1. Check Data Freshness for this specific airfield
+        # 1. Check Data Freshness
+        # This matches the entity_id pattern: sensor.[slug]_weather_data_age
         freshness_id = f"sensor.{self._id_slug}_weather_data_age"
         freshness_state = self.hass.states.get(freshness_id)
         
         if freshness_state and freshness_state.state not in ("unknown", "unavailable"):
-            if int(float(freshness_state.state)) > 30:
-                return True  # ALERT: Weather data is stale
+            try:
+                if int(float(freshness_state.state)) > 30:
+                    return True  # ALERT: Weather data is stale (>30 mins)
+            except ValueError:
+                pass
 
-        # 2. Check Carb Icing Risk for this specific airfield
+        # 2. Check Carb Icing Risk
         carb_id = f"sensor.{self._id_slug}_carb_risk"
         carb_state = self.hass.states.get(carb_id)
         
-        if carb_state and "Serious Risk" in carb_state.state:
+        if carb_state and carb_state.state == "Serious Risk":
             return True  # ALERT: Atmospheric conditions favor serious icing
 
         return False
@@ -66,11 +70,18 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         """Provide detailed reasons for the alert state."""
         active_reasons = []
         
-        # Check freshness again for attribute reporting
+        # Logic for attributes
         f_state = self.hass.states.get(f"sensor.{self._id_slug}_weather_data_age")
         if f_state and f_state.state not in ("unknown", "unavailable"):
-            if int(float(f_state.state)) > 30:
-                active_reasons.append("Stale Weather Data (>30m)")
+            try:
+                if int(float(f_state.state)) > 30:
+                    active_reasons.append("Stale Weather Data")
+            except ValueError:
+                pass
+
+        c_state = self.hass.states.get(f"sensor.{self._id_slug}_carb_risk")
+        if c_state and c_state.state == "Serious Risk":
+            active_reasons.append("Serious Carb Icing Risk")
                 
         return {
             "airfield": self._config["name"],

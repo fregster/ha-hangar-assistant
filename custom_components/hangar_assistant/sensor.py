@@ -2,12 +2,9 @@
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
-    SensorStateClass,
 )
 from homeassistant.const import (
     UnitOfLength,
-    UnitOfTemperature,
-    UnitOfSpeed,
 )
 from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
@@ -36,6 +33,7 @@ class HangarSensorBase(SensorEntity):
     """Common logic for all Hangar Assistant sensors."""
     
     def __init__(self, hass, config):
+        """Initialize the sensor."""
         self.hass = hass
         self._config = config
         # Use Name or Reg to create a safe unique ID 
@@ -69,14 +67,16 @@ class DensityAltSensor(HangarSensorBase):
 
     @property
     def name(self):
+        """Return the name of the sensor."""
         return f"{self._config['name']} Density Altitude"
 
     @property
     def native_value(self):
+        """Return the state of the sensor."""
         temp = self._get_sensor_value(self._config['temp_sensor'])
-        if temp is None: return None
+        if temp is None:
+            return None
         # Standard Aviation Formula: DA = Pressure Alt + (120 * (OAT - ISA_Temp))
-        # Using 15C as ISA SL baseline
         return round(4000 + (120 * (temp - 15)))
 
 class CloudBaseSensor(HangarSensorBase):
@@ -85,15 +85,59 @@ class CloudBaseSensor(HangarSensorBase):
 
     @property
     def name(self):
+        """Return the name of the sensor."""
         return f"{self._config['name']} Est Cloud Base"
 
     @property
     def native_value(self):
+        """Return the state of the sensor."""
         t = self._get_sensor_value(self._config['temp_sensor'])
         dp = self._get_sensor_value(self._config['dp_sensor'])
-        if t is None or dp is None: return None
-        # Spread method: (Temp - Dewpoint) / 2.5 * 1000
+        if t is None or dp is None:
+            return None
         return round(((t - dp) / 2.5) * 1000)
+
+class DataFreshnessSensor(HangarSensorBase):
+    """Monitors age of weather data in minutes."""
+    _attr_native_unit_of_measurement = "min"
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return f"{self._config['name']} Weather Data Age"
+
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        state = self.hass.states.get(self._config['temp_sensor'])
+        if not state:
+            return None
+        from homeassistant.util import dt as dt_util
+        diff = dt_util.utcnow() - state.last_updated
+        return int(diff.total_seconds() / 60)
+
+class CarbRiskSensor(HangarSensorBase):
+    """Assesses Carb Icing Risk level."""
+    
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return f"{self._config['name']} Carb Risk"
+
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        t = self._get_sensor_value(self._config['temp_sensor'])
+        dp = self._get_sensor_value(self._config['dp_sensor'])
+        if t is None or dp is None:
+            return "Unknown"
+        
+        spread = t - dp
+        if t < 25 and spread < 5:
+            return "Serious Risk"
+        if t < 30 and spread < 10:
+            return "Moderate Risk"
+        return "Low Risk"
 
 # --- AIRCRAFT ENTITIES ---
 
@@ -103,12 +147,11 @@ class GroundRollSensor(HangarSensorBase):
 
     @property
     def name(self):
+        """Return the name of the sensor."""
         return f"{self._config['reg']} Ground Roll"
 
     @property
     def native_value(self):
+        """Return the state of the sensor."""
         base = self._config.get("baseline_roll", 0)
-        # Apply 15% safety factor automatically
         return round(base * 1.15)
-
-# (Additional CarbRisk and DataFreshness classes follow same pattern)

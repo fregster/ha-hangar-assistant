@@ -1,0 +1,17 @@
+{
+    "name": "HA-Hangar-Assistant-Dev",
+    "host": "your-ha-ip-address",
+    "protocol": "sftp",
+    "port": 22,
+    "username": "hasio",
+    "privateKeyPath": "/Users/yourname/.ssh/id_rsa",
+    "remotePath": "/config/custom_components/hangar_assistant/",
+    "context": "custom_components/hangar_assistant", 
+    "uploadOnSave": true,
+    "syncMode": "full",
+    "ignore": [
+        ".git",
+        ".vscode",
+        "__pycache__"
+    ]
+}

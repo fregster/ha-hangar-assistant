@@ -111,3 +111,5 @@ jobs:
       - name: Run Tests
         run: |
           pytest tests/
+        env:
+          PYTHONPATH: ${{ github.workspace }}

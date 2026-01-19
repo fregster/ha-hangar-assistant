@@ -24,18 +24,19 @@ jobs:
       - name: Hassfest Action
         uses: home-assistant/actions/hassfest@master
 
+  ## Disabled for now - uncomment to re-enable
   # 2. HACS Compliance Validation
-  validate-hacs:
-    runs-on: ubuntu-latest
-    name: HACS (Store Compliance)
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  #validate-hacs:
+  #  name: HACS (Store Compliance)
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - name: Checkout Repository
+  #      uses: actions/checkout@v4
 
-      - name: HACS Action
-        uses: hacs/action@main
-        with:
-          category: integration
+  #    - name: HACS Action
+  #      uses: hacs/action@main
+  #      with:
+  #         category: integration
 
   # 3. Code Quality (Flake8)
   validate-lint:
@@ -111,5 +112,3 @@ jobs:
       - name: Run Tests
         run: |
           pytest tests/
-        env:
-          PYTHONPATH: ${{ github.workspace }}

@@ -2,7 +2,7 @@
 **The Glass Cockpit for your Home Assistant**
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-![Version](https://img.shields.io/badge/version-2601.1-blue)
+![Version](https://img.shields.io/badge/version-2601.1.0-blue)
 
 Hangar Assistant is a specialized integration for General Aviation pilots, designed to bridge the gap between your home automation and the cockpit. It provides real-time safety metrics, performance calculations (Density Altitude, Cloud Base), and helps maintain legal compliance for CAP 1590B.
 

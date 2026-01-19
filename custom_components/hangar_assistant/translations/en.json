@@ -2,78 +2,71 @@
   "config": {
     "step": {
       "user": {
-        "title": "Hangar Assistant Setup",
-        "description": "Choose which component you would like to configure for your hangar.",
-        "menu_options": {
-          "airfield": "Add Airfield",
-          "aircraft": "Add Aircraft",
-          "pilot": "Add Pilot (PIC)",
-          "briefing": "Automated Briefing & Retention"
-        }
-      },
-      "airfield": {
-        "title": "Configure Airfield",
-        "description": "Enter the details for your local airfield and link the weather sensors.",
-        "data": {
-          "name": "Airfield Name",
-          "temp_sensor": "Temperature Sensor",
-          "dp_sensor": "Dew Point Sensor",
-          "wind_sensor": "Wind Speed (kt)",
-          "wind_dir_sensor": "Wind Direction (degrees)",
-          "runways": "Runways (e.g., 09, 27)",
-          "runway_lengths": "Lengths in Meters (e.g., 800, 1200)"
-        }
-      },
-      "aircraft": {
-        "title": "Configure Aircraft",
-        "description": "Enter the performance limits and specifications for your aircraft.",
-        "data": {
-          "reg": "Registration",
-          "model": "Model",
-          "empty_weight": "Empty Weight (kg)",
-          "max_tow": "MTOW (kg)",
-          "max_xwind": "Max X-Wind (kt)",
-          "baseline_roll": "SL Ground Roll (m)",
-          "baseline_50ft": "SL 50ft Distance (m)"
-        }
-      },
-      "pilot": {
-        "title": "Pilot Information",
-        "description": "Enter Pilot in Command (PIC) details for legal documentation.",
-        "data": {
-          "name": "Full Name",
-          "licence_number": "Licence Number",
-          "licence_type": "Licence Type (e.g., PPL, LAPL)",
-          "medical_expiry": "Medical/Declaration Expiry Date"
-        }
-      },
-      "briefing": {
-        "title": "Automated Briefing & Retention",
-        "description": "Configure daily briefings and legal record retention policies.",
-        "data": {
-          "airfield_name": "Linked Airfield",
-          "aircraft_reg": "Linked Aircraft",
-          "briefing_time": "Daily Briefing Time (HH:MM)",
-          "email_recipient": "Email Address",
-          "ai_agent_entity": "AI Agent (Optional)",
-          "auto_delete_enabled": "Enable Automatic Deletion of Old Records",
-          "retention_months": "Retention Period (Months)"
-        }
+        "title": "Welcome to Hangar Assistant",
+        "description": "Hangar Assistant helps you manage flight safety, performance calculations, and CAP 1590B compliance. \n\nClick **Submit** to install the integration. You can add your aircraft and airfield sensors afterward by clicking **Configure** on the Hangar Assistant integration card."
       }
     },
     "abort": {
-      "already_configured": "This component is already configured."
+      "already_configured": "Hangar Assistant is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hangar Management",
+        "description": "Manage your virtual hangar. Select an action below:",
+        "menu_options": {
+          "add_airfield": "Add New Airfield",
+          "add_aircraft": "Add New Aircraft",
+          "add_pilot": "Add Pilot Details"
+        }
+      },
+      "add_airfield": {
+        "title": "Add Airfield",
+        "description": "Link your weather sensors to a specific airfield profile.",
+        "data": {
+          "name": "Airfield Name (e.g., Popham)",
+          "temp_sensor": "Outside Air Temp Sensor",
+          "dp_sensor": "Dew Point Sensor",
+          "wind_sensor": "Wind Speed Sensor",
+          "wind_dir_sensor": "Wind Direction Sensor",
+          "runways": "Available Runways (e.g., 03, 21)",
+          "runway_lengths": "Runway Lengths in Meters"
+        }
+      },
+      "add_aircraft": {
+        "title": "Add Aircraft",
+        "description": "Enter the POH performance data for this aircraft.",
+        "data": {
+          "reg": "Registration (e.g., G-ABCD)",
+          "model": "Aircraft Model",
+          "empty_weight": "Empty Weight (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Max Demonstrated Crosswind (kt)",
+          "baseline_roll": "Baseline SL Ground Roll (m)"
+        }
+      },
+      "add_pilot": {
+        "title": "Pilot Information",
+        "description": "Configure PIC details for legal cost-sharing declarations.",
+        "data": {
+          "name": "Full Legal Name",
+          "licence_number": "Pilot Licence Number",
+          "licence_type": "Licence Type",
+          "medical_expiry": "Medical/Self-Declaration Expiry"
+        }
+      }
     }
   },
   "entity": {
     "sensor": {
-      "carb_risk": { "name": "Carb Risk" },
-      "best_runway": { "name": "Best Runway" },
-      "data_freshness": { "name": "Data Freshness" },
-      "backup_integrity": { "name": "Backup Integrity" }
+      "density_altitude": { "name": "Density Altitude" },
+      "cloud_base": { "name": "Est. Cloud Base" },
+      "data_freshness": { "name": "Weather Data Age" },
+      "ground_roll": { "name": "Calculated Ground Roll" }
     },
     "binary_sensor": {
-      "safety_alert": { "name": "Safety Alert" }
+      "safety_alert": { "name": "Master Safety Alert" }
     }
   }
 }

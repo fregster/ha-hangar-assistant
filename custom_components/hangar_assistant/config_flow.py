@@ -1,50 +1,90 @@
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 from .const import DOMAIN
 
 class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Hangar Assistant."""
+    """Handle initial onboarding for Hangar Assistant."""
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step to choose a configuration category."""
+        """Initial step when adding the integration for the first time."""
+        # Ensure only one instance of the integration is installed
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+
+        if user_input is not None:
+            # Create a blank entry to get the user started
+            return self.async_create_entry(title="Hangar Assistant", data={})
+
+        return self.async_show_form(step_id="user")
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Directs 'Configure' button clicks to the Options Flow."""
+        return HangarOptionsFlowHandler(config_entry)
+
+
+class HangarOptionsFlowHandler(config_entries.OptionsFlow):
+    """Manages the 'Configure' menu for adding/editing data."""
+
+    def __init__(self, config_entry):
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        """Main configuration menu."""
         return self.async_show_menu(
-            step_id="user",
-            menu_options=["airfield", "aircraft", "pilot", "briefing"]
+            step_id="init",
+            menu_options=["add_airfield", "add_aircraft", "add_pilot"]
         )
 
-    async def async_step_airfield(self, user_input=None):
-        """Step to configure an Airfield with weather sensors."""
+    async def async_step_add_airfield(self, user_input=None):
+        """Sub-menu for adding a new airfield with entity selectors."""
         if user_input is not None:
-            return self.async_create_entry(
-                title=f"Airfield: {user_input['name']}", 
-                data={"type": "airfield", **user_input}
-            )
+            # We append new airfields to the existing entry data
+            new_data = dict(self.config_entry.data)
+            airfields = new_data.setdefault("airfields", [])
+            airfields.append(user_input)
+            
+            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            return self.async_create_entry(title="", data={})
 
+        # Schema using entity selectors for better UX
         return self.async_show_form(
-            step_id="airfield",
+            step_id="add_airfield",
             data_schema=vol.Schema({
                 vol.Required("name"): str,
-                vol.Required("temp_sensor"): str,
-                vol.Required("dp_sensor"): str,
-                vol.Required("wind_sensor"): str,
-                vol.Required("wind_dir_sensor"): str,
+                vol.Required("temp_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Required("dp_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Required("wind_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="wind_speed")
+                ),
+                vol.Required("wind_dir_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
                 vol.Required("runways"): str,
                 vol.Required("runway_lengths"): str,
             })
         )
 
-    async def async_step_aircraft(self, user_input=None):
-        """Step to configure Aircraft performance profiles."""
+    async def async_step_add_aircraft(self, user_input=None):
+        """Sub-menu for adding a new aircraft profile."""
         if user_input is not None:
-            return self.async_create_entry(
-                title=f"Aircraft: {user_input['reg']}", 
-                data={"type": "aircraft", **user_input}
-            )
+            new_data = dict(self.config_entry.data)
+            fleet = new_data.setdefault("aircraft", [])
+            fleet.append(user_input)
+            
+            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            return self.async_create_entry(title="", data={})
 
         return self.async_show_form(
-            step_id="aircraft",
+            step_id="add_aircraft",
             data_schema=vol.Schema({
                 vol.Required("reg"): str,
                 vol.Required("model"): str,
@@ -52,47 +92,5 @@ class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("max_tow"): int,
                 vol.Required("max_xwind"): int,
                 vol.Required("baseline_roll"): int,
-                vol.Required("baseline_50ft"): int,
-            })
-        )
-
-    async def async_step_pilot(self, user_input=None):
-        """Step to configure Pilot details for CAP 1590B compliance."""
-        if user_input is not None:
-            return self.async_create_entry(
-                title=f"Pilot: {user_input['name']}", 
-                data={"type": "pilot", **user_input}
-            )
-
-        return self.async_show_form(
-            step_id="pilot",
-            data_schema=vol.Schema({
-                vol.Required("name"): str,
-                vol.Required("licence_number"): str,
-                vol.Required("licence_type"): str,
-                vol.Required("medical_expiry"): str,
-            })
-        )
-
-    async def async_step_briefing(self, user_input=None):
-        """Step to configure AI Briefings and Data Retention."""
-        if user_input is not None:
-            return self.async_create_entry(
-                title=f"Briefing: {user_input['email_recipient']}", 
-                data={"type": "briefing", **user_input}
-            )
-
-        return self.async_show_form(
-            step_id="briefing",
-            data_schema=vol.Schema({
-                vol.Required("airfield_name"): str,
-                vol.Required("aircraft_reg"): str,
-                vol.Required("briefing_time"): str,
-                vol.Required("email_recipient"): str,
-                vol.Optional("ai_agent_entity"): str,
-                vol.Optional("auto_delete_enabled", default=True): bool,
-                vol.Optional("retention_months", default=7): vol.All(
-                    vol.Coerce(int), vol.Range(min=1)
-                ),
             })
         )

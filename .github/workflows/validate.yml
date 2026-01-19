@@ -1,14 +1,42 @@
-name: Hangar Assistant Validation
+name: Validation
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: "0 0 * * *"
 
 jobs:
-  validate:
+  # 1. Official Home Assistant Validation (Hassfest)
+  validate-hassfest:
     runs-on: ubuntu-latest
+    name: Hassfest (HA Official)
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Hassfest Action
+        uses: home-assistant/actions/hassfest@master
+
+  # 2. HACS Compliance Validation
+  validate-hacs:
+    runs-on: ubuntu-latest
+    name: HACS (Store Compliance)
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: HACS Action
+        uses: hacs/action@main
+        with:
+          category: integration
+
+  # 3. Code Quality (Flake8)
+  validate-lint:
+    runs-on: ubuntu-latest
+    name: Lint (Code Quality)
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -18,21 +46,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Validates manifest.json and HACS structure
-      - name: HACS Action
-        uses: hacs/action@main
-        with:
-          category: integration
-
-      # Checks for Python syntax errors and common bugs
       - name: Lint with Flake8
         run: |
           pip install flake8
-          # E9, F63, F7, and F82 are critical syntax/logic errors
+          # Stop the build if there are Python syntax errors or undefined names
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      # Optional: Verifies that the version in manifest matches a tag (if needed)
-      - name: Verify Manifest Version
+      - name: Verify Version consistency
         run: |
-          VERSION=$(jq -r '.version' custom_components/hangar_assistant/manifest.json)
+          VERSION=$(grep '"version":' custom_components/hangar_assistant/manifest.json | cut -d '"' -f 4)
           echo "Manifest version is $VERSION"
+          if [[ -z "$VERSION" ]]; then
+            echo "Error: Version not found in manifest.json"
+            exit 1
+          fi

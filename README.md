@@ -65,7 +65,10 @@ This integration is designed to assist pilots but **MUST NOT** be used as the pr
 Found a bug? [Open an issue on GitHub](https://github.com/fregster/ha-hangar-assistant/issues).
 Created by **@fregster**.
 
-# ✈️ Hangar Assistant
-[![Hassfest](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml/badge.svg?job=validate-hassfest)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
-[![HACS Validation](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml/badge.svg?job=validate-hacs)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
-[![Linting](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml/badge.svg?job=validate-lint)](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+---
+
+## Integration Testing
+
+[![Hassfest](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=Hassfest&job=Hassfest%20(HA%20Official))](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+[![HACS Validation](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=HACS%20Validation&job=HACS%20(Store%20Compliance))](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)
+[![Linting](https://img.shields.io/github/actions/workflow/status/fregster/ha-hangar-assistant/validate.yml?label=Linting&job=Lint%20(Code%20Quality))](https://github.com/fregster/ha-hangar-assistant/actions/workflows/validate.yml)

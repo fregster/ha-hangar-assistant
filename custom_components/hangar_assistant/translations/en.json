@@ -16,12 +16,13 @@
         "title": "Hangar Management",
         "description": "Manage your virtual hangar. Select an action below:",
         "menu_options": {
-          "add_airfield": "Add New Airfield",
-          "add_aircraft": "Add New Aircraft",
-          "add_pilot": "Add Pilot Details"
+          "airfield": "Add New Airfield",
+          "aircraft": "Add New Aircraft",
+          "pilot": "Add Pilot Details",
+          "briefing": "Automated Briefing & Retention"
         }
       },
-      "add_airfield": {
+      "airfield": {
         "title": "Add Airfield",
         "description": "Link your weather sensors to a specific airfield profile.",
         "data": {
@@ -34,7 +35,7 @@
           "runway_lengths": "Runway Lengths in Meters"
         }
       },
-      "add_aircraft": {
+      "aircraft": {
         "title": "Add Aircraft",
         "description": "Enter the POH performance data for this aircraft.",
         "data": {
@@ -46,7 +47,7 @@
           "baseline_roll": "Baseline SL Ground Roll (m)"
         }
       },
-      "add_pilot": {
+      "pilot": {
         "title": "Pilot Information",
         "description": "Configure PIC details for legal cost-sharing declarations.",
         "data": {
@@ -54,6 +55,18 @@
           "licence_number": "Pilot Licence Number",
           "licence_type": "Licence Type",
           "medical_expiry": "Medical/Self-Declaration Expiry"
+        }
+      },
+      "briefing": {
+        "title": "Automated Briefing & Retention",
+        "description": "Configure daily briefings and legal record retention policies.",
+        "data": {
+          "airfield_name": "Linked Airfield",
+          "aircraft_reg": "Linked Aircraft",
+          "briefing_time": "Daily Briefing Time (HH:MM)",
+          "email_recipient": "Email Address",
+          "auto_delete_enabled": "Enable Automatic Deletion of Old Records",
+          "retention_months": "Retention Period (Months)"
         }
       }
     }

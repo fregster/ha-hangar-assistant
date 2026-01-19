@@ -4,7 +4,18 @@
     "step": {
       "user": {
         "title": "Hangar Assistant Setup",
-        "description": "Choose which component you would like to configure for your hangar.",
+        "description": "Welcome to Hangar Assistant. This integration will help you monitor aviation safety metrics. Click 'Submit' to get started, then use the 'Configure' button to add your airfields and aircraft."
+      }
+    },
+    "abort": {
+      "already_configured": "This component is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hangar Assistant Configuration",
+        "description": "Choose which component you would like to configure.",
         "menu_options": {
           "airfield": "Add Airfield",
           "aircraft": "Add Aircraft",
@@ -61,9 +72,6 @@
           "retention_months": "Retention Period (Months)"
         }
       }
-    },
-    "abort": {
-      "already_configured": "This component is already configured."
     }
   },
   "entity": {

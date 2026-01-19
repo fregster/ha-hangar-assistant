@@ -2,9 +2,13 @@ name: Validation
 
 on:
   push:
-    branches: [ main ]
+    branches: 
+      - main
+      - dev        # Added dev branch support
   pull_request:
-    branches: [ main ]
+    branches: 
+      - main
+      - dev        # Ensures PRs targeting dev are also checked
   schedule:
     - cron: "0 0 * * *"
 

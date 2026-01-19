@@ -41,15 +41,45 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Main configuration menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["airfield", "aircraft", "pilot", "ai", "briefing", "retention", "dashboard"]
+            menu_options=["airfield", "aircraft", "pilot", "briefing", "global_config"]
+        )
+
+    async def async_step_global_config(self, user_input=None):
+        """Sub-menu for global system settings."""
+        return self.async_show_menu(
+            step_id="global_config",
+            menu_options=["settings", "ai", "retention", "dashboard"]
+        )
+
+    async def async_step_settings(self, user_input=None):
+        """Configure global system settings."""
+        if user_input is not None:
+            new_data = dict(self.config_entry.data)
+            new_data["settings"] = user_input
+            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            return self.async_create_entry(data=dict(self.config_entry.options))
+
+        settings = self.config_entry.data.get("settings", {})
+        return self.async_show_form(
+            step_id="settings",
+            data_schema=vol.Schema({
+                vol.Required("language", default=settings.get("language", "en")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[selector.SelectOptionDict(value="en", label="English")],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("global_pressure_sensor", default=settings.get("global_pressure_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="pressure")
+                ),
+                vol.Optional("default_pressure", default=settings.get("default_pressure", 1013.25)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=800, max=1100, step=0.1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="hPa")
+                ),
+            })
         )
 
     async def async_step_airfield(self, user_input=None):
         """Sub-menu for airfield management."""
-        if not self.config_entry:
-            _LOGGER.error("No config entry found in Options Flow")
-            return self.async_abort(reason="already_configured")
-
         airfields = self.config_entry.data.get("airfields", [])
         
         if airfields:
@@ -60,15 +90,12 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         return await self.async_step_airfield_add()
 
     async def async_step_airfield_add(self, user_input=None):
-        """Form to add a new airfield."""
+        """Form to add a new airfield from scratch."""
         if user_input is not None:
-            _LOGGER.debug("Adding new airfield: %s", user_input.get("name"))
             new_data = dict(self.config_entry.data)
             airfields = list(new_data.get("airfields", []))
             airfields.append(user_input)
             new_data["airfields"] = airfields
-            
-            _LOGGER.debug("Updating config entry with new airfield data")
             self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
             return self.async_create_entry(data=dict(self.config_entry.options))
 
@@ -76,27 +103,40 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="airfield_add",
             data_schema=vol.Schema({
                 vol.Required("name"): str,
+                vol.Required("latitude", default=51.47): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-90, max=90, step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Required("longitude", default=-0.45): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-180, max=180, step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Required("elevation", default=25): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-500, max=9000, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m")
+                ),
+                vol.Required("runways"): str,
+                vol.Required("primary_runway"): str,
+                vol.Required("runway_length", default=500): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=100, 
+                        max=2000, 
+                        step=1, 
+                        mode=selector.NumberSelectorMode.SLIDER,
+                        unit_of_measurement="m"
+                    )
+                ),
                 vol.Required("temp_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
                 vol.Required("dp_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Required("pressure_sensor"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Required("wind_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                    selector.EntitySelectorConfig(domain="sensor", device_class="speed")
                 ),
                 vol.Required("wind_dir_sensor"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Required("runways"): str,
-                vol.Required("runway_lengths"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=100, max=2000, step=10, unit_of_measurement="m")
-                ),
-                vol.Required("latitude"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-90, max=90, step=0.000001, mode=selector.NumberSelectorMode.BOX)
-                ),
-                vol.Required("longitude"): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-180, max=180, step=0.000001, mode=selector.NumberSelectorMode.BOX)
                 ),
             })
         )
@@ -151,27 +191,40 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="airfield_edit",
             data_schema=vol.Schema({
                 vol.Required("name", default=airfield.get("name")): str,
+                vol.Required("latitude", default=airfield.get("latitude")): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-90, max=90, step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Required("longitude", default=airfield.get("longitude")): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-180, max=180, step="any", mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Required("elevation", default=airfield.get("elevation", 0)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=-500, max=9000, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m")
+                ),
+                vol.Required("runways", default=airfield.get("runways")): str,
+                vol.Required("primary_runway", default=airfield.get("primary_runway")): str,
+                vol.Required("runway_length", default=airfield.get("runway_length", 500)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=100, 
+                        max=2000, 
+                        step=1, 
+                        mode=selector.NumberSelectorMode.SLIDER,
+                        unit_of_measurement="m"
+                    )
+                ),
                 vol.Required("temp_sensor", default=airfield.get("temp_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
                 vol.Required("dp_sensor", default=airfield.get("dp_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Required("pressure_sensor", default=airfield.get("pressure_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="pressure")
                 ),
                 vol.Required("wind_sensor", default=airfield.get("wind_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                    selector.EntitySelectorConfig(domain="sensor", device_class="wind_speed")
                 ),
                 vol.Required("wind_dir_sensor", default=airfield.get("wind_dir_sensor")): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Required("runways", default=airfield.get("runways")): str,
-                vol.Required("runway_lengths", default=airfield.get("runway_lengths")): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=100, max=2000, step=10, unit_of_measurement="m")
-                ),
-                vol.Required("latitude", default=airfield.get("latitude", 0.0)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-90, max=90, step=0.000001, mode=selector.NumberSelectorMode.BOX)
-                ),
-                vol.Required("longitude", default=airfield.get("longitude", 0.0)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-180, max=180, step=0.000001, mode=selector.NumberSelectorMode.BOX)
                 ),
             })
         )
@@ -194,6 +247,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             }),
             description_placeholders={"name": self.config_entry.data["airfields"][self._index]["name"]}
         )
+
 
     async def async_step_aircraft(self, user_input=None):
         """Sub-menu for aircraft management."""
@@ -222,19 +276,19 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=vol.Schema({
                 vol.Required("reg"): str,
                 vol.Required("model"): str,
-                vol.Required("empty_weight"): selector.NumberSelector(
+                vol.Required("empty_weight", default=750): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
                 ),
-                vol.Required("max_tow"): selector.NumberSelector(
+                vol.Required("max_tow", default=1200): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
                 ),
-                vol.Required("max_xwind"): selector.NumberSelector(
+                vol.Required("max_xwind", default=15): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="kt")
                 ),
-                vol.Required("baseline_roll"): selector.NumberSelector(
+                vol.Required("baseline_roll", default=300): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=10, max=750, step=5, unit_of_measurement="m")
                 ),
-                vol.Required("baseline_50ft"): selector.NumberSelector(
+                vol.Required("baseline_50ft", default=600): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=10, max=1500, step=5, unit_of_measurement="m")
                 ),
                 vol.Optional("linked_airfield"): selector.SelectSelector(
@@ -368,6 +422,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="pilot_add",
             data_schema=vol.Schema({
                 vol.Required("name"): str,
+                vol.Required("email"): str,
                 vol.Required("licence_number"): str,
                 vol.Required("licence_type"): str,
                 vol.Required("medical_expiry"): selector.DateSelector(),
@@ -424,6 +479,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="pilot_edit",
             data_schema=vol.Schema({
                 vol.Required("name", default=pilot.get("name")): str,
+                vol.Required("email", default=pilot.get("email")): str,
                 vol.Required("licence_number", default=pilot.get("licence_number")): str,
                 vol.Required("licence_type", default=pilot.get("licence_type")): str,
                 vol.Required("medical_expiry", default=pilot.get("medical_expiry")): selector.DateSelector(),
@@ -505,9 +561,10 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
             return self.async_create_entry(data=dict(self.config_entry.options))
 
-        # Get existing airfields and aircraft for selection
+        # Get existing airfields, aircraft, and pilots for selection
         airfields = [a["name"] for a in self.config_entry.data.get("airfields", [])]
         aircraft = [a["reg"] for a in self.config_entry.data.get("aircraft", [])]
+        pilots = [p["name"] for p in self.config_entry.data.get("pilots", [])]
 
         return self.async_show_form(
             step_id="briefing_add",
@@ -525,7 +582,13 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                     )
                 ),
                 vol.Required("briefing_time"): selector.TimeSelector(),
-                vol.Required("email_recipient"): str,
+                vol.Required("pilots"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[selector.SelectOptionDict(value=p, label=p) for p in pilots],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST
+                    )
+                ),
                 vol.Optional("enable_ai_reporting", default=False): selector.BooleanSelector(),
             })
         )
@@ -546,7 +609,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_briefing_delete()
         
         briefing_options = {
-            str(i): f"{b['email_recipient']} ({b['airfield_name']})" 
+            str(i): f"{', '.join(b.get('pilots', []))} ({b['airfield_name']})" 
             for i, b in enumerate(briefings)
         }
 
@@ -589,9 +652,10 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
             return self.async_create_entry(data=dict(self.config_entry.options))
 
-        # Get existing airfields and aircraft for selection
+        # Get existing airfields, aircraft, and pilots for selection
         airfields = [a["name"] for a in self.config_entry.data.get("airfields", [])]
         aircraft = [a["reg"] for a in self.config_entry.data.get("aircraft", [])]
+        pilots = [p["name"] for p in self.config_entry.data.get("pilots", [])]
 
         return self.async_show_form(
             step_id="briefing_edit",
@@ -609,7 +673,13 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                     )
                 ),
                 vol.Required("briefing_time", default=briefing.get("briefing_time")): selector.TimeSelector(),
-                vol.Required("email_recipient", default=briefing.get("email_recipient")): str,
+                vol.Required("pilots", default=briefing.get("pilots", [])): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[selector.SelectOptionDict(value=p, label=p) for p in pilots],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST
+                    )
+                ),
                 vol.Optional("enable_ai_reporting", default=briefing.get("enable_ai_reporting", False)): selector.BooleanSelector(),
             })
         )
@@ -639,7 +709,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("confirm_delete", default=False): selector.BooleanSelector(),
             }),
             description_placeholders={
-                "briefing": f"{briefing.get('email_recipient')} for {briefing.get('airfield_name')}"
+                "briefing": f"{', '.join(briefing.get('pilots', []))} for {briefing.get('airfield_name')}"
             }
         )
 

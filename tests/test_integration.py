@@ -10,12 +10,17 @@ def mock_config_entry_data():
     return {
         "airfields": [{
             "name": "Popham",
+            "latitude": 51.17,
+            "longitude": -1.23,
+            "elevation": 100,
+            "runways": "03, 21",
+            "primary_runway": "21",
+            "runway_length": 800,
             "temp_sensor": "sensor.popham_temp",
             "dp_sensor": "sensor.popham_dp",
+            "pressure_sensor": "sensor.popham_pressure",
             "wind_sensor": "sensor.popham_wind",
-            "wind_dir_sensor": "sensor.popham_wind_dir",
-            "runways": "03,21",
-            "runway_lengths": "800"
+            "wind_dir_sensor": "sensor.popham_wind_dir"
         }],
         "aircraft": [{
             "reg": "G-ABCD",
@@ -45,16 +50,23 @@ async def test_da_calculation_updates(hass: HomeAssistant, mock_config_entry_dat
         await async_setup_component(hass, DOMAIN, {})
         await hass.async_block_till_done()
 
-    # Set initial temperature (ISA + 15 at 4000ft)
+    # Set initial temperature (15C)
     hass.states.async_set("sensor.popham_temp", "15")
+    hass.states.async_set("sensor.popham_pressure", "1013.25")
     await hass.async_block_till_done()
     
     da_state = hass.states.get("sensor.popham_density_altitude")
-    assert da_state.state == "4000"
+    # Elevation 100m = 328ft. ISA = 15 - 2*(328/1000) = 14.34C.
+    # PA = 328 + 0 = 328ft.
+    # DA = 328 + 120 * (15 - 14.34) = 407.
+    assert da_state.state == "407"
 
-    # Increase temperature by 10 degrees (should increase DA by 1200ft)
+    # Increase temperature by 10 degrees (should increase DA)
+    # Elevation 100m = 328ft. ISA = 15 - 2*(328/1000) = 14.34C.
+    # PA = 328 + (1013.25 - 1013.25)*30 = 328ft.
+    # Temp 25C is 10.66C above ISA. DA = 328 + (120 * 10.66) = 1607ft.
     hass.states.async_set("sensor.popham_temp", "25")
     await hass.async_block_till_done()
     
     da_state = hass.states.get("sensor.popham_density_altitude")
-    assert da_state.state == "5200"
+    assert da_state.state == "1607"

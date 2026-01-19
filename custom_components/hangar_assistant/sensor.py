@@ -31,13 +31,23 @@ async def async_setup_entry(
     entities = []
     
     # 1. Process Airfields from the list
+    global_settings = entry.data.get("settings", {})
     for airfield in entry.data.get("airfields", []):
         entities.extend([
-            DensityAltSensor(hass, airfield),
+            DensityAltSensor(hass, airfield, global_settings),
             CloudBaseSensor(hass, airfield),
             DataFreshnessSensor(hass, airfield),
             CarbRiskSensor(hass, airfield),
-            BestRunwaySensor(hass, airfield)
+            CarbRiskTransitionSensor(hass, airfield),
+            BestRunwaySensor(hass, airfield),
+            PrimaryRunwayCrosswindSensor(hass, airfield),
+            IdealRunwayCrosswindSensor(hass, airfield),
+            AIBriefingSensor(hass, airfield),
+            AirfieldWeatherPassThrough(hass, airfield, "temp_sensor", "Temperature", SensorDeviceClass.TEMPERATURE, "°C"),
+            AirfieldWeatherPassThrough(hass, airfield, "dp_sensor", "Dew Point", SensorDeviceClass.TEMPERATURE, "°C"),
+            AirfieldWeatherPassThrough(hass, airfield, "pressure_sensor", "Pressure", SensorDeviceClass.PRESSURE, "hPa"),
+            AirfieldWeatherPassThrough(hass, airfield, "wind_sensor", "Wind Speed", SensorDeviceClass.WIND_SPEED, "kt"),
+            AirfieldWeatherPassThrough(hass, airfield, "wind_dir_sensor", "Wind Direction", None, "°")
         ])
 
     # 2. Process Aircraft from the list
@@ -92,9 +102,14 @@ class HangarSensorBase(SensorEntity):
             # Airfield specific attributes
             attrs.update({
                 "runways": self._config.get("runways"),
-                "runway_length_m": self._config.get("runway_lengths"),
+                "primary_runway": self._config.get("primary_runway"),
+                "runway_length_m": self._config.get("runway_length"),
                 "latitude": self._config.get("latitude"),
                 "longitude": self._config.get("longitude"),
+                "elevation_m": self._config.get("elevation"),
+                "temp_sensor": self._config.get("temp_sensor"),
+                "dp_sensor": self._config.get("dp_sensor"),
+                "pressure_sensor": self._config.get("pressure_sensor"),
             })
             
         return attrs
@@ -133,10 +148,16 @@ class DensityAltSensor(HangarSensorBase):
     _attr_native_unit_of_measurement = UnitOfLength.FEET
     _attr_device_class = SensorDeviceClass.DISTANCE
 
-    def __init__(self, hass: HomeAssistant, config: dict):
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict = None):
         super().__init__(hass, config)
+        self._global_settings = global_settings or {}
+        self._source_entities = []
         if sensor := config.get('temp_sensor'):
-            self._source_entities = [sensor]
+            self._source_entities.append(sensor)
+        if sensor := config.get('pressure_sensor'):
+            self._source_entities.append(sensor)
+        elif global_sensor := self._global_settings.get('global_pressure_sensor'):
+            self._source_entities.append(global_sensor)
 
     @property
     def name(self) -> str:
@@ -146,15 +167,41 @@ class DensityAltSensor(HangarSensorBase):
     @property
     def native_value(self) -> float | None:
         """Return the state of the sensor."""
-        sensor_id = self._config.get('temp_sensor')
-        if not sensor_id:
-            return None
-            
-        temp = self._get_sensor_value(sensor_id)
+        t_id = self._config.get('temp_sensor')
+        p_id = self._config.get('pressure_sensor')
+        gp_id = self._global_settings.get('global_pressure_sensor')
+        elevation_m = self._config.get('elevation', 0)
+        
+        temp = self._get_sensor_value(t_id) if t_id else None
+        
+        # Priority: Airfield Sensor -> Global Sensor -> Default Value
+        pressure = None
+        if p_id:
+            pressure = self._get_sensor_value(p_id)
+        if pressure is None and gp_id:
+            pressure = self._get_sensor_value(gp_id)
+        if pressure is None:
+            pressure = self._global_settings.get('default_pressure', 1013.25)
+        
         if temp is None:
             return None
-        # Standard Aviation Formula: DA = Pressure Alt + (120 * (OAT - ISA_Temp))
-        return round(4000 + (120 * (temp - 15)))
+
+        # Convert elevation to feet
+        elevation_ft = elevation_m * 3.28084
+
+        # Calculate Pressure Altitude (PA)
+        # PA = Elevation + (Standard - Current) * Factor
+        pa = elevation_ft
+        if pressure:
+            if pressure > 500: # hPa
+                pa += (1013.25 - pressure) * 30 
+            else: # inHg
+                pa += (29.92 - pressure) * 1000
+        
+        # Standard Aviation Formula: DA = PA + (120 * (OAT - ISA_Temp_at_alt))
+        # ISA Temp drops ~2C per 1000ft
+        isa_temp = 15 - (2 * (elevation_ft / 1000))
+        return round(pa + (120 * (temp - isa_temp)))
 
 class CloudBaseSensor(HangarSensorBase):
     """Estimates Cloud Base height (AGL) for a specific airfield."""
@@ -258,6 +305,207 @@ class CarbRiskSensor(HangarSensorBase):
         }
         attrs["color"] = color_map.get(risk_level, "gray")
         return attrs
+
+class CarbRiskTransitionSensor(HangarSensorBase):
+    """Calculates the altitude (AGL) where Carb Risk increases from Low."""
+    _attr_native_unit_of_measurement = UnitOfLength.FEET
+
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        t_sensor = config.get('temp_sensor')
+        dp_sensor = config.get('dp_sensor')
+        if t_sensor and dp_sensor:
+            self._source_entities = [t_sensor, dp_sensor]
+
+    @property
+    def name(self) -> str:
+        return "Carb Risk Transition Alt"
+
+    @property
+    def native_value(self) -> int | None:
+        t_id = self._config.get('temp_sensor')
+        dp_id = self._config.get('dp_sensor')
+        if not t_id or not dp_id:
+            return 0
+            
+        t0 = self._get_sensor_value(t_id)
+        dp0 = self._get_sensor_value(dp_id)
+        if t0 is None or dp0 is None:
+            return 0
+        
+        # Risk is NOT Low if T < 30 AND Spread < 10
+        # Transition happens when BOTH conditions are met.
+        # But usually we want to know when we enter the "Moderate" zone.
+        # Rule of thumb: T drops 2C/1000ft, Spread closes 1.5C/1000ft.
+        
+        spread0 = t0 - dp0
+        
+        # If already in risk, transition is 0
+        if t0 < 30 and spread0 < 10:
+            return 0
+            
+        # Alt to hit T=30
+        alt_t30 = ((t0 - 30) / 2) * 1000 if t0 > 30 else 99999
+        # Alt to hit Spread=10
+        alt_s10 = ((spread0 - 10) / 1.5) * 1000 if spread0 > 10 else 99999
+        
+        # Transition occurs when we enter the "Moderate Risk" box.
+        # This is a simplification, but we take the lower of the two 
+        # that actually gets us into the T<30 and Spread<10 criteria.
+        res = max(0, min(alt_t30, alt_s10))
+        return round(res) if res < 20000 else 0
+
+class PrimaryRunwayCrosswindSensor(HangarSensorBase):
+    """Reports crosswind component for the Primary Runway."""
+    _attr_native_unit_of_measurement = "kt"
+
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        w_sensor = config.get('wind_sensor')
+        wd_sensor = config.get('wind_dir_sensor')
+        if w_sensor and wd_sensor:
+            self._source_entities = [w_sensor, wd_sensor]
+
+    @property
+    def name(self) -> str:
+        return "Primary Runway Crosswind"
+
+    @property
+    def native_value(self) -> float | None:
+        w_id = self._config.get('wind_sensor')
+        wd_id = self._config.get('wind_dir_sensor')
+        primary = self._config.get('primary_runway')
+        
+        if not w_id or not wd_id or not primary:
+            return None
+            
+        wind_speed = self._get_sensor_value(w_id)
+        wind_dir = self._get_sensor_value(wd_id)
+        
+        if wind_speed is None or wind_dir is None:
+            return None
+
+        try:
+            rwy_heading = int(primary.strip()) * 10
+            angle_rad = math.radians(wind_dir - rwy_heading)
+            return round(abs(wind_speed * math.sin(angle_rad)), 1)
+        except (ValueError, TypeError):
+            return None
+
+class IdealRunwayCrosswindSensor(HangarSensorBase):
+    """Reports crosswind component for the Ideal (Least Crosswind) Runway."""
+    _attr_native_unit_of_measurement = "kt"
+
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        w_sensor = config.get('wind_sensor')
+        wd_sensor = config.get('wind_dir_sensor')
+        if w_sensor and wd_sensor:
+            self._source_entities = [w_sensor, wd_sensor]
+
+    @property
+    def name(self) -> str:
+        return "Ideal Runway Crosswind"
+
+    @property
+    def native_value(self) -> float | None:
+        # We find the best runway first (re-using logic from BestRunwaySensor)
+        wd_id = self._config.get('wind_dir_sensor')
+        w_id = self._config.get('wind_sensor')
+        config_runways = self._config.get("runways")
+        
+        if not wd_id or not w_id or not config_runways:
+            return None
+            
+        wind_dir = self._get_sensor_value(wd_id)
+        wind_speed = self._get_sensor_value(w_id)
+        
+        if wind_dir is None or wind_speed is None:
+            return None
+
+        runways = [r.strip() for r in config_runways.split(",")]
+        min_xwind = 999
+
+        for r in runways:
+            try:
+                heading = int(r) * 10
+                angle_rad = math.radians(wind_dir - heading)
+                xwind = abs(wind_speed * math.sin(angle_rad))
+                if xwind < min_xwind:
+                    min_xwind = xwind
+            except (ValueError, TypeError):
+                continue
+
+        return round(min_xwind, 1) if min_xwind != 999 else None
+
+class AIBriefingSensor(HangarSensorBase):
+    """Stores the latest AI-generated pre-flight briefing for the airfield."""
+    
+    _attr_icon = "mdi:robot-confused" # Default icon until text arrives
+
+    def __init__(self, hass: HomeAssistant, config: dict):
+        super().__init__(hass, config)
+        self._state = "Waiting for first briefing..."
+        self._last_update = None
+
+    @property
+    def name(self) -> str:
+        return "AI Pre-flight Briefing"
+
+    @property
+    def native_value(self) -> str:
+        return self._state
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        attrs["last_updated"] = self._last_update
+        return attrs
+
+    async def async_added_to_hass(self) -> None:
+        """Register for AI briefing events."""
+        await super().async_added_to_hass()
+        
+        @callback
+        def _handle_ai_update(event):
+            """Update state when a new AI briefing is received."""
+            if event.data.get("airfield_name") == self._config.get("name"):
+                # Use a task to update since we might be in a sync context
+                self.hass.async_create_task(self.async_update_briefing(event.data.get("text")))
+        
+        self.async_on_remove(
+            self.hass.bus.async_listen("hangar_assistant_ai_briefing", _handle_ai_update)
+        )
+
+    async def async_update_briefing(self, briefing_text: str):
+        """Update the sensor state with new AI text."""
+        self._state = briefing_text
+        self._last_update = dt_util.now().isoformat()
+        self._attr_icon = "mdi:robot-astray"
+        self.async_write_ha_state()
+
+class AirfieldWeatherPassThrough(HangarSensorBase):
+    """Passes through a weather sensor value for dashboard consistency."""
+    
+    def __init__(self, hass: HomeAssistant, config: dict, sensor_key: str, label: str, device_class=None, unit=None):
+        super().__init__(hass, config)
+        self._sensor_key = sensor_key
+        self._label = label
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit
+        if sensor := config.get(sensor_key):
+            self._source_entities = [sensor]
+
+    @property
+    def name(self) -> str:
+        return f"Weather {self._label}"
+
+    @property
+    def native_value(self) -> float | None:
+        sensor_id = self._config.get(self._sensor_key)
+        if not sensor_id:
+            return None
+        return self._get_sensor_value(sensor_id)
 
 class BestRunwaySensor(HangarSensorBase):
     """Determines the best runway based on current wind."""

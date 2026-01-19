@@ -22,10 +22,27 @@
           "airfield": "Add or Edit an Airfield",
           "aircraft": "Add or Edit an Aircraft",
           "pilot": "Add or Edit a Pilot",
-          "ai": "Configure AI Assistant",
           "briefing": "Add or Edit Automated Briefings",
-          "retention": "Configure Data Retention Policy",
+          "global_config": "Global Configuration"
+        }
+      },
+      "global_config": {
+        "title": "Global Configuration",
+        "description": "Manage system-wide settings including AI, data retention, and dashboard layout.",
+        "menu_options": {
+          "settings": "General Settings",
+          "ai": "Configure AI Assistant",
+          "retention": "Configure Data Retention",
           "dashboard": "Dashboard Management"
+        }
+      },
+      "settings": {
+        "title": "General Settings",
+        "description": "Configure system-wide preferences, language, and fallback sensors for when local airfield data is missing.",
+        "data": {
+          "language": "Primary Language",
+          "global_pressure_sensor": "Global Altimeter (QNH) Sensor",
+          "default_pressure": "Default Sea Level Pressure (hPa)"
         }
       },
       "airfield": {
@@ -41,14 +58,17 @@
         "description": "Link your weather sensors to a specific airfield profile.",
         "data": {
           "name": "Airfield Name (e.g., Popham)",
+          "latitude": "Latitude (DD.DDDD)",
+          "longitude": "Longitude (DD.DDDD)",
+          "elevation": "Elevation (Meters Above Mean Sea Level)",
+          "runways": "Available Runways (e.g., 03, 21)",
+          "primary_runway": "Primary Runway (e.g., 21)",
+          "runway_length": "Primary Runway Length (m)",
           "temp_sensor": "Outside Air Temp Sensor",
           "dp_sensor": "Dew Point Sensor",
+          "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor",
-          "runways": "Available Runways (e.g., 03, 21)",
-          "runway_lengths": "Runway Length (m)",
-          "latitude": "Latitude (DD.DDDD)",
-          "longitude": "Longitude (DD.DDDD)"
+          "wind_dir_sensor": "Wind Direction Sensor"
         }
       },
       "airfield_manage": {
@@ -64,14 +84,17 @@
         "description": "Update airfield profile details.",
         "data": {
           "name": "Airfield Name",
+          "latitude": "Latitude (DD.DDDD)",
+          "longitude": "Longitude (DD.DDDD)",
+          "elevation": "Elevation (Meters Above Mean Sea Level)",
+          "runways": "Available Runways",
+          "primary_runway": "Primary Runway",
+          "runway_length": "Primary Runway Length (m)",
           "temp_sensor": "Outside Air Temp Sensor",
           "dp_sensor": "Dew Point Sensor",
+          "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor",
-          "runways": "Available Runways",
-          "runway_lengths": "Runway Length (m)",
-          "latitude": "Latitude",
-          "longitude": "Longitude"
+          "wind_dir_sensor": "Wind Direction Sensor"
         }
       },
       "airfield_delete": {
@@ -145,6 +168,7 @@
         "description": "Enter PIC details for legal documentation.",
         "data": {
           "name": "Full Legal Name",
+          "email": "Email Address (Private)",
           "licence_number": "Pilot Licence Number",
           "licence_type": "Licence Type (e.g., PPL, LAPL, CPL)",
           "medical_expiry": "Medical/Self-Declaration Expiry"
@@ -163,6 +187,7 @@
         "description": "Update PIC details.",
         "data": {
           "name": "Full Legal Name",
+          "email": "Email Address (Private)",
           "licence_number": "Pilot Licence Number",
           "licence_type": "Licence Type",
           "medical_expiry": "Medical/Self-Declaration Expiry"
@@ -188,8 +213,8 @@
         "title": "Automated Briefings",
         "description": "Manage automated weather briefings sent to your email.",
         "menu_options": {
-          "add_briefing": "Add New Briefing",
-          "manage_briefings": "Manage Existing Briefings"
+          "briefing_add": "Add New Briefing",
+          "briefing_manage": "Manage Existing Briefings"
         }
       },
       "briefing_add": {
@@ -199,7 +224,7 @@
           "airfield_name": "Linked Airfield",
           "aircraft_reg": "Linked Aircraft",
           "briefing_time": "Daily Briefing Time (HH:MM)",
-          "email_recipient": "Email Address",
+          "pilots": "Recipients (Pilots)",
           "enable_ai_reporting": "Include AI-Generated Report"
         }
       },
@@ -218,7 +243,7 @@
           "airfield_name": "Linked Airfield",
           "aircraft_reg": "Linked Aircraft",
           "briefing_time": "Daily Briefing Time (HH:MM)",
-          "email_recipient": "Email Address",
+          "pilots": "Recipients (Pilots)",
           "enable_ai_reporting": "Include AI-Generated Report"
         }
       },
@@ -251,7 +276,11 @@
       "density_altitude": { "name": "Density Altitude" },
       "cloud_base": { "name": "Est. Cloud Base" },
       "data_freshness": { "name": "Weather Data Age" },
-      "ground_roll": { "name": "Calculated Ground Roll" }
+      "ground_roll": { "name": "Calculated Ground Roll" },
+      "aibriefingsensor": { "name": "AI Pre-flight Briefing" },
+      "carbrisktransitionsensor": { "name": "Carb Risk Transition Alt" },
+      "primaryrunwaycrosswindsensor": { "name": "Primary Runway Crosswind" },
+      "idealrunwaycrosswindsensor": { "name": "Ideal Runway Crosswind" }
     },
     "binary_sensor": {
       "safety_alert": { "name": "Master Safety Alert" }

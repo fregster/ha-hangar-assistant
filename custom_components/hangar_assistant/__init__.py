@@ -75,8 +75,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up briefing schedules
     for briefing in entry.data.get("briefings", []):
-        async def run_briefing(now, b=briefing):
-            await async_send_briefing(hass, b)
+        async def run_briefing(now, b=briefing, e=entry):
+            await async_send_briefing(hass, b, e)
         
         # Parse HH:MM:SS or HH:MM
         time_parts = briefing["briefing_time"].split(":")
@@ -89,6 +89,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Reload integration if options change in the UI
     entry.async_on_unload(entry.add_update_listener(update_listener))
+
+    # Set up hourly AI briefings if an agent is defined
+    ai_config = entry.data.get("ai_assistant", {})
+    if ai_config.get("ai_agent_entity"):
+        async def run_hourly_ai_briefing(now):
+            await async_generate_all_ai_briefings(hass, entry)
+        
+        entry.async_on_unload(
+            async_track_time_change(hass, run_hourly_ai_briefing, minute=0, second=0)
+        )
+        # Also run once on startup (after a short delay to ensure sensors are ready)
+        async def delayed_startup_briefing():
+            import asyncio
+            await asyncio.sleep(10)
+            await async_generate_all_ai_briefings(hass, entry)
+        
+        hass.async_create_task(delayed_startup_briefing())
 
     return True
 
@@ -216,7 +233,60 @@ async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
 
     await hass.async_add_executor_job(_cleanup)
 
-async def async_send_briefing(hass: HomeAssistant, briefing: dict) -> None:
+async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Trigger AI briefing generation for all airfields."""
+    ai_config = entry.data.get("ai_assistant", {})
+    agent_id = ai_config.get("ai_agent_entity")
+    if not agent_id:
+        return
+
+    from .const import DEFAULT_AI_SYSTEM_PROMPT
+    
+    # Generate briefings for each airfield
+    for airfield in entry.data.get("airfields", []):
+        airfield_name = airfield["name"]
+        slug = airfield_name.lower().replace(" ", "_")
+        
+        # Get current data from our sensors
+        da = hass.states.get(f"sensor.{slug}_density_altitude")
+        carb = hass.states.get(f"sensor.{slug}_carb_risk")
+        wind_speed = hass.states.get(f"sensor.{slug}_weather_wind_speed")
+        wind_dir = hass.states.get(f"sensor.{slug}_weather_wind_direction")
+        
+        user_prompt = (
+            f"Please provide a pre-flight briefing for {airfield_name} for the next 12 hours. "
+            f"Current conditions: Density Altitude {da.state if da else 'unknown'} ft, "
+            f"Carb Risk {carb.state if carb else 'unknown'}, "
+            f"Wind {wind_speed.state if wind_speed else 'unknown'}kt at {wind_dir.state if wind_dir else 'unknown'} degrees. "
+            f"Include a safety outlook for the next 12 hours based on this data and any other aviation weather data you have access to."
+        )
+
+        try:
+            # Call the conversation service
+            # We use return_response=True to get the result back
+            result = await hass.services.async_call(
+                "conversation",
+                "process",
+                {
+                    "agent_id": agent_id,
+                    "text": user_prompt,
+                },
+                blocking=True,
+                return_response=True
+            )
+            
+            if result and "response" in result:
+                response_text = result["response"]["speech"]["plain"]["speech"]
+                # Fire event that the sensors are listening for
+                hass.bus.async_fire("hangar_assistant_ai_briefing", {
+                    "airfield_name": airfield_name,
+                    "text": response_text
+                })
+                _LOGGER.debug("AI Briefing generated for %s", airfield_name)
+        except Exception as e:
+            _LOGGER.error("Error generating AI briefing for %s: %s", airfield_name, e)
+
+async def async_send_briefing(hass: HomeAssistant, briefing: dict, entry: ConfigEntry) -> None:
     """Compose and send the briefing email."""
     airfield_slug = briefing["airfield_name"].lower().replace(" ", "_")
     aircraft_slug = briefing["aircraft_reg"].lower().replace(" ", "_")
@@ -225,6 +295,11 @@ async def async_send_briefing(hass: HomeAssistant, briefing: dict) -> None:
     da = hass.states.get(f"sensor.{airfield_slug}_density_altitude")
     carb = hass.states.get(f"sensor.{airfield_slug}_carb_risk")
     roll = hass.states.get(f"sensor.{aircraft_slug}_calculated_ground_roll")
+    
+    # Get recipient emails from pilot names
+    pilot_names = briefing.get("pilots", [])
+    all_pilots = entry.data.get("pilots", [])
+    recipient_emails = [p["email"] for p in all_pilots if p["name"] in pilot_names]
     
     subject = f"✈️ Hangar Briefing: {briefing['airfield_name']} / {briefing['aircraft_reg']}"
     body = (
@@ -245,6 +320,9 @@ async def async_send_briefing(hass: HomeAssistant, briefing: dict) -> None:
                 "message": body
             }
         )
-        _LOGGER.info("Briefing sent to %s", briefing["email_recipient"])
+        _LOGGER.info("Briefing for %s sent to %s pilots: %s", 
+                    briefing["airfield_name"], 
+                    len(recipient_emails), 
+                    ", ".join(recipient_emails))
     except Exception as e:
         _LOGGER.error("Failed to send briefing: %s", e)

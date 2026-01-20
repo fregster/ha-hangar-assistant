@@ -180,7 +180,17 @@
           "email": "E-Mail-Adresse (Privat)",
           "licence_number": "Pilotenlizenz-Nummer",
           "licence_type": "Lizenztyp (z.B. PPL, LAPL, CPL)",
-          "medical_expiry": "Medizinische Gültigkeit / Eigenabklärung Ablauf"
+          "medical_expiry": "Medizinische Gültigkeit / Eigenabklärung Ablauf",
+          "ifr_rating": "IFR Rating (Instrument)",
+          "night_rating": "Night Rating",
+          "tailwheel_rating": "Tailwheel Endorsement",
+          "complex_rating": "Complex Endorsement (RG/CSU)",
+          "high_performance_rating": "High-Performance Endorsement",
+          "multi_engine_rating": "Multi-Engine Rating",
+          "seaplane_rating": "Seaplane Rating",
+          "glider_rating": "Glider Rating",
+          "aerobatic_rating": "Aerobatic Rating",
+          "mountain_rating": "Mountain Rating"
         }
       },
       "pilot_manage": {
@@ -199,7 +209,17 @@
           "email": "E-Mail-Adresse (Privat)",
           "licence_number": "Pilotenlizenz-Nummer",
           "licence_type": "Lizenztyp",
-          "medical_expiry": "Medizinische Gültigkeit / Eigenabklärung Ablauf"
+          "medical_expiry": "Medizinische Gültigkeit / Eigenabklärung Ablauf",
+          "ifr_rating": "IFR Rating (Instrument)",
+          "night_rating": "Night Rating",
+          "tailwheel_rating": "Tailwheel Endorsement",
+          "complex_rating": "Complex Endorsement (RG/CSU)",
+          "high_performance_rating": "High-Performance Endorsement",
+          "multi_engine_rating": "Multi-Engine Rating",
+          "seaplane_rating": "Seaplane Rating",
+          "glider_rating": "Glider Rating",
+          "aerobatic_rating": "Aerobatic Rating",
+          "mountain_rating": "Mountain Rating"
         }
       },
       "pilot_delete": {
@@ -284,19 +304,88 @@
   },
   "entity": {
     "sensor": {
-      "density_altitude": { "name": "Dichtehöhe" },
-      "cloud_base": { "name": "Geschätzte Wolkenunterkante" },
-      "data_freshness": { "name": "Alter der Wetterdaten" },
-      "ground_roll": { "name": "Berechnete Startrollstrecke" },
-      "aibriefingsensor": { "name": "KI-Vor-Flug-Briefing" },
-      "carbrisktransitionsensor": { "name": "Vergaser-Risiko Übergangshöhe" },
-      "primaryrunwaycrosswindsensor": { "name": "Primäre Landebahn Seitenwind" },
-      "idealrunwaycrosswindsensor": { "name": "Ideale Landebahn Seitenwind" },
-      "pilotinfosensor": { "name": "Pilot-Qualifikationen" }
+      "density_altitude": {
+        "name": "Dichtehöhe",
+        "state": { "description": "Luftdruckhöhe korrigiert auf Nicht-Standard-Temperatur. Höhere DA verringert die Flugleistung." }
+      },
+      "cloud_base": {
+        "name": "Geschätzte Wolkenunterkante",
+        "state": { "description": "Geschätzte Wolkenuntergrenze anhand Temperatur-Taupunkt-Spread. VFR-Minima beachten." }
+      },
+      "carb_risk": {
+        "name": "Vergaser-Eisrisiko",
+        "state": { "description": "Vergaservereisungsrisiko basierend auf Temperatur und Feuchte. Hohes Risiko erfordert Vergaservorwärmung." }
+      },
+      "best_runway": {
+        "name": "Beste Landebahn",
+        "state": { "description": "Empfohlene Bahn basierend auf Windrichtung zur Minimierung der Seitenwindkomponente." }
+      },
+      "performance_margin": {
+        "name": "Performance-Reserve",
+        "state": { "description": "Prozent verbleibender Bahn nach berechneter Startrollstrecke. Höhere Werte bedeuten mehr Sicherheit." }
+      },
+      "ground_roll": {
+        "name": "Berechnete Startrollstrecke",
+        "state": { "description": "Geschätzte Startstrecke angepasst auf Dichtehöhe nach POH-Basiswert." }
+      },
+      "data_freshness": {
+        "name": "Alter der Wetterdaten",
+        "state": { "description": "Zeit seit letzter Aktualisierung der Wettersensoren. Veraltete Daten lösen Sicherheitswarnungen aus." }
+      },
+      "icing_advisory": {
+        "name": "Eiswarnung",
+        "state": { "description": "Kombinierte Bewertung von Frost-, Vergaser- und Zellenvereisung." }
+      },
+      "daylight_countdown": {
+        "name": "Verbleibendes Tageslicht",
+        "state": { "description": "Stunden bis Sonnenuntergang oder -aufgang. Kritisch ohne Nachtflugberechtigung." }
+      },
+      "timezone": {
+        "name": "Zeitzone",
+        "state": { "description": "Lokale Zeitzone des Flugplatzes basierend auf Geokoordinaten." }
+      },
+      "ai_briefing": {
+        "name": "KI-Briefing",
+        "state": { "description": "KI-generiertes Vorflugbriefing zu Wetter, Performance und Sicherheit." }
+      },
+      "aibriefingsensor": {
+        "name": "KI-Vor-Flug-Briefing",
+        "state": { "description": "KI-generiertes Vorflugbriefing zu Wetter, Performance und Sicherheit." }
+      },
+      "carbrisktransitionsensor": {
+        "name": "Vergaser-Risiko Übergangshöhe",
+        "state": { "description": "Höhe, bei der sich das Vergasereisrisiko unter aktuellen Bedingungen ändert." }
+      },
+      "primaryrunwaycrosswindsensor": {
+        "name": "Primäre Landebahn Seitenwind",
+        "state": { "description": "Seitenwindkomponente auf der primären Bahn mit aktuellem Wind." }
+      },
+      "idealrunwaycrosswindsensor": {
+        "name": "Ideale Landebahn Seitenwind",
+        "state": { "description": "Geringste Seitenwindkomponente unter verfügbaren Bahnen bei aktuellem Wind." }
+      },
+      "pilotinfosensor": {
+        "name": "Pilot-Qualifikationen",
+        "state": { "description": "Lizenztyp und Qualifikationen des PIC." }
+      },
+      "backup_integrity": {
+        "name": "Backup-Integrität",
+        "state": { "description": "Integritätsstatus der Konfigurations-Backups." }
+      }
     },
     "binary_sensor": {
-      "safety_alert": { "name": "Master-Sicherheitsalarm" },
-      "pilotmedicalalert": { "name": "Medizinischer Status" }
+      "safety_alert": {
+        "name": "Master-Sicherheitsalarm",
+        "state": { "description": "Kombinierter Sicherheitsalarm überwacht Wetterdatenalter und kritische Vergasereisung." }
+      },
+      "crosswind_alert": {
+        "name": "Seitenwind-Alarm",
+        "state": { "description": "Alarm wenn die Seitenwindkomponente die im Flughandbuch angegebenen Grenzen überschreitet." }
+      },
+      "pilotmedicalalert": {
+        "name": "Medical-Ablaufwarnung",
+        "state": { "description": "Warnung wenn das Tauglichkeitszeugnis bald abläuft oder abgelaufen ist." }
+      }
     }
   }
 }

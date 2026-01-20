@@ -181,7 +181,17 @@
           "email": "Email Address (Private)",
           "licence_number": "Pilot Licence Number",
           "licence_type": "Licence Type (e.g., PPL, LAPL, CPL)",
-          "medical_expiry": "Medical/Self-Declaration Expiry"
+          "medical_expiry": "Medical/Self-Declaration Expiry",
+          "ifr_rating": "IFR Rating (Instrument)",
+          "night_rating": "Night Rating",
+          "tailwheel_rating": "Tailwheel Endorsement",
+          "complex_rating": "Complex Endorsement (RG/CSU)",
+          "high_performance_rating": "High-Performance Endorsement",
+          "multi_engine_rating": "Multi-Engine Rating",
+          "seaplane_rating": "Seaplane Rating",
+          "glider_rating": "Glider Rating",
+          "aerobatic_rating": "Aerobatic Rating",
+          "mountain_rating": "Mountain Rating"
         }
       },
       "pilot_manage": {
@@ -200,7 +210,17 @@
           "email": "Email Address (Private)",
           "licence_number": "Pilot Licence Number",
           "licence_type": "Licence Type",
-          "medical_expiry": "Medical/Self-Declaration Expiry"
+          "medical_expiry": "Medical/Self-Declaration Expiry",
+          "ifr_rating": "IFR Rating (Instrument)",
+          "night_rating": "Night Rating",
+          "tailwheel_rating": "Tailwheel Endorsement",
+          "complex_rating": "Complex Endorsement (RG/CSU)",
+          "high_performance_rating": "High-Performance Endorsement",
+          "multi_engine_rating": "Multi-Engine Rating",
+          "seaplane_rating": "Seaplane Rating",
+          "glider_rating": "Glider Rating",
+          "aerobatic_rating": "Aerobatic Rating",
+          "mountain_rating": "Mountain Rating"
         }
       },
       "pilot_delete": {
@@ -284,15 +304,88 @@
   },
   "entity": {
     "sensor": {
-      "carb_risk": { "name": "Carb Risk" },
-      "best_runway": { "name": "Best Runway" },
-      "data_freshness": { "name": "Data Freshness" },
-      "backup_integrity": { "name": "Backup Integrity" },
-      "pilotinfosensor": { "name": "Pilot Qualifications" }
+      "density_altitude": {
+        "name": "Density Altitude",
+        "state": { "description": "Pressure altitude corrected for non-standard temperature. Higher DA reduces aircraft performance." }
+      },
+      "cloud_base": {
+        "name": "Cloud Base",
+        "state": { "description": "Estimated cloud base height using temperature-dewpoint spread method. VFR minima apply." }
+      },
+      "carb_risk": {
+        "name": "Carb Risk",
+        "state": { "description": "Carburetor icing risk based on temperature and humidity. Serious risk requires carb heat usage." }
+      },
+      "best_runway": {
+        "name": "Best Runway",
+        "state": { "description": "Recommended runway based on wind direction to minimize crosswind component." }
+      },
+      "performance_margin": {
+        "name": "Performance Margin",
+        "state": { "description": "Percentage of runway remaining after calculated ground roll. Higher values indicate safer margins." }
+      },
+      "ground_roll": {
+        "name": "Calculated Ground Roll",
+        "state": { "description": "Estimated takeoff distance adjusted for density altitude using POH baseline performance." }
+      },
+      "data_freshness": {
+        "name": "Weather Data Age",
+        "state": { "description": "Time since weather sensors last updated. Stale data triggers safety alerts." }
+      },
+      "icing_advisory": {
+        "name": "Icing Advisory",
+        "state": { "description": "Combined assessment of frost, carburetor icing, and airframe icing risks." }
+      },
+      "daylight_countdown": {
+        "name": "Daylight Remaining",
+        "state": { "description": "Hours until sunset or sunrise. Critical for pilots without night rating." }
+      },
+      "timezone": {
+        "name": "Timezone",
+        "state": { "description": "Local timezone for the airfield based on geographic coordinates." }
+      },
+      "ai_briefing": {
+        "name": "AI Briefing",
+        "state": { "description": "AI-generated pre-flight briefing covering weather, performance, and safety considerations." }
+      },
+      "aibriefingsensor": {
+        "name": "AI Pre-flight Briefing",
+        "state": { "description": "AI-generated pre-flight briefing covering weather, performance, and safety considerations." }
+      },
+      "carbrisktransitionsensor": {
+        "name": "Carb Risk Transition Alt",
+        "state": { "description": "Altitude where carb ice risk transitions based on current conditions." }
+      },
+      "primaryrunwaycrosswindsensor": {
+        "name": "Primary Runway Crosswind",
+        "state": { "description": "Crosswind component on the primary runway using current wind direction." }
+      },
+      "idealrunwaycrosswindsensor": {
+        "name": "Ideal Runway Crosswind",
+        "state": { "description": "Lowest crosswind component among available runways given current wind." }
+      },
+      "pilotinfosensor": {
+        "name": "Pilot Qualifications",
+        "state": { "description": "Pilot-in-Command licence type and qualifications." }
+      },
+      "backup_integrity": {
+        "name": "Backup Integrity",
+        "state": { "description": "Integrity status of configuration backups." }
+      }
     },
     "binary_sensor": {
-      "safety_alert": { "name": "Safety Alert" },
-      "pilotmedicalalert": { "name": "Medical Status" }
+      "safety_alert": {
+        "name": "Master Safety Alert",
+        "state": { "description": "Composite safety alert monitoring weather data age and critical carb icing conditions." }
+      },
+      "crosswind_alert": {
+        "name": "Crosswind Alert",
+        "state": { "description": "Alert when crosswind component exceeds aircraft limitations specified in POH." }
+      },
+      "pilotmedicalalert": {
+        "name": "Medical Expiry Alert",
+        "state": { "description": "Alert when pilot medical certificate is approaching expiry or has expired." }
+      }
     }
   }
 }

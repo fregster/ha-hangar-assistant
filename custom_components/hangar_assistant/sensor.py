@@ -154,7 +154,7 @@ class DensityAltSensor(HangarSensorBase):
     _attr_native_unit_of_measurement = UnitOfLength.FEET
     _attr_device_class = SensorDeviceClass.DISTANCE
 
-    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict = None):
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
         super().__init__(hass, config)
         self._global_settings = global_settings or {}
         self._source_entities = []
@@ -430,7 +430,7 @@ class IdealRunwayCrosswindSensor(HangarSensorBase):
             return None
 
         runways = [r.strip() for r in config_runways.split(",")]
-        min_xwind = 999
+        min_xwind = 999.0
 
         for r in runways:
             try:
@@ -551,7 +551,7 @@ class BestRunwaySensor(HangarSensorBase):
             return None
 
         best_runway = None
-        min_diff = 360
+        min_diff = 360.0
 
         for r in runways:
             try:

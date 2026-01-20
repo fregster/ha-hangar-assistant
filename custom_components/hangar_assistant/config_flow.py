@@ -9,9 +9,10 @@ from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
-class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class HangarAssistantConfigFlow(config_entries.ConfigFlow):
     """Handle initial onboarding for Hangar Assistant."""
     VERSION = 1
+    DOMAIN = DOMAIN
 
     async def async_step_user(self, user_input=None):
         """Initial step when adding the integration for the first time."""

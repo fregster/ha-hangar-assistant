@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """Binary sensor platform for Hangar Assistant."""
+from datetime import datetime
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
@@ -10,6 +11,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 
@@ -18,17 +20,58 @@ async def async_setup_entry(
     entry: ConfigEntry, 
     async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up Hangar Assistant binary sensors dynamically."""
+    """Set up Hangar Assistant binary sensors from config entry.
+    
+    Creates safety alert entities for each configured airfield and pilot.
+    These sensors act as annunciators that turn ON when alert conditions are met.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: ConfigEntry containing airfields and pilots configuration
+        async_add_entities: Callback to register new entities with Home Assistant
+    
+    Returns:
+        None. Entities registered via async_add_entities callback.
+    """
     entities = []
     
     # Generate a Master Safety Alert for every Airfield in the list
     for airfield in entry.data.get("airfields", []):
         entities.append(HangarMasterSafetyAlert(hass, airfield))
 
+    # Generate a Medical Alert for every Pilot in the list
+    for pilot in entry.data.get("pilots", []):
+        entities.append(PilotMedicalAlert(hass, pilot))
+
     async_add_entities(entities)
 
 class HangarMasterSafetyAlert(BinarySensorEntity):
-    """Annunciator that trips if airfield-specific safety parameters are exceeded."""
+    """Airfield safety annunciator that activates on hazardous conditions.
+    
+    This binary sensor monitors multiple safety parameters for an airfield and returns ON
+    when dangerous conditions are detected. It serves as the primary safety alert for pilots.
+    
+    Alert Triggers:
+        1. Weather Data Stale: Temperature sensor > 30 minutes old
+        2. Carb Icing Risk Serious: Temperature < 25°C AND Dew Point Spread < 5°C
+    
+    Inputs (monitored sensors):
+        - sensor.{airfield_slug}_weather_data_age: Minutes since last temperature update
+        - sensor.{airfield_slug}_carb_risk: Current icing risk level
+    
+    Outputs:
+        - is_on: True if ANY alert condition is present, False if all clear
+        - Device Class: SAFETY (displays as \"Unsafe\" / \"Safe\" in UI)
+    
+    Used by:
+        - Dashboard critical alerts
+        - Automation for notifications
+        - Preflight decision making
+    
+    Example states:
+        - ON (Unsafe): Weather data stale OR icing risk serious
+        - OFF (Safe): Weather fresh AND icing risk low
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -120,4 +163,57 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
             "airfield": self._config["name"],
             "active_alerts": active_reasons,
             "pilot_action_required": len(active_reasons) > 0
+        }
+
+class PilotMedicalAlert(BinarySensorEntity):
+    """Trips if a pilot's medical has expired."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = True
+
+    def __init__(self, hass: HomeAssistant, config: dict):
+        """Initialize the medical alert."""
+        self.hass = hass
+        self._config = config
+        
+        # Unique ID and Slugification
+        self._id_slug = config.get("name", "unknown").lower().replace(" ", "_")
+        self._attr_unique_id = f"{self._id_slug}_medical_expiry_alert"
+        
+        # PROBLEM class shows as 'Problem/OK' or 'Detected/Clear'
+        self._attr_device_class = BinarySensorDeviceClass.PROBLEM
+        
+        # Group under a Pilot device
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, self._id_slug)},
+            name=config.get("name"),
+            manufacturer="Fregster Aviation",
+            model="Hangar Assistant v2601.1",
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Medical Status"
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if the medical has expired."""
+        expiry_str = self._config.get("medical_expiry")
+        if not expiry_str:
+            return False
+        
+        try:
+            # Parse the YYYY-MM-DD date from config
+            expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            return expiry_date < dt_util.now().date()
+        except (ValueError, TypeError):
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return additional info."""
+        return {
+            "expiry_date": self._config.get("medical_expiry"),
+            "licence": self._config.get("licence_number")
         }

@@ -282,10 +282,12 @@
       "aibriefingsensor": { "name": "AI Pre-flight Briefing" },
       "carbrisktransitionsensor": { "name": "Carb Risk Transition Alt" },
       "primaryrunwaycrosswindsensor": { "name": "Primary Runway Crosswind" },
-      "idealrunwaycrosswindsensor": { "name": "Ideal Runway Crosswind" }
+      "idealrunwaycrosswindsensor": { "name": "Ideal Runway Crosswind" },
+      "pilotinfosensor": { "name": "Pilot Qualifications" }
     },
     "binary_sensor": {
-      "safety_alert": { "name": "Master Safety Alert" }
+      "safety_alert": { "name": "Master Safety Alert" },
+      "pilotmedicalalert": { "name": "Medical Status" }
     }
   }
 }

@@ -9,12 +9,39 @@ from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
-class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle initial onboarding for Hangar Assistant."""
+class HangarAssistantConfigFlow(config_entries.ConfigFlow):
+    """Handle initial onboarding for Hangar Assistant.
+    
+    This config flow manages the initial setup when users add the integration.
+    Since Hangar Assistant only supports a single configuration entry, this flow
+    prevents duplicate entries and creates a blank entry to start configuration.
+    
+    After initial setup, users access the full configuration through the Options flow.
+    
+    Steps:
+        1. async_step_user: Check for existing entry, create blank entry if allowed
+    
+    After this flow completes:
+        - Users see the \"Configure\" button to access HangarOptionsFlowHandler
+        - They can add airfields, aircraft, and pilots through the Options menu
+    """
     VERSION = 1
+    DOMAIN = DOMAIN
 
     async def async_step_user(self, user_input=None):
-        """Initial step when adding the integration for the first time."""
+        """Initial step when adding the integration for the first time.
+        
+        Checks if an entry already exists (integration only supports single instance).
+        If allowed, creates a blank ConfigEntry that will be edited through the Options flow.
+        
+        Args:
+            user_input: None on first load, empty dict on form submission
+        
+        Returns:
+            - async_abort(reason=\"already_configured\") if entry exists
+            - async_create_entry(\"Hangar Assistant\", {}) on first-time setup
+            - async_show_form(\"user\") to display the form
+        """
         # Ensure only one instance of the integration is installed
         if self._async_current_entries():
             return self.async_abort(reason="already_configured")
@@ -35,7 +62,26 @@ class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class HangarOptionsFlowHandler(config_entries.OptionsFlow):
-    """Manages the 'Configure' menu for adding/editing data."""
+    """Manages the 'Configure' menu for adding/editing data.
+    
+    This handler provides the full configuration interface accessed through the
+    \"Configure\" button in Settings > Devices & Services > Hangar Assistant.
+    
+    Main Menu Structure:
+        - Airfield (add/manage airfields)
+        - Aircraft (add/manage aircraft)
+        - Pilot (add/manage pilots)
+        - Briefing (add/manage scheduled briefings)
+        - Global Config (settings, AI prompts, retention, dashboard)
+    
+    Data Flow:
+        1. User navigates menu: async_step_init
+        2. Selects category (airfield/aircraft/pilot/briefing/global_config)
+        3. Chooses action (add/edit/delete) if applicable
+        4. Completes form and data is saved to entry.data via async_update_entry
+    
+    Each submenu has add/edit/delete/manage options for managing the corresponding lists.
+    """
 
     async def async_step_init(self, user_input=None):
         """Main configuration menu."""

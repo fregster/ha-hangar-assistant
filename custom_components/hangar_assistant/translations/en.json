@@ -41,6 +41,7 @@
         "description": "Configure system-wide preferences, language, and fallback sensors for when local airfield data is missing.",
         "data": {
           "language": "Primary Language",
+          "unit_preference": "Unit Preference",
           "global_pressure_sensor": "Global Altimeter (QNH) Sensor",
           "default_pressure": "Default Sea Level Pressure (hPa)"
         }
@@ -62,6 +63,7 @@
           "latitude": "Latitude (DD.DDDD)",
           "longitude": "Longitude (DD.DDDD)",
           "elevation": "Elevation (Meters Above Mean Sea Level)",
+          "distance_unit": "Distance Unit",
           "runways": "Available Runways (e.g., 03, 21)",
           "primary_runway": "Primary Runway (e.g., 21)",
           "runway_length": "Primary Runway Length (m)",
@@ -69,7 +71,9 @@
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor"
+          "wind_dir_sensor": "Wind Direction Sensor",
+          "radio_frequency": "Radio Frequency",
+          "ppl_required": "Prior Permission to Land required"
         }
       },
       "airfield_manage": {
@@ -89,6 +93,7 @@
           "latitude": "Latitude (DD.DDDD)",
           "longitude": "Longitude (DD.DDDD)",
           "elevation": "Elevation (Meters Above Mean Sea Level)",
+          "distance_unit": "Distance Unit",
           "runways": "Available Runways",
           "primary_runway": "Primary Runway",
           "runway_length": "Primary Runway Length (m)",
@@ -96,7 +101,9 @@
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor"
+          "wind_dir_sensor": "Wind Direction Sensor",
+          "radio_frequency": "Radio Frequency",
+          "ppl_required": "Prior Permission to Land required"
         }
       },
       "airfield_delete": {
@@ -268,7 +275,9 @@
         "title": "Dashboard Management",
         "description": "Rebuild the Hangar Assistant dashboard if it was deleted or to apply template updates.\n\nCurrent Dashboard Version: {current_version}\nTemplate Version: {template_version}\nLast Updated: {last_updated}",
         "data": {
-          "action": "Action"
+          "recreate_dashboard": "Recreate dashboard now",
+          "send_setup_help": "Send sidebar setup instructions (persistent notification)",
+          "fire_setup_event": "Fire 'hangar_assistant_dashboard_setup' event for automations"
         }
       }
     }

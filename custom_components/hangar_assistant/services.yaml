@@ -20,3 +20,22 @@ rebuild_dashboard:
 refresh_ai_briefings:
   name: Refresh AI Briefings
   description: Manually triggers the AI to generate new pre-flight briefings for all configured airfields.
+
+speak_briefing:
+  name: Speak AI Briefing
+  description: Speak the current AI pre-flight briefing via the configured TTS engine and media player. If no media player is provided, the service prefers a browser-based player (current device) when available, otherwise falls back to the first available media player.
+  fields:
+    tts_entity_id:
+      name: TTS Engine
+      description: TTS engine entity (e.g., tts.cloud)
+      example: tts.cloud
+      selector:
+        entity:
+          domain: tts
+    media_player_entity_id:
+      name: Media Player
+      description: Target media player (e.g., media_player.living_room). Optional; defaults to the device in use (browser) when available.
+      example: media_player.living_room
+      selector:
+        entity:
+          domain: media_player

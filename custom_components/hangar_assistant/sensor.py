@@ -3,6 +3,7 @@ from __future__ import annotations
 """Sensor platform for Hangar Assistant."""
 import logging
 import math
+from datetime import datetime, timedelta, timezone
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -19,7 +20,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, UNIT_PREFERENCE_AVIATION, DEFAULT_UNIT_PREFERENCE
+from .const import (
+    DOMAIN,
+    UNIT_PREFERENCE_AVIATION,
+    DEFAULT_UNIT_PREFERENCE,
+    DEFAULT_STALE_WEATHER_MINUTES,
+    DEFAULT_DA_CAUTION_FT,
+    DEFAULT_DA_WARNING_FT,
+    DEFAULT_FROST_TEMP_C,
+    DEFAULT_SURFACE_ICE_SPREAD_C,
+    DEFAULT_AIRFRAME_ICING_MIN_C,
+    DEFAULT_AIRFRAME_ICING_MAX_C,
+    DEFAULT_SATURATION_SPREAD_C,
+)
 from .utils.units import convert_altitude, convert_speed, get_altitude_unit, get_speed_unit
 
 try:
@@ -55,16 +68,24 @@ async def async_setup_entry(
     
     # 1. Process Airfields from the list
     global_settings = entry.data.get("settings", {})
-    for airfield in entry.data.get("airfields", []):
+    airfields = [a for a in entry.data.get("airfields", []) if isinstance(a, dict)]
+    airfield_lookup = {
+        (a.get("name") or "").lower(): a for a in airfields if a.get("name")
+    }
+
+    for airfield in airfields:
         entities.extend([
             DensityAltSensor(hass, airfield, global_settings),
             CloudBaseSensor(hass, airfield, global_settings),
             DataFreshnessSensor(hass, airfield, global_settings),
             CarbRiskSensor(hass, airfield, global_settings),
             CarbRiskTransitionSensor(hass, airfield, global_settings),
+            IcingAdvisorySensor(hass, airfield, global_settings),
+            DaylightCountdownSensor(hass, airfield, global_settings),
             BestRunwaySensor(hass, airfield, global_settings),
             PrimaryRunwayCrosswindSensor(hass, airfield, global_settings),
             IdealRunwayCrosswindSensor(hass, airfield, global_settings),
+            RunwaySuitabilitySensor(hass, airfield, global_settings),
             AirfieldTimezoneSensor(hass, airfield, global_settings),
             AIBriefingSensor(hass, airfield, global_settings),
             AirfieldWeatherPassThrough(hass, airfield, "temp_sensor", "Temperature", SensorDeviceClass.TEMPERATURE, "°C", global_settings),
@@ -76,7 +97,10 @@ async def async_setup_entry(
 
     # 2. Process Aircraft from the list
     for aircraft in entry.data.get("aircraft", []):
+        linked_name = (aircraft.get("linked_airfield") or "").lower()
+        linked_airfield = airfield_lookup.get(linked_name, {})
         entities.append(GroundRollSensor(hass, aircraft, global_settings))
+        entities.append(PerformanceMarginSensor(hass, aircraft, linked_airfield, global_settings))
 
     # 3. Process Pilots from the list
     for pilot in entry.data.get("pilots", []):
@@ -225,6 +249,8 @@ class DensityAltSensor(HangarSensorBase):
             self._source_entities.append(global_sensor)
         # Set unit based on preference
         self._attr_native_unit_of_measurement = get_altitude_unit(self._unit_preference)
+        self._da_caution_ft = self._global_settings.get("da_caution_ft", DEFAULT_DA_CAUTION_FT)
+        self._da_warning_ft = self._global_settings.get("da_warning_ft", DEFAULT_DA_WARNING_FT)
 
     @property
     def name(self) -> str:
@@ -276,6 +302,55 @@ class DensityAltSensor(HangarSensorBase):
         # Convert to user's preferred unit
         converted = convert_altitude(da_feet, from_feet=True, to_preference=self._unit_preference)
         return round(converted) if converted is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return density altitude advisory banner metadata."""
+        attrs = super().extra_state_attributes
+
+        da_value = self.native_value
+        da_unit = self._attr_native_unit_of_measurement
+        da_feet = None
+        if da_value is not None:
+            if self._unit_preference == UNIT_PREFERENCE_AVIATION:
+                da_feet = da_value
+            else:
+                da_feet = convert_altitude(
+                    da_value,
+                    from_feet=False,
+                    to_preference=UNIT_PREFERENCE_AVIATION,
+                )
+        da_feet = round(da_feet) if da_feet is not None else None
+
+        status = "Unknown DA"
+        severity = "unknown"
+        recommendation = "Waiting for weather data."
+
+        if da_feet is not None:
+            status = "Nominal DA"
+            severity = "normal"
+            recommendation = "Performance near standard day; verify usual margins."
+            if da_feet >= self._da_warning_ft:
+                status = "High DA"
+                severity = "warning"
+                recommendation = "Significant performance penalty; ensure runway and climb margins."
+            elif da_feet >= self._da_caution_ft:
+                status = "Elevated DA"
+                severity = "caution"
+                recommendation = "Expect longer ground roll; lean mixture and confirm takeoff distance."
+
+        attrs.update(
+            {
+                "da_status": status,
+                "da_severity": severity,
+                "da_recommendation": recommendation,
+                "da_feet": da_feet,
+                "da_unit": da_unit,
+                "da_caution_threshold_ft": self._da_caution_ft,
+                "da_warning_threshold_ft": self._da_warning_ft,
+            }
+        )
+        return attrs
 
 class CloudBaseSensor(HangarSensorBase):
     """Estimates cloud base height Above Ground Level (AGL).
@@ -359,6 +434,10 @@ class DataFreshnessSensor(HangarSensorBase):
     _attr_native_unit_of_measurement = "min"
     _attr_should_poll = True
 
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        self._stale_threshold = (global_settings or {}).get("stale_weather_minutes", DEFAULT_STALE_WEATHER_MINUTES)
+
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
@@ -377,6 +456,27 @@ class DataFreshnessSensor(HangarSensorBase):
         from homeassistant.util import dt as dt_util
         diff = dt_util.utcnow() - state.last_updated
         return int(diff.total_seconds() / 60)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        age_minutes = self.native_value
+        threshold = self._stale_threshold or DEFAULT_STALE_WEATHER_MINUTES
+        status = None
+        if age_minutes is not None:
+            if age_minutes <= 5:
+                status = "fresh"
+            elif age_minutes <= threshold:
+                status = "acceptable"
+            else:
+                status = "stale"
+        attrs.update(
+            {
+                "status": status,
+                "threshold_minutes": threshold,
+            }
+        )
+        return attrs
 
 class CarbRiskSensor(HangarSensorBase):
     """Assesses carburetor icing risk based on temperature and humidity.
@@ -524,6 +624,273 @@ class CarbRiskTransitionSensor(HangarSensorBase):
         converted = convert_altitude(alt_feet, from_feet=True, to_preference=self._unit_preference)
         return round(converted) if converted is not None else None
 
+
+class IcingAdvisorySensor(HangarSensorBase):
+    """Provides a consolidated frost/carb/icing advisory strip for an airfield.
+
+    This sensor fuses surface frost risk, carburetor icing risk, and in-flight
+    icing potential into a single advisory string suitable for dashboard display.
+    It draws from ambient temperature, dew point, and the sibling `CarbRiskSensor`
+    to highlight when de-icing, carb heat, or icing avoidance procedures may be
+    required.
+
+    Inputs:
+        - temp_sensor: Airfield temperature sensor (°C)
+        - dp_sensor: Airfield dew point sensor (°C)
+        - carb risk entity (sibling): sensor.{slug}_carb_risk (optional)
+
+    Outputs/Behavior:
+        - native_value: Advisory label (e.g., "Surface Ice Risk", "Frost Risk",
+          "Airframe Icing Potential", "Serious Carb Icing", "Clear")
+        - Attributes: severity (normal/caution/warning), recommendation text,
+          flags for frost/surface ice/airframe icing potential, carb risk level,
+          dewpoint spread, and thresholds used
+
+    Used by:
+        - Dashboard icing strip for pilots/CFIs
+        - Preflight briefing to flag anti-ice/ground de-icing needs
+    """
+
+    _attr_icon = "mdi:snowflake-alert"
+
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        t_sensor = config.get("temp_sensor")
+        dp_sensor = config.get("dp_sensor")
+        self._source_entities = [e for e in (t_sensor, dp_sensor) if e]
+
+        self._frost_temp_c = self._global_settings.get("frost_temp_c", DEFAULT_FROST_TEMP_C)
+        self._surface_ice_spread_c = self._global_settings.get("surface_ice_spread_c", DEFAULT_SURFACE_ICE_SPREAD_C)
+        self._airframe_icing_min_c = self._global_settings.get("airframe_icing_min_c", DEFAULT_AIRFRAME_ICING_MIN_C)
+        self._airframe_icing_max_c = self._global_settings.get("airframe_icing_max_c", DEFAULT_AIRFRAME_ICING_MAX_C)
+        self._saturation_spread_c = self._global_settings.get("saturation_spread_c", DEFAULT_SATURATION_SPREAD_C)
+        self._carb_entity_id = f"sensor.{self._id_slug}_carb_risk"
+
+    @property
+    def name(self) -> str:
+        return "Icing Advisory"
+
+    def _get_carb_level(self) -> str:
+        state = self.hass.states.get(self._carb_entity_id)
+        if state and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return str(state.state)
+        return "Unknown"
+
+    def _evaluate(self) -> dict:
+        t_id = self._config.get("temp_sensor")
+        dp_id = self._config.get("dp_sensor")
+        if not t_id or not dp_id:
+            return {
+                "label": "Unknown",
+                "severity": "unknown",
+                "recommendation": "Waiting for temperature and dew point.",
+                "frost_risk": False,
+                "surface_ice_risk": False,
+                "airframe_icing_potential": False,
+                "carb_risk_level": "Unknown",
+                "spread_c": None,
+                "temp_c": None,
+            }
+
+        temp = self._get_sensor_value(t_id)
+        dp = self._get_sensor_value(dp_id)
+        if temp is None or dp is None:
+            return {
+                "label": "Unknown",
+                "severity": "unknown",
+                "recommendation": "Waiting for temperature and dew point.",
+                "frost_risk": False,
+                "surface_ice_risk": False,
+                "airframe_icing_potential": False,
+                "carb_risk_level": "Unknown",
+                "spread_c": None,
+                "temp_c": temp,
+            }
+
+        spread = temp - dp
+        frost_risk = 0 < temp <= self._frost_temp_c and spread <= self._saturation_spread_c
+        surface_ice_risk = temp <= 0 and spread <= self._surface_ice_spread_c
+        airframe_icing_potential = (
+            self._airframe_icing_min_c <= temp <= self._airframe_icing_max_c
+            and spread <= self._saturation_spread_c
+        )
+        carb_level = self._get_carb_level()
+
+        label = "Clear"
+        severity = "normal"
+        recommendation = "No immediate icing or frost risks detected."
+
+        if surface_ice_risk:
+            label = "Surface Ice Risk"
+            severity = "warning"
+            recommendation = "Plan for de-icing and braking performance checks."
+        elif frost_risk:
+            label = "Frost Risk"
+            severity = "caution"
+            recommendation = "Inspect for frost; consider de-icing or sun warm-up."
+        elif airframe_icing_potential:
+            label = "Airframe Icing Potential"
+            severity = "warning"
+            recommendation = "Expect icing in visible moisture; plan anti-ice and escape strategy."
+        elif carb_level == "Serious Risk":
+            label = "Serious Carb Icing"
+            severity = "warning"
+            recommendation = "Use carb heat proactively; avoid low power in moisture."
+        elif carb_level == "Moderate Risk":
+            label = "Moderate Carb Icing"
+            severity = "caution"
+            recommendation = "Monitor carb temps; apply heat during descent or low power."
+
+        return {
+            "label": label,
+            "severity": severity,
+            "recommendation": recommendation,
+            "frost_risk": frost_risk,
+            "surface_ice_risk": surface_ice_risk,
+            "airframe_icing_potential": airframe_icing_potential,
+            "carb_risk_level": carb_level,
+            "spread_c": round(spread, 1),
+            "temp_c": round(temp, 1),
+        }
+
+    @property
+    def native_value(self) -> str:
+        return self._evaluate().get("label", "Unknown")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        data = self._evaluate()
+        attrs.update(
+            {
+                "severity": data.get("severity"),
+                "recommendation": data.get("recommendation"),
+                "frost_risk": data.get("frost_risk"),
+                "surface_ice_risk": data.get("surface_ice_risk"),
+                "airframe_icing_potential": data.get("airframe_icing_potential"),
+                "carb_risk_level": data.get("carb_risk_level"),
+                "dewpoint_spread_c": data.get("spread_c"),
+                "temp_c": data.get("temp_c"),
+                "frost_temp_threshold_c": self._frost_temp_c,
+                "surface_ice_spread_threshold_c": self._surface_ice_spread_c,
+                "airframe_icing_min_c": self._airframe_icing_min_c,
+                "airframe_icing_max_c": self._airframe_icing_max_c,
+                "saturation_spread_threshold_c": self._saturation_spread_c,
+            }
+        )
+        return attrs
+
+
+class DaylightCountdownSensor(HangarSensorBase):
+    """Provides legal daylight countdowns using Home Assistant sun events.
+
+    Calculates minutes until the end of legal daylight (sunset + 30 minutes) when
+    above the horizon, or minutes until legal daylight begins (30 minutes before
+    next sunrise) when below the horizon. Uses Home Assistant's `sun.sun` entity
+    to avoid external dependencies and falls back gracefully if unavailable.
+
+    Inputs:
+        - sun.sun entity (global HA sun integration)
+
+    Outputs/Behavior:
+        - native_value: Minutes until the next legal daylight boundary (int)
+        - Attributes: phase (day/night), next_rising/next_setting, legal daylight
+          start/end timestamps, and remaining/start countdowns in minutes
+
+    Used by:
+        - Dashboard daylight countdown strip for pre-flight checks
+        - Briefings to indicate day/night legality window
+    """
+
+    _attr_icon = "mdi:weather-sunset"
+    _attr_native_unit_of_measurement = "min"
+
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        # Track sun state changes for live countdowns
+        self._source_entities = ["sun.sun"]
+
+    @property
+    def name(self) -> str:
+        return "Daylight Countdown"
+
+    def _parse_iso(self, value: str | None):
+        if not value:
+            return None
+        parsed = None
+        # Prefer Home Assistant parser if available
+        if hasattr(dt_util, "parse_datetime"):
+            parsed = dt_util.parse_datetime(value)  # type: ignore[attr-defined]
+        if parsed is None:
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _compute(self):
+        now = dt_util.utcnow()
+        sun = self.hass.states.get("sun.sun")
+        if not sun:
+            return None
+
+        next_rising = self._parse_iso(sun.attributes.get("next_rising"))
+        next_setting = self._parse_iso(sun.attributes.get("next_setting"))
+        phase = "day" if sun.state == "above_horizon" else "night"
+
+        daylight_end = next_setting + timedelta(minutes=30) if next_setting else None
+        daylight_start = next_rising - timedelta(minutes=30) if next_rising else None
+
+        countdown = None
+        daylight_remaining = None
+        daylight_starts_in = None
+
+        if phase == "day" and daylight_end:
+            diff = (daylight_end - now).total_seconds() / 60
+            countdown = max(0, int(diff))
+            daylight_remaining = countdown
+        elif phase == "night" and daylight_start:
+            diff = (daylight_start - now).total_seconds() / 60
+            countdown = max(0, int(diff))
+            daylight_starts_in = countdown
+
+        return {
+            "countdown": countdown,
+            "phase": phase,
+            "next_rising": next_rising.isoformat() if next_rising else None,
+            "next_setting": next_setting.isoformat() if next_setting else None,
+            "legal_daylight_end": daylight_end.isoformat() if daylight_end else None,
+            "legal_daylight_start": daylight_start.isoformat() if daylight_start else None,
+            "daylight_remaining_min": daylight_remaining,
+            "daylight_starts_in_min": daylight_starts_in,
+        }
+
+    @property
+    def native_value(self) -> int | None:
+        data = self._compute()
+        if not data:
+            return None
+        return data.get("countdown")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        data = self._compute() or {}
+        attrs.update(
+            {
+                "phase": data.get("phase"),
+                "next_rising": data.get("next_rising"),
+                "next_setting": data.get("next_setting"),
+                "legal_daylight_end": data.get("legal_daylight_end"),
+                "legal_daylight_start": data.get("legal_daylight_start"),
+                "daylight_remaining_min": data.get("daylight_remaining_min"),
+                "daylight_starts_in_min": data.get("daylight_starts_in_min"),
+            }
+        )
+        return attrs
+
 class PrimaryRunwayCrosswindSensor(HangarSensorBase):
     """Calculates the crosswind component for the primary runway.
     
@@ -652,6 +1019,132 @@ class IdealRunwayCrosswindSensor(HangarSensorBase):
         # Convert to user's preferred unit
         min_xwind_converted = convert_speed(min_xwind, from_knots=True, to_preference=self._unit_preference)
         return round(min_xwind_converted, 1) if min_xwind_converted else None
+
+
+class RunwaySuitabilitySensor(HangarSensorBase):
+    """Summarizes runway wind components and recommends the best runway.
+    
+    Provides a runway-by-runway matrix of crosswind/headwind/tailwind components using
+    current wind direction and speed. Helps pilots and instructors quickly assess runway
+    suitability before arrival at the airfield.
+
+    Inputs (from config):
+        - runways: Comma-separated list of runway identifiers (e.g., "03, 21")
+        - wind_sensor: Entity ID of wind speed sensor (knots)
+        - wind_dir_sensor: Entity ID of wind direction sensor (degrees)
+
+    Outputs:
+        - native_value: The recommended runway identifier with the lowest crosswind
+        - extra_state_attributes: Runway matrix with crosswind/headwind components and
+          unit-aware values for dashboard display
+
+    Used by:
+        - Dashboard suitability matrix cards
+        - Crosswind envelope checks for quick decision support
+    """
+
+    _attr_icon = "mdi:run"
+
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        w_sensor = config.get("wind_sensor")
+        wd_sensor = config.get("wind_dir_sensor")
+        if w_sensor and wd_sensor:
+            self._source_entities = [w_sensor, wd_sensor]
+
+    @property
+    def name(self) -> str:
+        return "Runway Suitability"
+
+    def _evaluate_runways(self) -> tuple[str | None, list[dict], float | None, float | None, float | None]:
+        """Compute best runway and per-runway components.
+        
+        Returns a tuple of (best_runway, matrix, min_crosswind_kt, wind_speed, wind_dir).
+        Values fall back to None when inputs are missing to keep existing installs stable.
+        """
+        wd_id = self._config.get("wind_dir_sensor")
+        w_id = self._config.get("wind_sensor")
+        runways_value = self._config.get("runways")
+
+        if not wd_id or not w_id or not runways_value:
+            return None, [], None, None, None
+
+        wind_dir = self._get_sensor_value(wd_id)
+        wind_speed = self._get_sensor_value(w_id)
+        if wind_dir is None or wind_speed is None:
+            return None, [], None, wind_speed, wind_dir
+
+        runways = [r.strip() for r in runways_value.split(",") if r.strip()]
+        matrix: list[dict] = []
+        best_runway = None
+        min_crosswind = None
+
+        for runway in runways:
+            try:
+                heading = int(runway) * 10
+            except (ValueError, TypeError):
+                continue
+
+            angle_diff = abs((wind_dir - heading + 180) % 360 - 180)
+            angle_rad = math.radians(wind_dir - heading)
+            crosswind_kt = abs(wind_speed * math.sin(angle_rad))
+            headwind_kt = wind_speed * math.cos(angle_rad)
+
+            crosswind_unit = convert_speed(crosswind_kt, from_knots=True, to_preference=self._unit_preference)
+            headwind_unit = convert_speed(headwind_kt, from_knots=True, to_preference=self._unit_preference)
+            tailwind_unit = abs(headwind_unit) if headwind_unit is not None and headwind_unit < 0 else 0
+
+            matrix.append(
+                {
+                    "runway": runway,
+                    "heading": heading,
+                    "angle_off": round(angle_diff, 1),
+                    "crosswind": round(crosswind_unit, 1) if crosswind_unit is not None else None,
+                    "headwind": round(headwind_unit, 1) if headwind_unit is not None else None,
+                    "tailwind": round(tailwind_unit, 1) if tailwind_unit else 0,
+                    "component_unit": get_speed_unit(self._unit_preference),
+                }
+            )
+
+            if min_crosswind is None or crosswind_kt < min_crosswind:
+                min_crosswind = crosswind_kt
+                best_runway = runway
+
+        return best_runway, matrix, min_crosswind, wind_speed, wind_dir
+
+    @property
+    def native_value(self) -> str | None:
+        best_runway, _, _, _, _ = self._evaluate_runways()
+        return best_runway
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        best_runway, matrix, min_crosswind, wind_speed, wind_dir = self._evaluate_runways()
+
+        if matrix:
+            attrs.update(
+                {
+                    "best_runway": best_runway,
+                    "runway_matrix": matrix,
+                    "runways_evaluated": len(matrix),
+                    "wind_direction": wind_dir,
+                    "wind_speed": convert_speed(wind_speed, from_knots=True, to_preference=self._unit_preference)
+                    if wind_speed is not None
+                    else None,
+                    "wind_unit": get_speed_unit(self._unit_preference),
+                }
+            )
+
+            if min_crosswind is not None:
+                min_crosswind_unit = convert_speed(
+                    min_crosswind,
+                    from_knots=True,
+                    to_preference=self._unit_preference,
+                )
+                attrs["min_crosswind"] = round(min_crosswind_unit, 1) if min_crosswind_unit is not None else None
+
+        return attrs
 
 class AIBriefingSensor(HangarSensorBase):
     """Stores and displays the latest AI-generated pre-flight briefing.
@@ -995,6 +1488,126 @@ class GroundRollSensor(HangarSensorBase):
         adjusted_m = base_m * 1.15
         adjusted_converted = convert_altitude(adjusted_m, from_feet=False, to_preference=self._unit_preference)
         return round(adjusted_converted) if adjusted_converted is not None else None
+
+
+class PerformanceMarginSensor(HangarSensorBase):
+    """Calculates runway performance margin for the linked airfield.
+
+    Uses the aircraft's adjusted ground roll (based on density altitude) and compares it
+    to the available runway length to express remaining margin as a percentage. Defaults
+    to conservative assumptions and safe fallbacks to preserve existing behavior when
+    optional inputs are missing.
+
+    Inputs (from config):
+        - baseline_roll: POH ground roll at sea level in meters
+        - linked_airfield: Name of the airfield to derive runway length and DA sensor
+        - airfield.runway_length: Available runway length in meters (applied to all listed runways)
+        - airfield.name: Used to locate DA sensor and best runway sibling sensor
+
+    Outputs:
+        - native_value: Margin percentage ((runway - required) / runway * 100)
+        - Attributes: required_distance, available_runway, recommended_runway, DA used
+
+    Used by:
+        - Dashboard runway suitability panels
+        - Pre-taxi go/no-go nudges for instructors and pilots
+    """
+
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        aircraft_config: dict,
+        airfield_config: dict | None,
+        global_settings: dict | None = None,
+    ):
+        super().__init__(hass, aircraft_config, global_settings)
+        self._airfield = airfield_config or {}
+        self._airfield_name = self._airfield.get("name") or self._config.get("linked_airfield")
+        self._runway_length_m = self._airfield.get("runway_length", 0) or 0
+
+        self._da_sensor_id: str | None = None
+        self._best_runway_id: str | None = None
+        if self._airfield_name:
+            slug = self._airfield_name.lower().replace(" ", "_")
+            self._da_sensor_id = f"sensor.{slug}_density_altitude"
+            self._best_runway_id = f"sensor.{slug}_best_runway"
+
+        sources = []
+        if self._da_sensor_id:
+            sources.append(self._da_sensor_id)
+        if self._best_runway_id:
+            sources.append(self._best_runway_id)
+        self._source_entities = sources
+
+    @property
+    def name(self) -> str:
+        return "Runway Performance Margin"
+
+    def _get_da_feet(self) -> float:
+        if not self._da_sensor_id:
+            return 0.0
+        da_val = self._get_sensor_value(self._da_sensor_id)
+        if da_val is None:
+            return 0.0
+        if self._unit_preference == "si":
+            da_ft = convert_altitude(da_val, from_feet=False, to_preference="aviation")
+            return float(da_ft) if da_ft is not None else 0.0
+        return float(da_val)
+
+    def _compute_required_distance_m(self) -> float:
+        base_m = float(self._config.get("baseline_roll", 0) or 0)
+        if base_m <= 0:
+            return 0.0
+
+        da_ft = self._get_da_feet()
+        if da_ft <= 0:
+            # Conservative fallback if DA missing: +15%
+            return base_m * 1.15
+
+        factor = 1 + (da_ft / 1000) * 0.10
+        return base_m * factor
+
+    def _recommended_runway(self) -> str | None:
+        if not self._best_runway_id:
+            return None
+        state = self.hass.states.get(self._best_runway_id)
+        if state and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return str(state.state)
+        return None
+
+    @property
+    def native_value(self) -> float | None:
+        if self._runway_length_m <= 0:
+            return None
+
+        required_m = self._compute_required_distance_m()
+        if required_m <= 0:
+            return None
+
+        margin_pct = ((self._runway_length_m - required_m) / self._runway_length_m) * 100
+        return round(margin_pct, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        attrs.update(
+            {
+                "runway_length_m": self._runway_length_m,
+                "runway_length_unit": get_altitude_unit(self._unit_preference),
+                "airfield": self._airfield_name,
+                "recommended_runway": self._recommended_runway(),
+            }
+        )
+
+        required_m = self._compute_required_distance_m()
+        required_unit = convert_altitude(required_m, from_feet=False, to_preference=self._unit_preference)
+        attrs["required_distance"] = round(required_unit, 1) if required_unit is not None else None
+        attrs["required_distance_unit"] = get_altitude_unit(self._unit_preference)
+        attrs["density_altitude_ft"] = round(self._get_da_feet(), 1)
+
+        return attrs
 
 class PilotInfoSensor(HangarSensorBase):
     """Displays pilot qualification and license information.

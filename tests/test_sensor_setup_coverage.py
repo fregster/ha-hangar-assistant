@@ -8,6 +8,7 @@ from custom_components.hangar_assistant.sensor import (
     HangarSensorBase,
     DensityAltSensor,
     CloudBaseSensor,
+    PerformanceMarginSensor,
 )
 
 
@@ -88,6 +89,7 @@ async def test_async_setup_entry_creates_aircraft_sensors(
 
     # Check for aircraft sensor
     assert "GroundRollSensor" in sensor_types
+    assert "PerformanceMarginSensor" in sensor_types
 
 
 @pytest.mark.asyncio

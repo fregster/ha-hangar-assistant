@@ -9,6 +9,7 @@ DOMAIN = "hangar_assistant"
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.SELECT,
 ]
 
 # Attribute constants used for legal and data tracking
@@ -21,6 +22,16 @@ DEFAULT_RETENTION_MONTHS = 7
 
 # Dashboard version for tracking template updates
 DEFAULT_DASHBOARD_VERSION = 2
+
+# Weather freshness defaults
+DEFAULT_STALE_WEATHER_MINUTES = 30
+DEFAULT_DA_CAUTION_FT = 3000
+DEFAULT_DA_WARNING_FT = 6000
+DEFAULT_FROST_TEMP_C = 3
+DEFAULT_SURFACE_ICE_SPREAD_C = 2
+DEFAULT_AIRFRAME_ICING_MIN_C = -10
+DEFAULT_AIRFRAME_ICING_MAX_C = 5
+DEFAULT_SATURATION_SPREAD_C = 3
 
 # Unit preferences
 UNIT_PREFERENCE_AVIATION = "aviation"  # Feet, knots, pounds

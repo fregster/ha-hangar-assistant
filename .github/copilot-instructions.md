@@ -340,3 +340,14 @@ These commonly cause runtime errors if not properly typed/used:
 3. **State machine access**: Handle `None` and "unavailable" states gracefully
 4. **Async functions**: All `async_*` methods must be awaited in async context
 5. **Event listeners**: Remember to call `async_on_remove()` to prevent memory leaks
+
+## Localization & Translations Guidance
+
+To ensure a consistent, high-quality multilingual UI, follow these rules:
+
+- **English is the source of truth**: Add or change UI strings first in `custom_components/hangar_assistant/strings.json` and `translations/en.json`. Treat English as the default pack.
+- **Translate to available packs**: Mirror all English keys to the available language packs `translations/de.json`, `translations/es.json`, and `translations/fr.json`. If a precise translation isn’t available, temporarily copy the English string so the UI remains complete.
+- **No hardcoded text**: Do not hardcode user-facing strings in Python or YAML. Use the HA translation framework (strings.json + translations/*.json) for config flows and entity names.
+- **Deep key completeness**: Ensure each non-English pack contains all keys present in the English pack (including nested `options.step.*.*.data` and `menu_options`). A unit test must verify deep key parity across all packs.
+- **When generating new content with AI**: Default to English phrasing, then translate into the available language packs where possible. Keep aviation terminology clear and consistent across languages.
+- **Review and QA**: After changing translations, run `pytest` to confirm deep key completeness and that config flows render without placeholders.

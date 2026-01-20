@@ -1,7 +1,3 @@
-# --- HANGAR ASSISTANT CONSOLIDATED GLASS COCKPIT (v2601.1) ---
-# NOTE: This template uses placeholder slugs. Replace 'airfield_slug' and 'aircraft_slug' 
-# with your actual entity IDs (e.g. 'sensor.popham_carb_risk').
-
 title: Hangar Assistant
 views:
   - title: Hangar Overview
@@ -9,98 +5,633 @@ views:
     type: sections
     max_columns: 3
     sections:
-      - title: Quick Status
-        cards:
-          - type: custom:mushroom-chips-card
-            chips:
-              - type: template
-                content: "Data Age: {{ states('sensor.airfield_slug_weather_data_age') }}m"
-                icon: mdi:clock-outline
-                icon_color: "{{ 'green' if states('sensor.airfield_slug_weather_data_age')|int < 30 else 'red' }}"
-              - type: template
-                content: "Density Alt: {{ states('sensor.airfield_slug_density_altitude') }}ft"
-                icon: mdi:elevation-rise
-
-      - title: Primary Airfield Briefing
-        cards:
-          - type: custom:mushroom-template-card
-            primary: "RECOMMENDED RUNWAY"
-            secondary: >-
-              {% set rwy = states('sensor.airfield_slug_best_runway') %}
-              {% set xw = state_attr('sensor.airfield_slug_best_runway', 'crosswind_component') | float(0) %}
-              RWY {{ rwy }} | {{ xw }}kt Crosswind
-            icon: mdi:airport
-            icon_color: "{{ 'green' if xw < 12 else 'orange' if xw < 15 else 'red' }}"
-            tap_action:
-              action: more-info
-            entity: sensor.airfield_slug_best_runway
-
+      - cards:
+          - type: heading
+            heading: Selection
           - type: grid
-            columns: 2
+            columns: 1
             square: false
             cards:
               - type: custom:mushroom-entity-card
-                entity: sensor.airfield_slug_carb_risk
-                name: Carb Icing
-                icon_color: "{{ state_attr('sensor.airfield_slug_carb_risk', 'color') }}"
+                entity: select.hangar_assistant_airfield_selector
+                name: Airfield Selector
+                icon: mdi:airplane-takeoff
+            column_span: 1
+          - type: grid
+            columns: 1
+            square: false
+            cards:
               - type: custom:mushroom-entity-card
-                entity: sensor.airfield_slug_est_cloud_base
-                name: Cloud Base
-                icon: mdi:cloud-upload
-          - type: markdown
-            title: AI Pre-flight Briefing
-            content: "{{ state_attr('sensor.airfield_slug_ai_pre_flight_briefing', 'briefing') }}"
-
-      - title: Map & Location
-        cards:
+                entity: select.hangar_assistant_aircraft_selector
+                name: Aircraft Selector
+                icon: mdi:airplane
+            column_span: 1
+          - type: grid
+            columns: 1
+            square: false
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: select.hangar_assistant_pilot_selector
+                name: Pilot Selector
+                icon: mdi:account-pilot
+            column_span: 1
+        column_span: 3
+      - cards:
+          - type: heading
+            heading: Critical Information
+            heading_style: title
+            icon: mdi:airplane-alert
+          - type: custom:mushroom-chips-card
+            chips:
+              - type: template
+                content: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_master_safety_alert$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('binary_sensor.','').replace('_master_safety_alert','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set safe = states('binary_sensor.' ~
+                  slug ~ '_master_safety_alert') if slug else 'unknown' %}
+                  Safety: {{ safe | default('unknown') }}
+                icon: mdi:alert-decagram
+                icon_color: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_master_safety_alert$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('binary_sensor.','').replace('_master_safety_alert','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set safe = states('binary_sensor.' ~
+                  slug ~ '_master_safety_alert') if slug else 'unknown' %} {% if
+                  safe == 'on' %}red{% elif safe == 'off' %}green{% else
+                  %}grey{% endif %}
+              - type: template
+                content: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_weather_data_age$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('sensor.','').replace('_weather_data_age','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set status = state_attr('sensor.' ~
+                  slug ~ '_weather_data_age','status') if slug else 'unknown' %}
+                  {% set mins = states('sensor.' ~ slug ~ '_weather_data_age') |
+                  int(0) if slug else 0 %} Freshness: {{ status |
+                  default('unknown') | title }} ({{ mins }}m)
+                icon: mdi:clock-outline
+                icon_color: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_weather_data_age$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('sensor.','').replace('_weather_data_age','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set status = state_attr('sensor.' ~
+                  slug ~ '_weather_data_age','status') if slug else 'unknown' %}
+                  {% if status == 'fresh' %}green{% elif status == 'acceptable'
+                  %}amber{% elif status == 'stale' %}red{% else %}grey{% endif
+                  %}
+              - type: template
+                content: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_icing_advisory$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('sensor.','').replace('_icing_advisory','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set sev = state_attr('sensor.' ~ slug ~
+                  '_icing_advisory','severity') if slug else '' %} Icing: {{
+                  states('sensor.' ~ slug ~ '_icing_advisory') if slug else
+                  'unknown' }}
+                icon: mdi:snowflake-alert
+                icon_color: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_icing_advisory$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('sensor.','').replace('_icing_advisory','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set sev = state_attr('sensor.' ~ slug ~
+                  '_icing_advisory','severity') if slug else '' %} {% if sev ==
+                  'warning' %}red{% elif sev == 'caution' %}amber{% else
+                  %}green{% endif %}
+              - type: template
+                content: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_daylight_countdown$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('sensor.','').replace('_daylight_countdown','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set mins = states('sensor.' ~ slug ~
+                  '_daylight_countdown') | int(0) if slug else 0 %} {% set phase
+                  = state_attr('sensor.' ~ slug ~ '_daylight_countdown','phase')
+                  if slug else 'day' %} {{ 'Daylight' if phase == 'day' else
+                  'Starts' }}: {{ mins }}m
+                icon: mdi:weather-sunset-down
+                icon_color: >-
+                  {% set helper_airfield =
+                  states('select.hangar_assistant_airfield_selector') if
+                  'select.hangar_assistant_airfield_selector' in states else ''
+                  %} {% set helper_airfield = '' if helper_airfield in
+                  ['unknown','unavailable',''] else helper_airfield %} {% set
+                  detected_airfields = states.sensor |
+                  selectattr('entity_id','search','_daylight_countdown$') |
+                  map(attribute='entity_id') | list %} {% set auto_airfield =
+                  detected_airfields[0].replace('sensor.','').replace('_daylight_countdown','')
+                  if detected_airfields else '' %} {% set slug = helper_airfield
+                  or auto_airfield %} {% set mins = states('sensor.' ~ slug ~
+                  '_daylight_countdown') | int(0) if slug else 0 %} {% if mins <
+                  45 %}red{% elif mins < 90 %}amber{% else %}green{% endif %}
+              - type: template
+                content: >-
+                  {% set helper_aircraft =
+                  states('select.hangar_assistant_aircraft_selector') if
+                  'select.hangar_assistant_aircraft_selector' in states else ''
+                  %} {% set helper_aircraft = '' if helper_aircraft in
+                  ['unknown','unavailable',''] else helper_aircraft %} {% set
+                  detected_aircraft = states.binary_sensor |
+                  selectattr('entity_id','search','_crosswind_alert$') |
+                  map(attribute='entity_id') | list %} {% set auto_aircraft =
+                  detected_aircraft[0].replace('binary_sensor.','').replace('_crosswind_alert','')
+                  if detected_aircraft else '' %} {% set aircraft =
+                  helper_aircraft or auto_aircraft %} {% if not aircraft
+                  %}Xwind: no aircraft found{% else %} {% set alert =
+                  states('binary_sensor.' ~ aircraft ~ '_crosswind_alert') %}
+                  Xwind: {{ alert | default('unknown') }}{% endif %}
+                icon: mdi:weather-windy
+                icon_color: >-
+                  {% set helper_aircraft =
+                  states('select.hangar_assistant_aircraft_selector') if
+                  'select.hangar_assistant_aircraft_selector' in states else ''
+                  %} {% set helper_aircraft = '' if helper_aircraft in
+                  ['unknown','unavailable',''] else helper_aircraft %} {% set
+                  detected_aircraft = states.binary_sensor |
+                  selectattr('entity_id','search','_crosswind_alert$') |
+                  map(attribute='entity_id') | list %} {% set auto_aircraft =
+                  detected_aircraft[0].replace('binary_sensor.','').replace('_crosswind_alert','')
+                  if detected_aircraft else '' %} {% set aircraft =
+                  helper_aircraft or auto_aircraft %} {% if not aircraft
+                  %}grey{% else %} {% set alert = states('binary_sensor.' ~
+                  aircraft ~ '_crosswind_alert') %} {% if alert == 'on' %}red{%
+                  elif alert == 'off' %}green{% else %}grey{% endif %}{% endif
+                  %}
+            grid_options:
+              columns: 24
+              rows: 1
           - type: map
             entities:
-              - entity: sensor.airfield_slug_best_runway
-            aspect_ratio: "16:9"
+              - entity: zone.home
+            aspect_ratio: '16:9'
             default_zoom: 14
+            column_span: 1
+        column_span: 3
+      - cards:
+          - type: heading
+            heading: Your AI Briefing
+            heading_style: title
+            icon: mdi:account-voice
+          - type: custom:mushroom-template-card
+            primary: AI Pre-flight Briefing
+            secondary: >-
+              {% set helper_airfield =
+              states('select.hangar_assistant_airfield_selector') if
+              'select.hangar_assistant_airfield_selector' in states else '' %}
+              {% set helper_airfield = '' if helper_airfield in
+              ['unknown','unavailable',''] else helper_airfield %} {% set
+              detected_airfields = states.sensor |
+              selectattr('entity_id','search','_ai_pre_flight_briefing$') |
+              map(attribute='entity_id') | list %} {% set auto_airfield =
+              detected_airfields[0].replace('sensor.','').replace('_ai_pre_flight_briefing','')
+              if detected_airfields else '' %} {% set slug = helper_airfield or
+              auto_airfield %} {{ state_attr('sensor.' ~ slug ~
+              '_ai_pre_flight_briefing','briefing') | default('Waiting for first
+              briefing...') if slug else 'No airfield detected.' }}
+            icon: mdi:robot
+            multiline_secondary: true
+            entity: zone.home
+            features_position: bottom
+            vertical: true
+            grid_options:
+              columns: full
+          - type: custom:mushroom-chips-card
+            chips:
+              - type: action
+                icon: mdi:speaker-message
+                name: Speak Briefing
+                tap_action:
+                  action: call-service
+                  service: hangar_assistant.speak_briefing
+        column_span: 3
+      - type: grid
+        cards:
+          - type: heading
+            heading: Briefing data
+            heading_style: title
+            icon: mdi:data-matrix-scan
+          - square: true
+            type: grid
+            cards:
+              - square: false
+                type: grid
+                columns: 1
+                cards:
+                  - type: custom:mushroom-template-card
+                    primary: Runway
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_best_runway$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_best_runway','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}
+                        {% set rwy = states('sensor.' ~ slug ~ '_best_runway') %}
+                        {% set xw = state_attr('sensor.' ~ slug ~ '_best_runway','crosswind_component') | float(0) %}
+                        RWY {{ rwy }} | {{ xw }}kt Xwind
+                      {% endif %}
+                    icon: mdi:airport
+                    icon_color: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_best_runway$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_best_runway','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% set xw =
+                      state_attr('sensor.' ~ slug ~
+                      '_best_runway','crosswind_component') | float(0) if slug
+                      else 0 %} {% if xw < 12 %}green{% elif xw < 15 %}amber{%
+                      else %}red{% endif %}
+                    entity: zone.home
+                    column_span: 2
+                  - type: custom:mushroom-template-card
+                    primary: Runway Matrix
+                    secondary: Tap for per-runway crosswind/headwind detail
+                    icon: mdi:table
+                    tap_action:
+                      action: more-info
+                    entity: zone.home
+                  - type: custom:mushroom-template-card
+                    primary: Primary Xwind
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_primary_runway_crosswind$')
+                      | map(attribute='entity_id') | list %} {% set
+                      auto_airfield =
+                      detected_airfields[0].replace('sensor.','').replace('_primary_runway_crosswind','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}{{ states('sensor.' ~ slug ~
+                      '_primary_runway_crosswind') }}{% endif %}
+                    icon: mdi:weather-windy
+                  - type: custom:mushroom-template-card
+                    primary: Best Xwind
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_ideal_runway_crosswind$')
+                      | map(attribute='entity_id') | list %} {% set
+                      auto_airfield =
+                      detected_airfields[0].replace('sensor.','').replace('_ideal_runway_crosswind','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}{{ states('sensor.' ~ slug ~
+                      '_ideal_runway_crosswind') }}{% endif %}
+                    icon: mdi:compass-rose
+                title: Runway
+              - square: false
+                type: grid
+                columns: 1
+                cards:
+                  - type: custom:mushroom-template-card
+                    primary: DA
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_density_altitude$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_density_altitude','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}
+                        {% set status = state_attr('sensor.' ~ slug ~ '_density_altitude','da_status') %}
+                        {% set rec = state_attr('sensor.' ~ slug ~ '_density_altitude','da_recommendation') %}
+                        {{ status | default('Density Altitude') }} — {{ rec | default('Waiting for data...') }}
+                      {% endif %}
+                    icon: mdi:elevation-rise
+                    multiline_secondary: true
+                    badge_icon: mdi:gauge
+                    badge_color: blue
+                    tap_action:
+                      action: more-info
+                    entity: zone.home
+                    color: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_density_altitude$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_density_altitude','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% set sev =
+                      state_attr('sensor.' ~ slug ~
+                      '_density_altitude','da_severity') if slug else '' %} {%
+                      if sev == 'warning' %}red{% elif sev == 'caution'
+                      %}amber{% else %}green{% endif %}
+                    features_position: bottom
+                  - type: custom:mushroom-template-card
+                    primary: Carb icing risk
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_carb_risk$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_carb_risk','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}{{ states('sensor.' ~ slug ~
+                      '_carb_risk') }}{% endif %}
+                    icon: mdi:cloud-alert
+                    color: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_carb_risk$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_carb_risk','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {{
+                      state_attr('sensor.' ~ slug ~ '_carb_risk', 'color') |
+                      default('grey') if slug else 'grey' }}
+                    features_position: bottom
+                  - type: custom:mushroom-template-card
+                    primary: Overall icing risk
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_icing_advisory$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_icing_advisory','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}
+                        {% set rec = state_attr('sensor.' ~ slug ~ '_icing_advisory','recommendation') %}
+                        {{ rec | default('Waiting for data...') }}
+                      {% endif %}
+                    icon: mdi:snowflake-alert
+                    color: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_icing_advisory$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_icing_advisory','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% set sev =
+                      state_attr('sensor.' ~ slug ~
+                      '_icing_advisory','severity') if slug else '' %} {% if sev
+                      == 'warning' %}red{% elif sev == 'caution' %}amber{% else
+                      %}green{% endif %}
+                    features_position: bottom
+                  - type: custom:mushroom-template-card
+                    primary: Cloud Base
+                    secondary: >-
+                      {% set helper_airfield =
+                      states('select.hangar_assistant_airfield_selector') if
+                      'select.hangar_assistant_airfield_selector' in states else
+                      '' %} {% set helper_airfield = '' if helper_airfield in
+                      ['unknown','unavailable',''] else helper_airfield %} {%
+                      set detected_airfields = states.sensor |
+                      selectattr('entity_id','search','_est_cloud_base$') |
+                      map(attribute='entity_id') | list %} {% set auto_airfield
+                      =
+                      detected_airfields[0].replace('sensor.','').replace('_est_cloud_base','')
+                      if detected_airfields else '' %} {% set slug =
+                      helper_airfield or auto_airfield %} {% if not slug %}No
+                      airfield detected. {% else %}{{ states('sensor.' ~ slug ~
+                      '_est_cloud_base') }}{% endif %}
+                    icon: mdi:cloud-upload
+                    features_position: bottom
+                title: Weather & Risk
+              - square: false
+                type: grid
+                columns: 1
+                cards:
+                  - type: custom:mushroom-template-card
+                    primary: Perf Margin
+                    secondary: >-
+                      {% set helper_aircraft =
+                      states('select.hangar_assistant_aircraft_selector') if
+                      'select.hangar_assistant_aircraft_selector' in states else
+                      '' %} {% set helper_aircraft = '' if helper_aircraft in
+                      ['unknown','unavailable',''] else helper_aircraft %} {%
+                      set detected_aircraft = states.sensor |
+                      selectattr('entity_id','search','_performance_margin$') |
+                      map(attribute='entity_id') | list %} {% set auto_aircraft
+                      =
+                      detected_aircraft[0].replace('sensor.','').replace('_performance_margin','')
+                      if detected_aircraft else '' %} {% set a = helper_aircraft
+                      or auto_aircraft %} {{ states('sensor.' ~ a ~
+                      '_performance_margin') if a else 'no aircraft detected'
+                      }}% | Adjusted roll: {{ state_attr('sensor.' ~ a ~
+                      '_performance_margin','adjusted_ground_roll_m') if a else
+                      '—' }} m
+                    icon: mdi:run-fast
+                    entity: zone.home
+                    color: >-
+                      {% set helper_aircraft =
+                      states('select.hangar_assistant_aircraft_selector') if
+                      'select.hangar_assistant_aircraft_selector' in states else
+                      '' %} {% set helper_aircraft = '' if helper_aircraft in
+                      ['unknown','unavailable',''] else helper_aircraft %} {%
+                      set detected_aircraft = states.sensor |
+                      selectattr('entity_id','search','_performance_margin$') |
+                      map(attribute='entity_id') | list %} {% set auto_aircraft
+                      =
+                      detected_aircraft[0].replace('sensor.','').replace('_performance_margin','')
+                      if detected_aircraft else '' %} {% set a = helper_aircraft
+                      or auto_aircraft %} {% set margin = states('sensor.' ~ a ~
+                      '_performance_margin') | float(0) if a else 0 %} {% if
+                      margin > 25 %}green{% elif margin > 10 %}amber{% else
+                      %}red{% endif %}
+                    features_position: bottom
+                  - type: custom:mushroom-template-card
+                    primary: Ground Roll
+                    secondary: >-
+                      {% set helper_aircraft =
+                      states('select.hangar_assistant_aircraft_selector') if
+                      'select.hangar_assistant_aircraft_selector' in states else
+                      '' %} {% set helper_aircraft = '' if helper_aircraft in
+                      ['unknown','unavailable',''] else helper_aircraft %} {%
+                      set detected_aircraft = states.sensor |
+                      selectattr('entity_id','search','_calculated_ground_roll$')
+                      | map(attribute='entity_id') | list %} {% set
+                      auto_aircraft =
+                      detected_aircraft[0].replace('sensor.','').replace('_calculated_ground_roll','')
+                      if detected_aircraft else '' %} {% set a = helper_aircraft
+                      or auto_aircraft %} {{ states('sensor.' ~ a ~
+                      '_calculated_ground_roll') if a else 'no aircraft
+                      detected' }} m
+                    icon: mdi:ruler-square
+                    icon_color: blue
+                    entity: zone.home
+                title: Performance
+            columns: 3
+            grid_options:
+              columns: full
+        column_span: 3
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          # Hello {{ user }} welcome to Hanger Assistant
 
+          Please be aware that the details below are informational only and do
+          not constitute in any way advice! You remain fully responsible, fly
+          safe!
   - title: Pre-Flight Calculator
     icon: mdi:calculator
     type: sections
     sections:
-      - title: Weight & Performance
-        cards:
+      - cards:
+          - type: heading
+            heading: Weight & Performance
           - type: markdown
             content: >
-              ### Performance Calculation
-              Adjust passenger/cargo loads to see impact on takeoff distance.
-          
-          # These entities require manual creation as Number Helpers in HA
+              ### Performance Calculation Adjust passenger/cargo loads to see
+              impact on takeoff distance.
           - type: entities
             entities:
               - entity: input_number.pilot_luggage_weight
                 name: Pilot + Bag (kg)
               - entity: input_number.passenger_weight
                 name: Passenger (kg)
-
           - type: custom:mushroom-template-card
-            primary: "Calculated Ground Roll"
-            secondary: "{{ states('sensor.aircraft_slug_calculated_ground_roll') }}m (MTOW)"
+            primary: Calculated Ground Roll
+            secondary: >-
+              {% set helper_aircraft =
+              states('select.hangar_assistant_aircraft_selector') if
+              'select.hangar_assistant_aircraft_selector' in states else '' %}
+              {% set helper_aircraft = '' if helper_aircraft in
+              ['unknown','unavailable',''] else helper_aircraft %} {% set
+              detected_aircraft = states.sensor |
+              selectattr('entity_id','search','_calculated_ground_roll$') |
+              map(attribute='entity_id') | list %} {% set auto_aircraft =
+              detected_aircraft[0].replace('sensor.','').replace('_calculated_ground_roll','')
+              if detected_aircraft else '' %} {% set a = helper_aircraft or
+              auto_aircraft %} {{ states('sensor.' ~ a ~
+              '_calculated_ground_roll') if a else 'no aircraft detected' }} m
+              (MTOW)
             icon: mdi:ruler-square
             icon_color: blue
-            
           - type: custom:mushroom-template-card
-            primary: "50ft Clearance Dist"
-            secondary: "{{ state_attr('sensor.aircraft_slug_calculated_ground_roll', 'poh_50ft_dist_m') }}m"
+            primary: 50ft Clearance Dist
+            secondary: >-
+              {% set helper_aircraft =
+              states('select.hangar_assistant_aircraft_selector') if
+              'select.hangar_assistant_aircraft_selector' in states else '' %}
+              {% set helper_aircraft = '' if helper_aircraft in
+              ['unknown','unavailable',''] else helper_aircraft %} {% set
+              detected_aircraft = states.sensor |
+              selectattr('entity_id','search','_calculated_ground_roll$') |
+              map(attribute='entity_id') | list %} {% set auto_aircraft =
+              detected_aircraft[0].replace('sensor.','').replace('_calculated_ground_roll','')
+              if detected_aircraft else '' %} {% set a = helper_aircraft or
+              auto_aircraft %} {{ state_attr('sensor.' ~ a ~
+              '_calculated_ground_roll', 'poh_50ft_dist_m') if a else 'no
+              aircraft detected' }} m
             icon: mdi:tree
             icon_color: green
-
   - title: Compliance & Logs
     icon: mdi:file-document-outline
     type: sections
     sections:
-      - title: Records
-        cards:
+      - cards:
+          - type: heading
+            heading: Records
           - type: custom:mushroom-template-card
-            primary: "CAP 1590B Declaration"
-            secondary: "Generate Cost Sharing Form"
+            primary: CAP 1590B Declaration
+            secondary: Generate Cost Sharing Form
             icon: mdi:file-sign
             icon_color: purple
             tap_action:
               action: call-service
-              service: hangar_assistant.manual_cleanup # Replace with PDF service when ready
+              service: hangar_assistant.manual_cleanup

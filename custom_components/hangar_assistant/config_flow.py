@@ -6,6 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, UNIT_PREFERENCE_AVIATION, UNIT_PREFERENCE_SI, DEFAULT_UNIT_PREFERENCE
+from .utils.i18n import get_available_languages, get_distance_unit_options, get_action_options, get_unit_preference_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +119,10 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             return item if isinstance(item, dict) else {}
         return {}
 
+    def _lang(self) -> str:
+        """Return the selected UI language (default 'en')."""
+        return self._entry_data().get("settings", {}).get("language", "en")
+
     async def async_step_init(self, user_input=None):
         """Main configuration menu."""
         return self.async_show_menu(
@@ -141,20 +146,27 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(data=self._entry_options())
 
         settings = self._entry_data().get("settings", {})
+
+        # Dynamically build language options from available translation files
+        language_options = [
+            selector.SelectOptionDict(value=code, label=label)
+            for code, label in get_available_languages()
+        ]
+
         return self.async_show_form(
             step_id="settings",
             data_schema=vol.Schema({
                 vol.Required("language", default=settings.get("language", "en")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[selector.SelectOptionDict(value="en", label="English")],
+                        options=language_options,
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
                 vol.Required("unit_preference", default=settings.get("unit_preference", DEFAULT_UNIT_PREFERENCE)): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value=UNIT_PREFERENCE_AVIATION, label="Aviation (ft, kt, lbs)"),
-                            selector.SelectOptionDict(value=UNIT_PREFERENCE_SI, label="Metric (m, kph, kg)")
+                            selector.SelectOptionDict(value=UNIT_PREFERENCE_AVIATION, label=get_unit_preference_options(self._lang())[0]["label"]),
+                            selector.SelectOptionDict(value=UNIT_PREFERENCE_SI, label=get_unit_preference_options(self._lang())[1]["label"]),
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -213,8 +225,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("distance_unit", default="m"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value="m", label="Meters"),
-                            selector.SelectOptionDict(value="ft", label="Feet"),
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_distance_unit_options(self._lang())
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -273,8 +284,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value="edit", label="Edit"),
-                            selector.SelectOptionDict(value="delete", label="Delete")
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_action_options(self._lang())
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -320,8 +330,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("distance_unit", default="m"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value="m", label="Meters"),
-                            selector.SelectOptionDict(value="ft", label="Feet"),
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_distance_unit_options(self._lang())
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -486,8 +495,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value="edit", label="Edit"),
-                            selector.SelectOptionDict(value="delete", label="Delete")
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_action_options(self._lang())
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -660,8 +668,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value="edit", label="Edit"),
-                            selector.SelectOptionDict(value="delete", label="Delete")
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_action_options(self._lang())
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -844,8 +851,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("action"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value="edit", label="Edit"),
-                            selector.SelectOptionDict(value="delete", label="Delete")
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_action_options(self._lang())
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
@@ -936,32 +942,64 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_dashboard(self, user_input=None):
         """Manage Hangar Assistant dashboard."""
         if user_input is not None:
-            if user_input.get("action") == "rebuild":
-                # Call the rebuild service
-                await self.hass.services.async_call("hangar_assistant", "rebuild_dashboard")
+            if user_input.get("recreate_dashboard", False):
+                # Recreate the dashboard directly to avoid service dependencies
+                from . import async_create_dashboard
+
+                await async_create_dashboard(
+                    self.hass,
+                    self._config_entry,
+                    force_rebuild=True,
+                    reason="options_flow",
+                )
+            if user_input.get("send_setup_help", False):
+                instructions = (
+                    "Hangar Assistant dashboard setup\n\n"
+                    "1) In configuration.yaml add:\n"
+                    "   lovelace:\n"
+                    "     dashboards:\n"
+                    "       hangar-assistant:\n"
+                    "         mode: yaml\n"
+                    "         title: Hangar Assistant\n"
+                    "         icon: mdi:airplane\n"
+                    "         show_in_sidebar: true\n"
+                    "         filename: /config/custom_components/hangar_assistant/dashboard_templates/glass_cockpit.yaml\n"
+                    "2) Reload dashboards (Settings → Dashboards → …) or restart HA.\n"
+                    "3) Ensure input_select.airfield_selector (and optional input_select.aircraft_selector) exist with slugs matching your sensors.\n\n"
+                    "An optional automation can listen for the event 'hangar_assistant_dashboard_setup' if you want to hook a script or helper flow."
+                )
+                await self.hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "Hangar Assistant Dashboard",
+                        "message": instructions,
+                        "notification_id": "hangar_assistant_dashboard_help",
+                    },
+                    blocking=False,
+                )
+            if user_input.get("fire_setup_event", False):
+                self.hass.bus.async_fire("hangar_assistant_dashboard_setup")
             return self.async_create_entry(data=self._entry_options())
 
         # Get current dashboard info
         dashboard_info = self._entry_data().get("dashboard_info", {})
         current_version = dashboard_info.get("version", 0)
         last_updated = dashboard_info.get("last_updated", "Never")
+        integration_version = dashboard_info.get("integration_version", "Unknown")
         
         return self.async_show_form(
             step_id="dashboard",
             data_schema=vol.Schema({
-                vol.Required("action", default="rebuild"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value="rebuild", label="Rebuild Dashboard"),
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
+                vol.Optional("recreate_dashboard", default=False): selector.BooleanSelector(),
+                vol.Optional("send_setup_help", default=False): selector.BooleanSelector(),
+                vol.Optional("fire_setup_event", default=False): selector.BooleanSelector(),
             }),
             description_placeholders={
                 "current_version": str(current_version),
                 "template_version": str(DEFAULT_DASHBOARD_VERSION),
-                "last_updated": str(last_updated)
+                "last_updated": str(last_updated),
+                "integration_version": str(integration_version),
             }
         )
 

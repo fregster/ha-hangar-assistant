@@ -1,0 +1,302 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Willkommen bei Hangar Assistant",
+        "description": "Hangar Assistant hilft dir, Flugsicherheit, Leistungsberechnungen und CAP 1590B-Compliance zu verwalten.\n\nKlicke auf **Absenden**, um die Integration zu installieren. Anschließend kannst du deine Flugzeuge und Flugplätze hinzufügen, indem du auf die **Hangar Assistant**-Integrationskarte klickst."
+      }
+    },
+    "abort": {
+      "already_configured": "Hangar Assistant ist bereits konfiguriert."
+    }
+  },
+  "options": {
+    "abort": {
+      "reconfigure_successful": "Einstellungen erfolgreich gespeichert."
+    },
+    "step": {
+      "init": {
+        "title": "Hangar-Verwaltung",
+        "description": "Verwalte deinen virtuellen Hangar. Wähle unten eine Aktion:",
+        "menu_options": {
+          "airfield": "Flugplatz hinzufügen oder bearbeiten",
+          "aircraft": "Flugzeug hinzufügen oder bearbeiten",
+          "pilot": "Pilot hinzufügen oder bearbeiten",
+          "briefing": "Automatisierte Briefings hinzufügen oder bearbeiten",
+          "global_config": "Globale Konfiguration"
+        }
+      },
+      "global_config": {
+        "title": "Globale Konfiguration",
+        "description": "Verwalte systemweite Einstellungen einschließlich KI, Datenspeicherung und Dashboard-Layout.",
+        "menu_options": {
+          "settings": "Allgemeine Einstellungen",
+          "ai": "KI-Assistent konfigurieren",
+          "retention": "Datenspeicherung konfigurieren",
+          "dashboard": "Dashboard-Verwaltung"
+        }
+      },
+      "settings": {
+        "title": "Allgemeine Einstellungen",
+        "description": "Konfiguriere systemweite Einstellungen, Sprache und Fallback-Sensoren für fehlende lokale Flugplatzdaten.",
+        "data": {
+          "language": "Hauptsprache",
+          "unit_preference": "Einheitenpräferenz",
+          "global_pressure_sensor": "Globales Höhenmesser (QNH) Sensor",
+          "default_pressure": "Standardluftdruck Meereshöhe (hPa)"
+        }
+      },
+      "airfield": {
+        "title": "Flugplatz-Verwaltung",
+        "description": "Füge Wettersensoren für ein bestimmtes Flugplatzprofil hinzu oder verwalte sie.",
+        "menu_options": {
+          "airfield_add": "Neuen Flugplatz hinzufügen",
+          "airfield_manage": "Vorhandene Flugplätze verwalten"
+        }
+      },
+      "airfield_add": {
+        "title": "Flugplatz hinzufügen",
+        "description": "Verbinde deine Wettersensoren mit einem bestimmten Flugplatzprofil.",
+        "data": {
+          "name": "Flugplatzname (z.B. Popham)",
+          "icao_code": "ICAO-Code (z.B. EGHP)",
+          "latitude": "Breitengrad (DD.DDDD)",
+          "longitude": "Längengrad (DD.DDDD)",
+          "elevation": "Höhe (Meter über Meeresspiegel)",
+          "distance_unit": "Entfernungseinheit",
+          "runways": "Verfügbare Landebahnen (z.B. 03, 21)",
+          "primary_runway": "Primäre Landebahn (z.B. 21)",
+          "runway_length": "Primäre Landebahn Länge (m)",
+          "temp_sensor": "Außenlufttemperatur-Sensor",
+          "dp_sensor": "Taupunkt-Sensor",
+          "pressure_sensor": "Drucksensor (Höhenmesser)",
+          "wind_sensor": "Windgeschwindigkeits-Sensor",
+          "wind_dir_sensor": "Windrichtungs-Sensor",
+          "radio_frequency": "Funkfrequenz",
+          "ppl_required": "Genehmigung erforderlich"
+        }
+      },
+      "airfield_manage": {
+        "title": "Flugplätze verwalten",
+        "description": "Wähle einen Flugplatz zum Bearbeiten oder Löschen.",
+        "data": {
+          "index": "Flugplatz auswählen",
+          "action": "Aktion"
+        }
+      },
+      "airfield_edit": {
+        "title": "Flugplatz bearbeiten",
+        "description": "Aktualisiere die Flugplatzprofildetails.",
+        "data": {
+          "name": "Flugplatzname",
+          "icao_code": "ICAO-Code",
+          "latitude": "Breitengrad (DD.DDDD)",
+          "longitude": "Längengrad (DD.DDDD)",
+          "elevation": "Höhe (Meter über Meeresspiegel)",
+          "distance_unit": "Entfernungseinheit",
+          "runways": "Verfügbare Landebahnen",
+          "primary_runway": "Primäre Landebahn",
+          "runway_length": "Primäre Landebahn Länge (m)",
+          "temp_sensor": "Außenlufttemperatur-Sensor",
+          "dp_sensor": "Taupunkt-Sensor",
+          "pressure_sensor": "Drucksensor (Höhenmesser)",
+          "wind_sensor": "Windgeschwindigkeits-Sensor",
+          "wind_dir_sensor": "Windrichtungs-Sensor",
+          "radio_frequency": "Funkfrequenz",
+          "ppl_required": "Genehmigung erforderlich"
+        }
+      },
+      "airfield_delete": {
+        "title": "Flugplatz löschen",
+        "description": "Bist du sicher, dass du den Flugplatz {name} löschen möchtest?",
+        "data": {
+          "confirm": "Löschung bestätigen"
+        }
+      },
+      "aircraft": {
+        "title": "Flugzeug-Verwaltung",
+        "description": "Füge Leistungsprofile für deine Flugzeuge hinzu oder verwalte sie.",
+        "menu_options": {
+          "aircraft_add": "Neues Flugzeug hinzufügen",
+          "aircraft_manage": "Vorhandene Flugzeuge verwalten"
+        }
+      },
+      "aircraft_add": {
+        "title": "Flugzeug hinzufügen",
+        "description": "Gib die POH-Leistungsdaten für dieses Flugzeug ein.",
+        "data": {
+          "reg": "Luftfahrzeugkennzeichen (z.B. G-ABCD)",
+          "model": "Flugzeugmodell",
+          "empty_weight": "Leermasse (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Max. Seitenwind-Demonstration (kt)",
+          "baseline_roll": "Basis Startrollstrecke (m)",
+          "baseline_50ft": "Basis Startrollstrecke über 50ft (m)",
+          "linked_airfield": "Zugeordneter Flugplatz"
+        }
+      },
+      "aircraft_manage": {
+        "title": "Flugzeuge verwalten",
+        "description": "Wähle ein Flugzeug zum Bearbeiten oder Löschen.",
+        "data": {
+          "index": "Flugzeug auswählen",
+          "action": "Aktion"
+        }
+      },
+      "aircraft_edit": {
+        "title": "Flugzeug bearbeiten",
+        "description": "Aktualisiere das Flugzeug-Leistungsprofil.",
+        "data": {
+          "reg": "Luftfahrzeugkennzeichen",
+          "model": "Flugzeugmodell",
+          "empty_weight": "Leermasse (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Max. Seitenwind-Demonstration (kt)",
+          "baseline_roll": "Basis Startrollstrecke (m)",
+          "baseline_50ft": "Basis Startrollstrecke über 50ft (m)",
+          "linked_airfield": "Zugeordneter Flugplatz"
+        }
+      },
+      "aircraft_delete": {
+        "title": "Flugzeug löschen",
+        "description": "Bist du sicher, dass du das Flugzeug {reg} löschen möchtest?",
+        "data": {
+          "confirm": "Löschung bestätigen"
+        }
+      },
+      "pilot": {
+        "title": "Pilot-Verwaltung",
+        "description": "Verwalte die Daten des verantwortlichen Piloten (PIC) für rechtliche Kostenteilungs-Erklärungen.",
+        "menu_options": {
+          "pilot_add": "Neuen Piloten hinzufügen",
+          "pilot_manage": "Vorhandene Piloten verwalten"
+        }
+      },
+      "pilot_add": {
+        "title": "Pilot hinzufügen",
+        "description": "Gib die PIC-Daten für die rechtliche Dokumentation ein.",
+        "data": {
+          "name": "Vollständiger Name",
+          "email": "E-Mail-Adresse (Privat)",
+          "licence_number": "Pilotenlizenz-Nummer",
+          "licence_type": "Lizenztyp (z.B. PPL, LAPL, CPL)",
+          "medical_expiry": "Medizinische Gültigkeit / Eigenabklärung Ablauf"
+        }
+      },
+      "pilot_manage": {
+        "title": "Piloten verwalten",
+        "description": "Wähle einen Piloten zum Bearbeiten oder Löschen.",
+        "data": {
+          "index": "Pilot auswählen",
+          "action": "Aktion"
+        }
+      },
+      "pilot_edit": {
+        "title": "Pilot bearbeiten",
+        "description": "Aktualisiere die PIC-Daten.",
+        "data": {
+          "name": "Vollständiger Name",
+          "email": "E-Mail-Adresse (Privat)",
+          "licence_number": "Pilotenlizenz-Nummer",
+          "licence_type": "Lizenztyp",
+          "medical_expiry": "Medizinische Gültigkeit / Eigenabklärung Ablauf"
+        }
+      },
+      "pilot_delete": {
+        "title": "Pilot löschen",
+        "description": "Bist du sicher, dass du den Piloten {name} löschen möchtest?",
+        "data": {
+          "confirm": "Löschung bestätigen"
+        }
+      },
+      "ai": {
+        "title": "KI-Sprachassistent",
+        "description": "Konfiguriere einen generischen KI-Assistenten zum Generieren von Berichten, Briefings und Analysen über alle Tools hinweg.\n\nStandard-Systemaufforderung: {default_prompt_preview}",
+        "data": {
+          "ai_agent_entity": "KI-Agent (Gesprächsdienst)",
+          "use_custom_system_prompt": "Mit benutzerdefinierter Aufforderung überschreiben",
+          "custom_system_prompt": "Benutzerdefinierte Systemaufforderung (angezeigt wenn Überschreibung aktiviert)"
+        }
+      },
+      "briefing": {
+        "title": "Automatisierte Briefings",
+        "description": "Verwalte automatisierte Wetter-Briefings, die an deine E-Mail gesendet werden.",
+        "menu_options": {
+          "briefing_add": "Neues Briefing hinzufügen",
+          "briefing_manage": "Vorhandene Briefings verwalten"
+        }
+      },
+      "briefing_add": {
+        "title": "Briefing hinzufügen",
+        "description": "Richte einen neuen automatisierten Briefing-Plan ein.",
+        "data": {
+          "airfield_name": "Zugeordneter Flugplatz",
+          "aircraft_reg": "Zugeordnetes Flugzeug",
+          "briefing_time": "Tägliche Briefing-Zeit (HH:MM)",
+          "pilots": "Empfänger (Piloten)",
+          "enable_ai_reporting": "KI-generierten Bericht einbeziehen"
+        }
+      },
+      "briefing_manage": {
+        "title": "Briefings verwalten",
+        "description": "Wähle ein Briefing zum Bearbeiten oder Löschen.",
+        "data": {
+          "briefing_index": "Briefing auswählen",
+          "action": "Aktion"
+        }
+      },
+      "briefing_edit": {
+        "title": "Briefing bearbeiten",
+        "description": "Aktualisiere die Briefing-Details.",
+        "data": {
+          "airfield_name": "Zugeordneter Flugplatz",
+          "aircraft_reg": "Zugeordnetes Flugzeug",
+          "briefing_time": "Tägliche Briefing-Zeit (HH:MM)",
+          "pilots": "Empfänger (Piloten)",
+          "enable_ai_reporting": "KI-generierten Bericht einbeziehen"
+        }
+      },
+      "briefing_delete": {
+        "title": "Briefing löschen",
+        "description": "Bist du sicher, dass du das Briefing für {briefing} löschen möchtest?",
+        "data": {
+          "confirm_delete": "Löschung bestätigen"
+        }
+      },
+      "retention": {
+        "title": "Datenspeicherungsrichtlinie",
+        "description": "Konfiguriere, wie lange Rechtsunterlagen und PDF-Erklärungen gespeichert werden.",
+        "data": {
+          "auto_delete_enabled": "Automatisches Löschen aktivieren",
+          "retention_months": "Aufbewahrungsdauer (Monate)"
+        }
+      },
+      "dashboard": {
+        "title": "Dashboard-Verwaltung",
+        "description": "Erstelle das Hangar Assistant-Dashboard neu, wenn es gelöscht wurde oder um Template-Updates anzuwenden.\n\nAktuelle Dashboard-Version: {current_version}\nTemplate-Version: {template_version}\nZuletzt aktualisiert: {last_updated}",
+        "data": {
+          "recreate_dashboard": "Dashboard jetzt neu erstellen",
+          "send_setup_help": "Anleitung für Seitenleiste senden (persistente Benachrichtigung)",
+          "fire_setup_event": "Ereignis 'hangar_assistant_dashboard_setup' für Automatisierungen auslösen"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "density_altitude": { "name": "Dichtehöhe" },
+      "cloud_base": { "name": "Geschätzte Wolkenunterkante" },
+      "data_freshness": { "name": "Alter der Wetterdaten" },
+      "ground_roll": { "name": "Berechnete Startrollstrecke" },
+      "aibriefingsensor": { "name": "KI-Vor-Flug-Briefing" },
+      "carbrisktransitionsensor": { "name": "Vergaser-Risiko Übergangshöhe" },
+      "primaryrunwaycrosswindsensor": { "name": "Primäre Landebahn Seitenwind" },
+      "idealrunwaycrosswindsensor": { "name": "Ideale Landebahn Seitenwind" },
+      "pilotinfosensor": { "name": "Pilot-Qualifikationen" }
+    },
+    "binary_sensor": {
+      "safety_alert": { "name": "Master-Sicherheitsalarm" },
+      "pilotmedicalalert": { "name": "Medizinischer Status" }
+    }
+  }
+}

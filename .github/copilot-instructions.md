@@ -25,6 +25,10 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 - **Safety Alerts**: `HangarMasterSafetyAlert` (Binary Sensor, class `SAFETY`) triggers if weather data > 30 mins old or Carb Risk is "Serious Risk".
 - **File Management**: PDFs stored in `hass.config.path("www/hangar/")`. `manual_cleanup` service handles deletion.
 - **AI Prompts**: All AI-related prompts (system prompts, briefing templates) must be stored as `.txt` files in the `custom_components/hangar_assistant/prompts/` directory. Do not hardcode complex prompts in Python code.
+- **Reference Documentation**: Context-specific reference materials are stored as `.txt` files in `custom_components/hangar_assistant/refrences/` (note the typo in folder name). These include:
+  - `vfr.txt`: UK CAA Visual Flight Rules (VFR) requirements and minima
+  - Other aviation regulations and compliance standards
+  - Use these files as authoritative sources when implementing rules-based features
 - **Config Flow**: `HangarAssistantConfigFlow` (single instance). `HangarOptionsFlowHandler` handles updates (`airfield`, `aircraft` menus) using `EntitySelector`.
 - **Time Tracking**: `async_track_time_change` used for briefing schedules in `__init__.py`.
 

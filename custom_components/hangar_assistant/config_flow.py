@@ -345,6 +345,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
+                vol.Required("ifr_capable", default=False): selector.BooleanSelector(),
             })
         )
 
@@ -421,6 +422,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
+                vol.Required("ifr_capable", default=ac.get("ifr_capable", False)): selector.BooleanSelector(),
             })
         )
 

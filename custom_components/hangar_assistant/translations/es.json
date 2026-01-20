@@ -1,0 +1,295 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bienvenido a Hangar Assistant",
+        "description": "Hangar Assistant te ayuda a gestionar la seguridad de vuelos, cálculos de rendimiento y cumplimiento de CAP 1590B.\n\nHaz clic en **Enviar** para instalar la integración. Posteriormente, puedes agregar tus aeronaves y aeródromos haciendo clic en **Configurar** en la tarjeta de integración de Hangar Assistant."
+      }
+    },
+    "abort": {
+      "already_configured": "Hangar Assistant ya está configurado."
+    }
+  },
+  "options": {
+    "abort": {
+      "reconfigure_successful": "Configuración guardada exitosamente."
+    },
+    "step": {
+      "init": {
+        "title": "Gestión del Hangar",
+        "description": "Gestiona tu hangar virtual. Selecciona una acción a continuación:",
+        "menu_options": {
+          "airfield": "Agregar o Editar un Aeródromo",
+          "aircraft": "Agregar o Editar una Aeronave",
+          "pilot": "Agregar o Editar un Piloto",
+          "briefing": "Agregar o Editar Briefings Automatizados",
+          "global_config": "Configuración Global"
+        }
+      },
+      "global_config": {
+        "title": "Configuración Global",
+        "description": "Gestiona la configuración del sistema incluyendo IA, retención de datos y diseño del panel.",
+        "menu_options": {
+          "settings": "Configuración General",
+          "ai": "Configurar Asistente de IA",
+          "retention": "Configurar Retención de Datos",
+          "dashboard": "Gestión del Panel"
+        }
+      },
+      "settings": {
+        "title": "Configuración General",
+        "description": "Configura preferencias del sistema, idioma y sensores de respaldo para datos de aeródromo local faltantes.",
+        "data": {
+          "language": "Idioma Principal",
+          "global_pressure_sensor": "Sensor Altímetro Global (QNH)",
+          "default_pressure": "Presión Predeterminada a Nivel del Mar (hPa)"
+        }
+      },
+      "airfield": {
+        "title": "Gestión de Aeródromos",
+        "description": "Agrega o gestiona tus perfiles de sensores meteorológicos de aeródromo.",
+        "menu_options": {
+          "airfield_add": "Agregar Nuevo Aeródromo",
+          "airfield_manage": "Gestionar Aeródromos Existentes"
+        }
+      },
+      "airfield_add": {
+        "title": "Agregar Aeródromo",
+        "description": "Vincula tus sensores meteorológicos a un perfil de aeródromo específico.",
+        "data": {
+          "name": "Nombre del Aeródromo (ej. Popham)",
+          "icao_code": "Código ICAO (ej. EGHP)",
+          "latitude": "Latitud (DD.DDDD)",
+          "longitude": "Longitud (DD.DDDD)",
+          "elevation": "Elevación (Metros Sobre el Nivel del Mar)",
+          "runways": "Pistas Disponibles (ej. 03, 21)",
+          "primary_runway": "Pista Principal (ej. 21)",
+          "runway_length": "Longitud de Pista Principal (m)",
+          "temp_sensor": "Sensor de Temperatura del Aire Exterior",
+          "dp_sensor": "Sensor de Punto de Rocío",
+          "pressure_sensor": "Sensor de Presión (Altímetro)",
+          "wind_sensor": "Sensor de Velocidad del Viento",
+          "wind_dir_sensor": "Sensor de Dirección del Viento",
+          "ppl_required": "Autorización Previa Requerida"
+        }
+      },
+      "airfield_manage": {
+        "title": "Gestionar Aeródromos",
+        "description": "Selecciona un aeródromo para editar o eliminar.",
+        "data": {
+          "index": "Seleccionar Aeródromo",
+          "action": "Acción"
+        }
+      },
+      "airfield_edit": {
+        "title": "Editar Aeródromo",
+        "description": "Actualiza los detalles del perfil del aeródromo.",
+        "data": {
+          "name": "Nombre del Aeródromo",
+          "icao_code": "Código ICAO",
+          "latitude": "Latitud (DD.DDDD)",
+          "longitude": "Longitud (DD.DDDD)",
+          "elevation": "Elevación (Metros Sobre el Nivel del Mar)",
+          "runways": "Pistas Disponibles",
+          "primary_runway": "Pista Principal",
+          "runway_length": "Longitud de Pista Principal (m)",
+          "temp_sensor": "Sensor de Temperatura del Aire Exterior",
+          "dp_sensor": "Sensor de Punto de Rocío",
+          "pressure_sensor": "Sensor de Presión (Altímetro)",
+          "wind_sensor": "Sensor de Velocidad del Viento",
+          "wind_dir_sensor": "Sensor de Dirección del Viento",
+          "ppl_required": "Autorización Previa Requerida"
+        }
+      },
+      "airfield_delete": {
+        "title": "Eliminar Aeródromo",
+        "description": "¿Estás seguro de que deseas eliminar el aeródromo {name}?",
+        "data": {
+          "confirm": "Confirmar Eliminación"
+        }
+      },
+      "aircraft": {
+        "title": "Gestión de Aeronaves",
+        "description": "Agrega o gestiona tus perfiles de rendimiento de aeronave.",
+        "menu_options": {
+          "aircraft_add": "Agregar Nueva Aeronave",
+          "aircraft_manage": "Gestionar Aeronaves Existentes"
+        }
+      },
+      "aircraft_add": {
+        "title": "Agregar Aeronave",
+        "description": "Ingresa los datos de rendimiento POH para esta aeronave.",
+        "data": {
+          "reg": "Matrícula (ej. G-ABCD)",
+          "model": "Modelo de Aeronave",
+          "empty_weight": "Peso Vacío (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Viento Cruzado Máximo Demostrado (kt)",
+          "baseline_roll": "Distancia de Rodadura Base a N.M. (m)",
+          "baseline_50ft": "Distancia de Rodadura Base 50ft a N.M. (m)",
+          "linked_airfield": "Aeródromo Vinculado"
+        }
+      },
+      "aircraft_manage": {
+        "title": "Gestionar Aeronaves",
+        "description": "Selecciona una aeronave para editar o eliminar.",
+        "data": {
+          "index": "Seleccionar Aeronave",
+          "action": "Acción"
+        }
+      },
+      "aircraft_edit": {
+        "title": "Editar Aeronave",
+        "description": "Actualiza el perfil de rendimiento de la aeronave.",
+        "data": {
+          "reg": "Matrícula",
+          "model": "Modelo de Aeronave",
+          "empty_weight": "Peso Vacío (kg)",
+          "max_tow": "MTOW (kg)",
+          "max_xwind": "Viento Cruzado Máximo Demostrado (kt)",
+          "baseline_roll": "Distancia de Rodadura Base a N.M. (m)",
+          "baseline_50ft": "Distancia de Rodadura Base 50ft a N.M. (m)",
+          "linked_airfield": "Aeródromo Vinculado"
+        }
+      },
+      "aircraft_delete": {
+        "title": "Eliminar Aeronave",
+        "description": "¿Estás seguro de que deseas eliminar la aeronave {reg}?",
+        "data": {
+          "confirm": "Confirmar Eliminación"
+        }
+      },
+      "pilot": {
+        "title": "Gestión de Pilotos",
+        "description": "Gestiona la información del Comandante (PIC) para declaraciones de compartición de gastos legales.",
+        "menu_options": {
+          "pilot_add": "Agregar Nuevo Piloto",
+          "pilot_manage": "Gestionar Pilotos Existentes"
+        }
+      },
+      "pilot_add": {
+        "title": "Agregar Piloto",
+        "description": "Ingresa los detalles del PIC para la documentación legal.",
+        "data": {
+          "name": "Nombre Completo",
+          "email": "Dirección de Correo (Privada)",
+          "licence_number": "Número de Licencia de Piloto",
+          "licence_type": "Tipo de Licencia (ej. PPL, LAPL, CPL)",
+          "medical_expiry": "Vencimiento de Certificado Médico/Autodeclaración"
+        }
+      },
+      "pilot_manage": {
+        "title": "Gestionar Pilotos",
+        "description": "Selecciona un piloto para editar o eliminar.",
+        "data": {
+          "index": "Seleccionar Piloto",
+          "action": "Acción"
+        }
+      },
+      "pilot_edit": {
+        "title": "Editar Piloto",
+        "description": "Actualiza los detalles del PIC.",
+        "data": {
+          "name": "Nombre Completo",
+          "email": "Dirección de Correo (Privada)",
+          "licence_number": "Número de Licencia de Piloto",
+          "licence_type": "Tipo de Licencia",
+          "medical_expiry": "Vencimiento de Certificado Médico/Autodeclaración"
+        }
+      },
+      "pilot_delete": {
+        "title": "Eliminar Piloto",
+        "description": "¿Estás seguro de que deseas eliminar al piloto {name}?",
+        "data": {
+          "confirm": "Confirmar Eliminación"
+        }
+      },
+      "ai": {
+        "title": "Asistente de Conversación de IA",
+        "description": "Configura un asistente de IA genérico para generar reportes, briefings y análisis en todas las herramientas.\n\nAviso del Sistema Predeterminado: {default_prompt_preview}",
+        "data": {
+          "ai_agent_entity": "Agente de IA (servicio de conversación)",
+          "use_custom_system_prompt": "Reemplazar con Aviso Personalizado",
+          "custom_system_prompt": "Aviso del Sistema Personalizado (se muestra si el reemplazo está habilitado)"
+        }
+      },
+      "briefing": {
+        "title": "Briefings Automatizados",
+        "description": "Gestiona briefings meteorológicos automatizados enviados a tu correo.",
+        "menu_options": {
+          "briefing_add": "Agregar Nuevo Briefing",
+          "briefing_manage": "Gestionar Briefings Existentes"
+        }
+      },
+      "briefing_add": {
+        "title": "Agregar Briefing",
+        "description": "Configura un nuevo horario de briefing automatizado.",
+        "data": {
+          "airfield_name": "Aeródromo Vinculado",
+          "aircraft_reg": "Aeronave Vinculada",
+          "briefing_time": "Hora del Briefing Diario (HH:MM)",
+          "pilots": "Destinatarios (Pilotos)",
+          "enable_ai_reporting": "Incluir Reporte Generado por IA"
+        }
+      },
+      "briefing_manage": {
+        "title": "Gestionar Briefings",
+        "description": "Selecciona un briefing para editar o eliminar.",
+        "data": {
+          "briefing_index": "Seleccionar Briefing",
+          "action": "Acción"
+        }
+      },
+      "briefing_edit": {
+        "title": "Editar Briefing",
+        "description": "Actualiza los detalles del briefing.",
+        "data": {
+          "airfield_name": "Aeródromo Vinculado",
+          "aircraft_reg": "Aeronave Vinculada",
+          "briefing_time": "Hora del Briefing Diario (HH:MM)",
+          "pilots": "Destinatarios (Pilotos)",
+          "enable_ai_reporting": "Incluir Reporte Generado por IA"
+        }
+      },
+      "briefing_delete": {
+        "title": "Eliminar Briefing",
+        "description": "¿Estás seguro de que deseas eliminar el briefing para {briefing}?",
+        "data": {
+          "confirm_delete": "Confirmar Eliminación"
+        }
+      },
+      "retention": {
+        "title": "Política de Retención de Datos",
+        "description": "Configura cuánto tiempo se conservan los registros legales y las declaraciones en PDF.",
+        "data": {
+          "auto_delete_enabled": "Habilitar Eliminación Automática",
+          "retention_months": "Período de Retención (Meses)"
+        }
+      },
+      "dashboard": {
+        "title": "Gestión del Panel",
+        "description": "Reconstruye el panel de Hangar Assistant si fue eliminado o para aplicar actualizaciones de plantilla.\n\nVersión Actual del Panel: {current_version}\nVersión de Plantilla: {template_version}\nÚltima Actualización: {last_updated}",
+        "data": {
+          "action": "Acción"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "density_altitude": { "name": "Altitud de Densidad" },
+      "cloud_base": { "name": "Base de Nubes Estimada" },
+      "data_freshness": { "name": "Edad de los Datos Meteorológicos" },
+      "ground_roll": { "name": "Distancia de Rodadura Calculada" },
+      "aibriefingsensor": { "name": "Briefing Prevuelo de IA" },
+      "carbrisktransitionsensor": { "name": "Altitud de Transición de Riesgo de Carburador" },
+      "primaryrunwaycrosswindsensor": { "name": "Viento Cruzado de Pista Principal" },
+      "idealrunwaycrosswindsensor": { "name": "Viento Cruzado de Pista Ideal" },
+      "pilotinfosensor": { "name": "Calificaciones del Piloto" }
+    },
+    "binary_sensor": {
+      "safety_alert": { "name": "Alerta de Seguridad Maestra" },
+      "pilotmedicalalert": { "name": "Estado Médico" }
+    }
+  }
+}

@@ -6,6 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, UNIT_PREFERENCE_AVIATION, UNIT_PREFERENCE_SI, DEFAULT_UNIT_PREFERENCE
+from .utils.i18n import get_available_languages
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,12 +142,19 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(data=self._entry_options())
 
         settings = self._entry_data().get("settings", {})
+
+        # Dynamically build language options from available translation files
+        language_options = [
+            selector.SelectOptionDict(value=code, label=label)
+            for code, label in get_available_languages()
+        ]
+
         return self.async_show_form(
             step_id="settings",
             data_schema=vol.Schema({
                 vol.Required("language", default=settings.get("language", "en")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[selector.SelectOptionDict(value="en", label="English")],
+                        options=language_options,
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),

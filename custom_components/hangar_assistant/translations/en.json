@@ -69,7 +69,8 @@
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor"
+          "wind_dir_sensor": "Wind Direction Sensor",
+          "ppl_required": "Prior Permission to Land required"
         }
       },
       "airfield_manage": {
@@ -96,7 +97,8 @@
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor"
+          "wind_dir_sensor": "Wind Direction Sensor",
+          "ppl_required": "Prior Permission to Land required"
         }
       },
       "airfield_delete": {

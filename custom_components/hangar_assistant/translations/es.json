@@ -41,6 +41,7 @@
         "description": "Configura preferencias del sistema, idioma y sensores de respaldo para datos de aeródromo local faltantes.",
         "data": {
           "language": "Idioma Principal",
+          "unit_preference": "Preferencia de Unidades",
           "global_pressure_sensor": "Sensor Altímetro Global (QNH)",
           "default_pressure": "Presión Predeterminada a Nivel del Mar (hPa)"
         }
@@ -62,6 +63,7 @@
           "latitude": "Latitud (DD.DDDD)",
           "longitude": "Longitud (DD.DDDD)",
           "elevation": "Elevación (Metros Sobre el Nivel del Mar)",
+          "distance_unit": "Unidad de Distancia",
           "runways": "Pistas Disponibles (ej. 03, 21)",
           "primary_runway": "Pista Principal (ej. 21)",
           "runway_length": "Longitud de Pista Principal (m)",
@@ -70,6 +72,7 @@
           "pressure_sensor": "Sensor de Presión (Altímetro)",
           "wind_sensor": "Sensor de Velocidad del Viento",
           "wind_dir_sensor": "Sensor de Dirección del Viento",
+          "radio_frequency": "Frecuencia de Radio",
           "ppl_required": "Autorización Previa Requerida"
         }
       },
@@ -90,6 +93,7 @@
           "latitude": "Latitud (DD.DDDD)",
           "longitude": "Longitud (DD.DDDD)",
           "elevation": "Elevación (Metros Sobre el Nivel del Mar)",
+          "distance_unit": "Unidad de Distancia",
           "runways": "Pistas Disponibles",
           "primary_runway": "Pista Principal",
           "runway_length": "Longitud de Pista Principal (m)",
@@ -98,6 +102,7 @@
           "pressure_sensor": "Sensor de Presión (Altímetro)",
           "wind_sensor": "Sensor de Velocidad del Viento",
           "wind_dir_sensor": "Sensor de Dirección del Viento",
+          "radio_frequency": "Frecuencia de Radio",
           "ppl_required": "Autorización Previa Requerida"
         }
       },
@@ -270,7 +275,9 @@
         "title": "Gestión del Panel",
         "description": "Reconstruye el panel de Hangar Assistant si fue eliminado o para aplicar actualizaciones de plantilla.\n\nVersión Actual del Panel: {current_version}\nVersión de Plantilla: {template_version}\nÚltima Actualización: {last_updated}",
         "data": {
-          "action": "Acción"
+          "recreate_dashboard": "Reconstruir el panel ahora",
+          "send_setup_help": "Enviar instrucciones de barra lateral (notificación persistente)",
+          "fire_setup_event": "Disparar evento 'hangar_assistant_dashboard_setup' para automatizaciones"
         }
       }
     }

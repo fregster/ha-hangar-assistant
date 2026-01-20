@@ -9,6 +9,7 @@ DOMAIN = "hangar_assistant"
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.SELECT,
 ]
 
 # Attribute constants used for legal and data tracking

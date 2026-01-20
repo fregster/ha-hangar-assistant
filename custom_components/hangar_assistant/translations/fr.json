@@ -41,6 +41,7 @@
         "description": "Configurez les préférences système, la langue et les capteurs de secours pour les données d'aérodrome local manquantes.",
         "data": {
           "language": "Langue Principale",
+          "unit_preference": "Préférence d'Unités",
           "global_pressure_sensor": "Capteur Altimètre Global (QNH)",
           "default_pressure": "Pression au Niveau de la Mer par Défaut (hPa)"
         }
@@ -62,6 +63,7 @@
           "latitude": "Latitude (DD.DDDD)",
           "longitude": "Longitude (DD.DDDD)",
           "elevation": "Altitude (Mètres au-dessus du Niveau de la Mer)",
+          "distance_unit": "Unité de Distance",
           "runways": "Pistes Disponibles (p. ex. 03, 21)",
           "primary_runway": "Piste Principale (p. ex. 21)",
           "runway_length": "Longueur de la Piste Principale (m)",
@@ -70,6 +72,7 @@
           "pressure_sensor": "Capteur de Pression (Altimètre)",
           "wind_sensor": "Capteur de Vitesse du Vent",
           "wind_dir_sensor": "Capteur de Direction du Vent",
+          "radio_frequency": "Fréquence Radio",
           "ppl_required": "Permission Préalable Requise"
         }
       },
@@ -90,6 +93,7 @@
           "latitude": "Latitude (DD.DDDD)",
           "longitude": "Longitude (DD.DDDD)",
           "elevation": "Altitude (Mètres au-dessus du Niveau de la Mer)",
+          "distance_unit": "Unité de Distance",
           "runways": "Pistes Disponibles",
           "primary_runway": "Piste Principale",
           "runway_length": "Longueur de la Piste Principale (m)",
@@ -98,6 +102,7 @@
           "pressure_sensor": "Capteur de Pression (Altimètre)",
           "wind_sensor": "Capteur de Vitesse du Vent",
           "wind_dir_sensor": "Capteur de Direction du Vent",
+          "radio_frequency": "Fréquence Radio",
           "ppl_required": "Permission Préalable Requise"
         }
       },
@@ -270,7 +275,9 @@
         "title": "Gestion du Tableau de Bord",
         "description": "Reconstruisez le tableau de bord Hangar Assistant s'il a été supprimé ou pour appliquer les mises à jour de modèle.\n\nVersion Actuelle du Tableau de Bord: {current_version}\nVersion du Modèle: {template_version}\nDernière Mise à Jour: {last_updated}",
         "data": {
-          "action": "Action"
+          "recreate_dashboard": "Reconstruire le tableau de bord maintenant",
+          "send_setup_help": "Envoyer les instructions de barre latérale (notification persistante)",
+          "fire_setup_event": "Déclencher l'événement 'hangar_assistant_dashboard_setup' pour les automatisations"
         }
       }
     }

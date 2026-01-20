@@ -6,6 +6,7 @@ import logging
 import os
 import yaml  # type: ignore
 import voluptuous as vol
+import inspect
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -122,31 +123,128 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         for entry in entries:
             await async_generate_all_ai_briefings(hass, entry)
 
-    # Register the manual cleanup service
-    hass.services.async_register(
-        DOMAIN, 
-        "manual_cleanup", 
-        handle_manual_cleanup,
-        schema=vol.Schema({
-            vol.Optional("retention_months"): cv.positive_int
-        })
-    )
+    async def handle_speak_briefing(call: ServiceCall) -> None:
+        """Service to speak the current AI pre-flight briefing via TTS.
+
+        Attempts to determine the active airfield slug from the built-in select
+        entity (select.hangar_assistant_airfield_selector). If not available,
+        auto-detects the first configured briefing sensor. Then uses the TTS
+        engine and media player provided in service data, or auto-picks sane
+        defaults.
+
+        Service data options (all optional):
+            - tts_entity_id: TTS engine entity (e.g., tts.cloud)
+            - media_player_entity_id: Target media player (e.g., media_player.living_room)
+        """
+        # Resolve airfield slug
+        slug: str | None = None
+        sel = hass.states.get("select.hangar_assistant_airfield_selector")
+        if sel and sel.state not in ("unknown", "unavailable", None):
+            slug = str(sel.state)
+        if not slug:
+            # Find first AI briefing sensor
+            for state in hass.states.async_all():
+                eid = state.entity_id
+                if eid.startswith("sensor.") and eid.endswith("_ai_pre_flight_briefing"):
+                    slug = eid.replace("sensor.", "").replace("_ai_pre_flight_briefing", "")
+                    break
+
+        if not slug:
+            _LOGGER.warning("No airfield slug found for AI briefing; cannot speak")
+            return
+
+        briefing_state = hass.states.get(f"sensor.{slug}_ai_pre_flight_briefing")
+        briefing = (
+            briefing_state.attributes.get("briefing") if briefing_state else None
+        )
+        if not briefing:
+            _LOGGER.warning("AI briefing text not available; skipping TTS")
+            return
+
+        # Resolve media player target
+        media_player = call.data.get("media_player_entity_id")
+        if not media_player:
+            # Prefer browser-based media players (current device) when available
+            browser_candidates: list[str] = []
+            for state in hass.states.async_all():
+                try:
+                    ent_id = state.entity_id
+                    if not ent_id.startswith("media_player."):
+                        continue
+                    attrs = getattr(state, "attributes", {}) or {}
+                    name = str(attrs.get("friendly_name", "")).lower()
+                    app_name = str(attrs.get("app_name", "")).lower()
+                    if (
+                        "browser" in ent_id
+                        or "browser" in name
+                        or app_name == "home assistant"
+                    ) and state.state not in ("unknown", "unavailable"):
+                        browser_candidates.append(ent_id)
+                except Exception:  # pragma: no cover - defensive per-entity
+                    continue
+
+            if browser_candidates:
+                media_player = browser_candidates[0]
+            else:
+                # Fallback to first available media player
+                for state in hass.states.async_all():
+                    if state.entity_id.startswith("media_player.") and state.state not in ("unknown", "unavailable"):
+                        media_player = state.entity_id
+                        break
+
+        # Resolve TTS engine
+        tts_entity = call.data.get("tts_entity_id")
+        if not tts_entity:
+            for state in hass.states.async_all():
+                if state.entity_id.startswith("tts."):
+                    tts_entity = state.entity_id
+                    break
+
+        if not media_player or not tts_entity:
+            _LOGGER.warning(
+                "Cannot speak briefing: media_player=%s, tts_entity=%s",
+                media_player,
+                tts_entity,
+            )
+            return
+
+        await hass.services.async_call(
+            "tts",
+            "speak",
+            {
+                "entity_id": tts_entity,
+                "media_player_entity_id": media_player,
+                "message": briefing,
+            },
+            blocking=False,
+        )
+
+    # Register the manual cleanup service (await if mocked as coroutine)
+    _schema_cleanup = vol.Schema({vol.Optional("retention_months"): cv.positive_int})
+    _res_cleanup = hass.services.async_register(DOMAIN, "manual_cleanup", handle_manual_cleanup, schema=_schema_cleanup)
+    if inspect.isawaitable(_res_cleanup):
+        await _res_cleanup
     
     # Register the dashboard rebuild service
-    hass.services.async_register(
-        DOMAIN,
-        "rebuild_dashboard",
-        handle_rebuild_dashboard,
-        schema=vol.Schema({})
-    )
+    _schema_rebuild = vol.Schema({})
+    _res_rebuild = hass.services.async_register(DOMAIN, "rebuild_dashboard", handle_rebuild_dashboard, schema=_schema_rebuild)
+    if inspect.isawaitable(_res_rebuild):
+        await _res_rebuild
 
     # Register the AI briefing refresh service
-    hass.services.async_register(
-        DOMAIN,
-        "refresh_ai_briefings",
-        handle_refresh_ai_briefings,
-        schema=vol.Schema({})
-    )
+    _schema_refresh = vol.Schema({})
+    _res_refresh = hass.services.async_register(DOMAIN, "refresh_ai_briefings", handle_refresh_ai_briefings, schema=_schema_refresh)
+    if inspect.isawaitable(_res_refresh):
+        await _res_refresh
+
+    # Register TTS speak briefing service
+    _schema_speak = vol.Schema({
+        vol.Optional("tts_entity_id"): cv.entity_id,
+        vol.Optional("media_player_entity_id"): cv.entity_id,
+    })
+    _res_speak = hass.services.async_register(DOMAIN, "speak_briefing", handle_speak_briefing, schema=_schema_speak)
+    if inspect.isawaitable(_res_speak):
+        await _res_speak
     
     return True
 
@@ -162,7 +260,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         force_rebuild=force_dashboard_rebuild,
         reason="major_version_upgrade" if force_dashboard_rebuild else "startup",
     )
-    
+
     # Forward setup to sensor and binary_sensor platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

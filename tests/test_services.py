@@ -23,7 +23,8 @@ def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock(spec=HomeAssistant)
     hass.services = MagicMock()
-    hass.services.async_register = AsyncMock()
+    # async_register is synchronous in HA; use MagicMock to avoid warnings
+    hass.services.async_register = MagicMock()
     hass.config_entries = MagicMock()
     hass.config = MagicMock()
     hass.config.path = MagicMock(return_value="/config/www/hangar/")
@@ -288,3 +289,106 @@ async def test_ai_prompt_includes_timezone():
     text = async_call.call_args[0][2]["text"]
     assert "Local Timezone: Europe/London" in text
     mock_hass.async_add_executor_job.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_speak_briefing_defaults_to_browser_media_player():
+    """When no media player is specified, prefer browser-based player."""
+    from types import SimpleNamespace
+    from custom_components.hangar_assistant import async_setup
+
+    hass = MagicMock(spec=HomeAssistant)
+    # Mock service registry and call
+    hass.services = MagicMock()
+    hass.services.async_register = AsyncMock()
+    hass.services.async_call = AsyncMock()
+
+    # Mock states: selector, briefing sensor, browser media player, tts
+    selector_state = SimpleNamespace(entity_id="select.hangar_assistant_airfield_selector", state="test_airfield", attributes={})
+    briefing_state = SimpleNamespace(entity_id="sensor.test_airfield_ai_pre_flight_briefing", state="on", attributes={"briefing": "Test briefing"})
+    browser_player = SimpleNamespace(entity_id="media_player.browser", state="idle", attributes={"friendly_name": "Browser", "app_name": "Home Assistant"})
+    tts_engine = SimpleNamespace(entity_id="tts.cloud", state="on", attributes={})
+
+    hass.states = MagicMock()
+    def _get(entity_id):
+        mapping = {
+            "select.hangar_assistant_airfield_selector": selector_state,
+            "sensor.test_airfield_ai_pre_flight_briefing": briefing_state,
+        }
+        return mapping.get(entity_id)
+
+    hass.states.get.side_effect = _get
+    hass.states.async_all = MagicMock(return_value=[selector_state, briefing_state, browser_player, tts_engine])
+
+    # Run setup to register services
+    await async_setup(hass, {})
+
+    # Extract the speak_briefing handler from service registration
+    handler = None
+    for call in hass.services.async_register.call_args_list:
+        args, kwargs = call
+        if len(args) >= 3 and args[0] == DOMAIN and args[1] == "speak_briefing":
+            handler = args[2]
+            break
+
+    assert handler is not None
+
+    call = MagicMock(spec=ServiceCall)
+    call.data = {}
+    await handler(call)
+
+    # Verify TTS was called and targeted the browser player by default
+    assert hass.services.async_call.call_count == 1
+    args, kwargs = hass.services.async_call.call_args
+    assert args[0] == "tts"
+    assert args[1] == "speak"
+    payload = args[2]
+    assert payload["media_player_entity_id"] == "media_player.browser"
+
+
+@pytest.mark.asyncio
+async def test_speak_briefing_fallbacks_to_first_available_media_player():
+    """If no browser player exists, fall back to the first media player."""
+    from types import SimpleNamespace
+    from custom_components.hangar_assistant import async_setup
+
+    hass = MagicMock(spec=HomeAssistant)
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
+    hass.services.async_call = AsyncMock()
+
+    selector_state = SimpleNamespace(entity_id="select.hangar_assistant_airfield_selector", state="test_airfield", attributes={})
+    briefing_state = SimpleNamespace(entity_id="sensor.test_airfield_ai_pre_flight_briefing", state="on", attributes={"briefing": "Test briefing"})
+    living_room = SimpleNamespace(entity_id="media_player.living_room", state="idle", attributes={"friendly_name": "Living Room"})
+    tts_engine = SimpleNamespace(entity_id="tts.cloud", state="on", attributes={})
+
+    hass.states = MagicMock()
+    def _get(entity_id):
+        mapping = {
+            "select.hangar_assistant_airfield_selector": selector_state,
+            "sensor.test_airfield_ai_pre_flight_briefing": briefing_state,
+        }
+        return mapping.get(entity_id)
+
+    hass.states.get.side_effect = _get
+    hass.states.async_all = MagicMock(return_value=[selector_state, briefing_state, living_room, tts_engine])
+
+    await async_setup(hass, {})
+
+    handler = None
+    for call in hass.services.async_register.call_args_list:
+        args, kwargs = call
+        if len(args) >= 3 and args[0] == DOMAIN and args[1] == "speak_briefing":
+            handler = args[2]
+            break
+
+    assert handler is not None
+
+    call = MagicMock(spec=ServiceCall)
+    call.data = {}
+    await handler(call)
+
+    assert hass.services.async_call.call_count == 1
+    args, kwargs = hass.services.async_call.call_args
+    payload = args[2]
+    assert payload["media_player_entity_id"] == "media_player.living_room"

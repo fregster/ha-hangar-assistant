@@ -1,1 +1,11 @@
 .vscode/sftp.json
+.problems/*
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.log
+.DS_Store

@@ -12,6 +12,91 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 - **Device Grouping**: Entities for a specific airfield or aircraft share `device_info` linked via `_id_slug`.
 - **Unique IDs**: Generated as `{_id_slug}_{class_name_lower}` (e.g., `ksfo_densityaltsensor`).
 
+## Backward Compatibility & Defaults
+
+**CRITICAL PRINCIPLE**: Existing installations must NEVER break due to updates. End users have invested significant effort in their setup. Forcing reinstalls, migrations, or configuration changes is unacceptable.
+
+### Default Values
+- **Every new configuration option MUST have a sensible default** that maintains existing behavior:
+  - New features default to disabled or use traditional/conservative settings
+  - New sensor parameters use safe fallbacks (e.g., `default=0`, `default=None`, `default=""`)
+  - Unit preferences default to aviation units (existing behavior)
+  - New boolean flags default to `False` unless explicitly enabling is required for safety
+  
+  Example (✓ correct):
+  ```python
+  unit_preference = settings.get("unit_preference", DEFAULT_UNIT_PREFERENCE)  # Defaults to aviation
+  timeout = config.get("timeout_seconds", 30)  # Safe default if missing
+  ```
+
+### Graceful Degradation
+- **Handle missing config keys**: Always use `.get()` with defaults, never direct dictionary access
+- **Validate and coerce types**: Check if values exist and are the expected type before use
+- **Fallback behavior**: If a new feature is unavailable, degrade gracefully:
+  ```python
+  if global_setting := settings.get("feature_flag"):
+      # Use new feature
+  else:
+      # Use original behavior
+  ```
+- **Skip optional sensors**: If required config is missing, skip sensor creation but don't error:
+  ```python
+  if all required fields present:
+      entities.append(NewSensor(...))
+  # Don't append if missing - user can add later via config
+  ```
+
+### Data Migrations
+- **Automatic migrations**: If config structure changes, migrate in `async_setup_entry()` BEFORE using data
+- **Non-destructive**: Never delete user data; transform it in-place or create new fields
+- **Document migrations**: Add comments explaining version-specific migration logic
+
+  Example:
+  ```python
+  # Migrate old config format to new (v2601.2.0+)
+  if "elevation_ft" in airfield and "elevation" not in airfield:
+      airfield["elevation"] = airfield["elevation_ft"] * 0.3048  # Convert to meters
+  ```
+
+### Testing for Compatibility
+- **Test upgrade paths**: Include test cases for existing (old) configurations:
+  ```python
+  def test_sensor_works_without_new_setting():
+      """Test sensor works when new optional setting is missing."""
+      config = {"name": "Popham"}  # Deliberately omit new field
+      sensor = DensityAltSensor(mock_hass, config, {})
+      assert sensor is not None  # Must not crash
+  ```
+- **Verify existing entities still work**: After adding new features, ensure all existing sensors/binary sensors still report correct values
+- **Cross-version testing**: Test with config from previous version to ensure no breaking changes
+
+### Adding New Features Safely
+1. **Add setting with default**: `setting = config.get("feature", DEFAULT_VALUE)`
+2. **Make conditionally optional**: Use new feature IF present, else use original logic
+3. **Include migration code**: If changing data structure, migrate old → new format automatically
+4. **Test without new feature**: Verify sensors work if user hasn't configured new setting yet
+5. **Document changes**: Note in release notes which features are optional vs. mandatory
+
+### Version-Specific Behavior
+- **Feature flags for major changes**: Use version checks if needed for compatibility
+- **Log migration actions**: Inform users (debug level) when migrations occur
+  ```python
+  _LOGGER.debug("Migrating config from v2600 format: converting elevation to meters")
+  ```
+
+### Examples of CORRECT Approaches
+✓ Unit preference system: Defaults to aviation (existing behavior), users opt-in to SI  
+✓ Optional sensors: Only created if required config present, gracefully skipped if missing  
+✓ New parameters: All have defaults, `.get()` used throughout, no required migrations  
+✓ Global settings: Stored in settings dict with defaults for any missing keys  
+
+### Examples of INCORRECT Approaches  
+✗ Forcing a config format change without automatic migration  
+✗ Removing fields from config without providing fallback values  
+✗ Making a previously optional parameter required  
+✗ Creating sensors/entities that fail if new features not configured  
+✗ Changing default behavior without version-specific handling
+
 ## Key Patterns
 - **Slugification**: Consistent ID generation: `_id_slug = (config.get("name") or config.get("reg")).lower().replace(" ", "_")`.
 - **Sibling Entity Reference**: Sensors reference each other using constructed entity IDs (e.g., `HangarMasterSafetyAlert` monitors `sensor.{_id_slug}_weather_data_age`).

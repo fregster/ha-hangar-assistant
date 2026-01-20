@@ -274,7 +274,8 @@ class DensityAltSensor(HangarSensorBase):
         da_feet = round(pa + (120 * (temp - isa_temp)))
         
         # Convert to user's preferred unit
-        return round(convert_altitude(da_feet, from_feet=True, to_preference=self._unit_preference))
+        converted = convert_altitude(da_feet, from_feet=True, to_preference=self._unit_preference)
+        return round(converted) if converted is not None else None
 
 class CloudBaseSensor(HangarSensorBase):
     """Estimates cloud base height Above Ground Level (AGL).
@@ -330,7 +331,8 @@ class CloudBaseSensor(HangarSensorBase):
         
         cb_feet = round(((t - dp) / 2.5) * 1000)
         # Convert to user's preferred unit
-        return round(convert_altitude(cb_feet, from_feet=True, to_preference=self._unit_preference))
+        converted = convert_altitude(cb_feet, from_feet=True, to_preference=self._unit_preference)
+        return round(converted) if converted is not None else None
 
 class DataFreshnessSensor(HangarSensorBase):
     """Monitors the age of weather sensor data to ensure currency.
@@ -519,7 +521,8 @@ class CarbRiskTransitionSensor(HangarSensorBase):
         alt_feet = round(res) if res < 20000 else 0
         
         # Convert to user's preferred unit
-        return round(convert_altitude(alt_feet, from_feet=True, to_preference=self._unit_preference))
+        converted = convert_altitude(alt_feet, from_feet=True, to_preference=self._unit_preference)
+        return round(converted) if converted is not None else None
 
 class PrimaryRunwayCrosswindSensor(HangarSensorBase):
     """Calculates the crosswind component for the primary runway.
@@ -980,17 +983,18 @@ class GroundRollSensor(HangarSensorBase):
                 # Rule of thumb: 10% increase per 1000ft DA above sea level
                 # We cap DA at 0 for this simple calculation
                 # Note: DA is in user's preferred unit, need to normalize to feet for calculation
-                da_ft = convert_altitude(da, from_feet=False, to_preference="aviation") if self._unit_preference == "si" else da
+                da_ft_converted = convert_altitude(da, from_feet=False, to_preference="aviation") if self._unit_preference == "si" else da
+                da_ft = da_ft_converted if da_ft_converted is not None else 0
                 factor = 1 + (max(0, da_ft) / 1000) * 0.10
                 adjusted_m = base_m * factor
                 # Convert result to user's preferred unit
                 adjusted_converted = convert_altitude(adjusted_m, from_feet=False, to_preference=self._unit_preference)
-                return round(adjusted_converted)
+                return round(adjusted_converted) if adjusted_converted is not None else None
         
         # Fallback to a static safety factor if no DA is available
         adjusted_m = base_m * 1.15
         adjusted_converted = convert_altitude(adjusted_m, from_feet=False, to_preference=self._unit_preference)
-        return round(adjusted_converted)
+        return round(adjusted_converted) if adjusted_converted is not None else None
 
 class PilotInfoSensor(HangarSensorBase):
     """Displays pilot qualification and license information.

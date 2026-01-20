@@ -10,7 +10,7 @@ from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, 
 _LOGGER = logging.getLogger(__name__)
 
 @config_entries.HANDLERS.register(DOMAIN)
-class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle initial onboarding for Hangar Assistant.
 
     This config flow manages the first-time setup and enforces a single configuration
@@ -89,19 +89,22 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     """
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        # OptionsFlow's base initializer does not accept the config entry argument
-        # (it's stored on the instance directly), so call without parameters.
+        """Initialize options flow.
+        
+        Args:
+            config_entry: The ConfigEntry to manage options for.
+        """
         super().__init__()
-        self.config_entry = config_entry
+        # Store config_entry as a private attribute since OptionsFlow manages it as a property
+        self._config_entry = config_entry
 
     def _entry_data(self) -> dict:
         """Return config entry data as a mutable dict, defaulting to empty."""
-        return dict(self.config_entry.data or {})
+        return dict(self._config_entry.data or {})
 
     def _entry_options(self) -> dict:
         """Return config entry options as a mutable dict, defaulting to empty."""
-        return dict(self.config_entry.options or {})
+        return dict(self._config_entry.options or {})
 
     @staticmethod
     def _list_from(value) -> list:
@@ -134,7 +137,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             new_data = self._entry_data()
             new_data["settings"] = user_input
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         settings = self._entry_data().get("settings", {})
@@ -190,7 +193,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             
             airfields.append(user_input)
             new_data["airfields"] = airfields
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -297,7 +300,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             
             airfields[index] = user_input
             new_data["airfields"] = airfields
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -363,7 +366,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 if 0 <= self._index < len(airfields):
                     airfields.pop(self._index)
                 new_data["airfields"] = airfields
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -406,7 +409,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             
             fleet.append(user_input)
             new_data["aircraft"] = fleet
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
@@ -516,7 +519,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             
             fleet[index] = user_input
             new_data["aircraft"] = fleet
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
@@ -579,7 +582,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 if 0 <= self._index < len(fleet):
                     fleet.pop(self._index)
                 new_data["aircraft"] = fleet
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -610,7 +613,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             pilots = self._list_from(new_data.get("pilots", []))
             pilots.append(user_input)
             new_data["pilots"] = pilots
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -677,7 +680,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_pilots = self._list_from(new_data.get("pilots", []))
             new_pilots[index] = user_input
             new_data["pilots"] = new_pilots
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -710,7 +713,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 if 0 <= self._index < len(new_pilots):
                     new_pilots.pop(self._index)
                 new_data["pilots"] = new_pilots
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -726,7 +729,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             new_data = self._entry_data()
             new_data["ai_assistant"] = user_input
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         ai_config = self._entry_data().get("ai_assistant", {})
@@ -774,7 +777,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             briefings = self._list_from(new_data.get("briefings", []))
             briefings.append(user_input)
             new_data["briefings"] = briefings
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         # Get existing airfields, aircraft, and pilots for selection
@@ -865,7 +868,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_briefings = self._list_from(new_data.get("briefings", []))
             new_briefings[index] = user_input
             new_data["briefings"] = new_briefings
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         # Get existing airfields, aircraft, and pilots for selection
@@ -917,7 +920,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 if 0 <= index < len(new_briefings):
                     new_briefings.pop(index)
                 new_data["briefings"] = new_briefings
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
@@ -970,7 +973,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 "auto_delete_enabled": user_input.get("auto_delete_enabled", True),
                 "retention_months": user_input.get("retention_months", 7)
             }
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
         retention_config = self._entry_data().get("retention", {})

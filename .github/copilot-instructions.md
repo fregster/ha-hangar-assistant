@@ -232,3 +232,111 @@ def my_function(param1: str, param2: int) -> bool:
 6. Run flake8 and mypy for code quality.
 7. Deploy to remote Home Assistant server for integration testing.
 8. Push to GitHub and let CI/CD pipeline validate.
+
+## Error Detection & Prevention
+
+### Type Checking (MyPy)
+The project uses **mypy** for static type checking. This catches many errors before runtime:
+
+**Run locally before committing:**
+```bash
+.venv/bin/mypy custom_components/hangar_assistant --ignore-missing-imports
+```
+
+**Common issues caught by mypy:**
+- Assigning to read-only properties (e.g., `self.config_entry = value` when it's a property)
+- Type mismatches in function arguments/returns
+- Accessing non-existent attributes on objects
+- None vs non-None type violations
+
+**Key pattern - Home Assistant OptionsFlow:**
+The `OptionsFlow` base class from Home Assistant defines `config_entry` as a read-only property. Do NOT try to assign to it directly:
+
+❌ WRONG:
+```python
+def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    super().__init__()
+    self.config_entry = config_entry  # ERROR: property has no setter
+```
+
+✓ CORRECT:
+```python
+def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    super().__init__()
+    # Store as private attribute if you need to reference it
+    self._config_entry = config_entry
+```
+
+### Linting (Flake8)
+Catches syntax errors, undefined names, and code complexity issues:
+
+**Run locally:**
+```bash
+.venv/bin/flake8 custom_components/hangar_assistant --count --select=E9,F63,F7,F82 --show-source --statistics
+```
+
+### Unit Tests
+Tests catch logical errors and integration issues:
+
+**Run locally:**
+```bash
+.venv/bin/pytest tests/ -v
+```
+
+**Best practices for config flow testing:**
+- Mock the `ConfigEntry` and `HA` objects properly
+- Test that `__init__` completes without errors
+- Verify that data methods (`_entry_data()`, `_entry_options()`) work correctly
+- Test with partial/missing config to ensure graceful handling
+
+Example:
+```python
+def test_options_flow_init():
+    """Test OptionsFlowHandler initialization without errors."""
+    mock_entry = MagicMock(spec=config_entries.ConfigEntry)
+    mock_entry.data = {"airfields": []}
+    mock_entry.options = {}
+    
+    # Should initialize without raising AttributeError
+    handler = HangarOptionsFlowHandler(mock_entry)
+    assert handler._config_entry is mock_entry
+```
+
+### Pre-commit Validation Checklist
+Before pushing code, run this locally:
+
+```bash
+# 1. Type checking
+.venv/bin/mypy custom_components/hangar_assistant --ignore-missing-imports
+
+# 2. Syntax & quality
+.venv/bin/flake8 custom_components/hangar_assistant --count --select=E9,F63,F7,F82 --show-source --statistics
+
+# 3. All tests
+.venv/bin/pytest tests/ -v
+
+# 4. Complex checks
+.venv/bin/flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127
+```
+
+### CI/CD Pipeline
+The GitHub Actions pipeline runs automatically on every commit and performs:
+1. **Hassfest**: Official Home Assistant validation
+2. **Flake8**: Code quality checks
+3. **MyPy**: Type checking (catches property assignment errors)
+4. **Pytest**: All unit tests must pass
+
+**If CI/CD fails after your changes:**
+- Check the specific error message in GitHub Actions logs
+- Run the same check locally to reproduce
+- Fix locally and verify with tools above
+- Push corrected code
+
+### Home Assistant API Patterns to Watch
+These commonly cause runtime errors if not properly typed/used:
+
+1. **Read-only properties**: Check HA documentation for `@property` vs `@property.setter`
+2. **Config entry data**: Always use `.get()` with defaults, never direct dictionary access
+3. **State machine access**: Handle `None` and "unavailable" states gracefully
+4. **Async functions**: All `async_*` methods must be awaited in async context
+5. **Event listeners**: Remember to call `async_on_remove()` to prevent memory leaks

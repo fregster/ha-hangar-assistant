@@ -80,14 +80,14 @@ class TestHangarOptionsFlowHandlerAirfieldAdd:
         flow = HangarAssistantConfigFlow.async_get_options_flow(mock_config_entry)
 
         assert isinstance(flow, HangarOptionsFlowHandler)
-        assert flow.config_entry == mock_config_entry
+        assert flow._config_entry == mock_config_entry
 
     def test_options_flow_factory_keeps_config_entry_reference(self, mock_config_entry):
         """Factory must attach the provided config_entry to the handler."""
         handler = HangarAssistantConfigFlow.async_get_options_flow(mock_config_entry)
 
         # Ensure the handler uses the same entry object, not a copy or None
-        assert handler.config_entry is mock_config_entry
+        assert handler._config_entry is mock_config_entry
 
     def test_options_flow_factory_called_via_instance(self, mock_config_entry):
         """Instance-level access should still produce an options flow handler."""
@@ -95,7 +95,7 @@ class TestHangarOptionsFlowHandlerAirfieldAdd:
         handler = flow_instance.async_get_options_flow(mock_config_entry)
 
         assert isinstance(handler, HangarOptionsFlowHandler)
-        assert handler.config_entry is mock_config_entry
+        assert handler._config_entry is mock_config_entry
 
     async def test_airfield_add_form_displayed(
         self, mock_hass, mock_config_entry

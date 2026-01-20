@@ -72,7 +72,7 @@
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",
           "wind_sensor": "Wind Speed Sensor",
-          "wind_dir_sensor": "Wind Direction Sensor"
+          "wind_dir_sensor": "Wind Direction Sensor",
           "radio_frequency": "Radio Frequency",
           "ppl_required": "Prior Permission Required"
         }
@@ -86,7 +86,6 @@
         }
       },
       "airfield_edit": {
-          "distance_unit": "Distance Unit",
         "title": "Edit Airfield",
         "description": "Update airfield profile details.",
         "data": {
@@ -95,8 +94,9 @@
           "latitude": "Latitude",
           "longitude": "Longitude",
           "elevation": "Elevation (m AMSL)",
+          "distance_unit": "Distance Unit",
           "radio_frequency": "Radio Frequency",
-          "ppl_required": "Prior Permission Required"
+          "ppl_required": "Prior Permission Required",
           "runways": "Available Runways (e.g., 09, 27)",
           "primary_runway": "Primary Runway",
           "runway_length": "Primary Runway Length (m)",

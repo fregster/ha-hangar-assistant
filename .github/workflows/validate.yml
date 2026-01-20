@@ -53,6 +53,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          pip install --upgrade pip setuptools wheel
           pip install -r requirements_test.txt
 
       - name: Lint with Flake8
@@ -86,6 +87,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          pip install --upgrade pip setuptools wheel
           pip install -r requirements_test.txt
 
       - name: Run MyPy
@@ -107,6 +109,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          pip install --upgrade pip setuptools wheel
           pip install -r requirements_test.txt
 
       - name: Run Tests

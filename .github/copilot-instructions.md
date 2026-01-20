@@ -43,15 +43,29 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 
 ## Developer Workflow & Testing
 
+### Unit Testing Best Practices
+- **Use Mocks, Not Real HA System**: Create unit tests with `unittest.mock` (MagicMock, patch) rather than requiring the full Home Assistant system. Mock `hass`, `states`, and `config_entries` as needed.
+- **Mock Architecture Example**:
+  ```python
+  from unittest.mock import MagicMock
+  mock_hass = MagicMock()
+  mock_hass.states = MagicMock()
+  mock_hass.states.get.return_value = MagicMock(state="15")
+  sensor = DensityAltSensor(mock_hass, config, entry_data)
+  ```
+- **Avoid Integration Loader**: Do NOT use `hass.config_entries.flow.async_init()` or similar integration discovery features in unit tests—the integration may not be discoverable in test environments. Instead, instantiate flow handlers directly and mock their dependencies.
+- **Property Patching**: Cannot patch class properties directly. Instead, create mock instances with properties set via `MagicMock` attributes (e.g., `mock_entry.data = {"key": "value"}`).
+- **Timezone Awareness**: Use `homeassistant.util.dt.utcnow()` for timezone-aware datetimes in tests (not `datetime.utcnow()`).
+
 ### Local Development & Testing
 - **Development Environment**: Solutions are developed locally on the developer's machine.
 - **Remote Testing**: Code is tested on a remote Home Assistant server before release to ensure real-world integration with actual HA instances.
 - **Testing**: Local unit tests in `tests/` directory. Run with `pytest`.
   - `test_formulas.py`: Pure python unit tests for aviation math.
-  - `test_binary_sensor.py`: Binary sensor logic tests.
-  - `test_enhanced_logic.py`: Integration tests for complex logic.
-  - `test_integration.py`: End-to-end integration tests.
-  - `test_sensor_coverage.py`, `test_config_flow_coverage.py`, `test_sensor_setup_coverage.py`: Additional coverage tests.
+  - `test_binary_sensor.py`: Binary sensor logic tests (mocked state retrieval).
+  - `test_enhanced_logic.py`: Integration tests for complex logic (mocked HA system).
+  - `test_integration.py`: End-to-end integration tests (mocked entity setup).
+  - `test_sensor_coverage.py`, `test_config_flow_coverage.py`, `test_sensor_setup_coverage.py`: Additional coverage tests (all mock-based).
   - Run all tests: `.venv/bin/pytest tests/`
 
 ### GitHub & Continuous Integration

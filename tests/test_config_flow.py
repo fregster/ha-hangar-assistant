@@ -1,40 +1,50 @@
-"""Tests for Hangar Assistant config flow."""
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from homeassistant import config_entries, data_entry_flow
-from homeassistant.core import HomeAssistant
+import pytest
 from custom_components.hangar_assistant.const import DOMAIN
-from custom_components.hangar_assistant.config_flow import (
-    HangarAssistantConfigFlow
-)
-
 
 @pytest.mark.asyncio
-async def test_flow_user_init():
-    """Test the user step of the config flow."""
-    flow = HangarAssistantConfigFlow()
-    flow.hass = MagicMock()
-    flow._async_current_entries = MagicMock(return_value=[])
-
-    result = await flow.async_step_user()
-
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "user"
-
-
-@pytest.mark.asyncio
-async def test_flow_user_already_configured():
-    """Test the user step when already configured."""
-    flow = HangarAssistantConfigFlow()
-    flow.hass = MagicMock()
-    # Mock existing entry
-    existing_entry = MagicMock()
-    existing_entry.domain = DOMAIN
-    flow._async_current_entries = MagicMock(
-        return_value=[existing_entry]
+async def test_config_flow(hass):
+    """Test the config flow."""
+    # Start the config flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    result = await flow.async_step_user()
+    # Check that the flow is of the correct type
+    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+    assert result["step_id"] == "user"
 
-    assert result["type"] == data_entry_flow.FlowResultType.ABORT
-    assert result["reason"] == "already_configured"
+    # Simulate user input
+    with patch("custom_components.hangar_assistant.async_setup_entry", return_value=True):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+
+    # Check that the flow creates an entry
+    assert result2["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+    assert result2["title"] == "Hangar Assistant"
+    assert result2["data"] == {}
+
+@pytest.mark.asyncio
+async def test_options_flow(hass):
+    """Test the options flow."""
+    # Create a mock config entry
+    config_entry = config_entries.ConfigEntry(
+        version=1,
+        domain=DOMAIN,
+        title="Hangar Assistant",
+        data={},
+        source="user",
+        options={},
+    )
+    config_entry.add_to_hass(hass)
+
+    # Initialize the options flow
+    with patch("custom_components.hangar_assistant.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    # Check that the flow is of the correct type
+    assert result["type"] == data_entry_flow.RESULT_TYPE_MENU
+    assert result["step_id"] == "init"

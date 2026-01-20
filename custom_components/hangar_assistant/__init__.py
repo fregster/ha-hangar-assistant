@@ -252,15 +252,20 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
     if not agent_id:
         return
 
-    # Load system prompt from file
+    # Load system prompt from file without blocking the event loop
     prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "preflight_brief.txt")
-    system_instructions = ""
-    if os.path.exists(prompt_path):
+
+    def _read_prompt_file() -> str:
+        if not os.path.exists(prompt_path):
+            return ""
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
-                system_instructions = f.read()
+                return f.read()
         except Exception as e:
             _LOGGER.error("Error reading preflight_brief.txt: %s", e)
+            return ""
+
+    system_instructions = await hass.async_add_executor_job(_read_prompt_file)
     
     # Generate briefings for each airfield
     for airfield in entry.data.get("airfields", []):
@@ -275,6 +280,7 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
         wind_dir = hass.states.get(f"sensor.{slug}_weather_wind_direction")
         cloud_base = hass.states.get(f"sensor.{slug}_est_cloud_base")
         best_rwy = hass.states.get(f"sensor.{slug}_best_runway")
+        tz = hass.states.get(f"sensor.{slug}_airfield_timezone")
         
         # Get sunset/sunrise
         sun = hass.states.get("sun.sun")
@@ -284,6 +290,12 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
             next_setting = sun.attributes.get("next_setting")
             next_event = f"Next Sunrise: {next_rising}, Next Sunset: {next_setting}"
 
+        tz_value = None
+        if tz:
+            tz_value = tz.state
+        if not tz_value:
+            tz_value = getattr(hass.config, "time_zone", None) or "unknown"
+
         user_prompt = (
             f"{system_instructions}\n\n"
             f"### LIVE DATA FOR {airfield_name} ({icao}):\n"
@@ -292,6 +304,7 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
             f"- Density Altitude: {da.state if da else 'unknown'} ft\n"
             f"- Est. Cloud Base: {cloud_base.state if cloud_base else 'unknown'} ft\n"
             f"- Carburettor Icing Risk: {carb.state if carb else 'unknown'}\n"
+            f"- Local Timezone: {tz_value}\n"
             f"- Solar: {next_event}\n\n"
             f"Please provide the briefing based on this data and your general aviation knowledge."
         )

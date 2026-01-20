@@ -19,7 +19,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, UNIT_PREFERENCE_AVIATION, DEFAULT_UNIT_PREFERENCE
+from .utils.units import convert_altitude, convert_speed, get_altitude_unit, get_speed_unit
+
+try:
+    from timezonefinder import TimezoneFinder
+except ImportError:  # pragma: no cover - handled in runtime fallback
+    TimezoneFinder = None
+
+_TZ_FINDER = TimezoneFinder() if TimezoneFinder else None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,28 +58,29 @@ async def async_setup_entry(
     for airfield in entry.data.get("airfields", []):
         entities.extend([
             DensityAltSensor(hass, airfield, global_settings),
-            CloudBaseSensor(hass, airfield),
-            DataFreshnessSensor(hass, airfield),
-            CarbRiskSensor(hass, airfield),
-            CarbRiskTransitionSensor(hass, airfield),
-            BestRunwaySensor(hass, airfield),
-            PrimaryRunwayCrosswindSensor(hass, airfield),
-            IdealRunwayCrosswindSensor(hass, airfield),
-            AIBriefingSensor(hass, airfield),
-            AirfieldWeatherPassThrough(hass, airfield, "temp_sensor", "Temperature", SensorDeviceClass.TEMPERATURE, "°C"),
-            AirfieldWeatherPassThrough(hass, airfield, "dp_sensor", "Dew Point", SensorDeviceClass.TEMPERATURE, "°C"),
-            AirfieldWeatherPassThrough(hass, airfield, "pressure_sensor", "Pressure", SensorDeviceClass.PRESSURE, "hPa"),
-            AirfieldWeatherPassThrough(hass, airfield, "wind_sensor", "Wind Speed", SensorDeviceClass.WIND_SPEED, "kt"),
-            AirfieldWeatherPassThrough(hass, airfield, "wind_dir_sensor", "Wind Direction", None, "°")
+            CloudBaseSensor(hass, airfield, global_settings),
+            DataFreshnessSensor(hass, airfield, global_settings),
+            CarbRiskSensor(hass, airfield, global_settings),
+            CarbRiskTransitionSensor(hass, airfield, global_settings),
+            BestRunwaySensor(hass, airfield, global_settings),
+            PrimaryRunwayCrosswindSensor(hass, airfield, global_settings),
+            IdealRunwayCrosswindSensor(hass, airfield, global_settings),
+            AirfieldTimezoneSensor(hass, airfield, global_settings),
+            AIBriefingSensor(hass, airfield, global_settings),
+            AirfieldWeatherPassThrough(hass, airfield, "temp_sensor", "Temperature", SensorDeviceClass.TEMPERATURE, "°C", global_settings),
+            AirfieldWeatherPassThrough(hass, airfield, "dp_sensor", "Dew Point", SensorDeviceClass.TEMPERATURE, "°C", global_settings),
+            AirfieldWeatherPassThrough(hass, airfield, "pressure_sensor", "Pressure", SensorDeviceClass.PRESSURE, "hPa", global_settings),
+            AirfieldWeatherPassThrough(hass, airfield, "wind_sensor", "Wind Speed", SensorDeviceClass.WIND_SPEED, "kn", global_settings),
+            AirfieldWeatherPassThrough(hass, airfield, "wind_dir_sensor", "Wind Direction", None, "°", global_settings)
         ])
 
     # 2. Process Aircraft from the list
     for aircraft in entry.data.get("aircraft", []):
-        entities.append(GroundRollSensor(hass, aircraft))
+        entities.append(GroundRollSensor(hass, aircraft, global_settings))
 
     # 3. Process Pilots from the list
     for pilot in entry.data.get("pilots", []):
-        entities.append(PilotInfoSensor(hass, pilot))
+        entities.append(PilotInfoSensor(hass, pilot, global_settings))
 
     # Add all generated entities to the system
     async_add_entities(entities)
@@ -93,10 +102,18 @@ class HangarSensorBase(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        """Initialize the sensor."""
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        """Initialize the sensor.
+        
+        Args:
+            hass: Home Assistant instance
+            config: Configuration dict for this sensor
+            global_settings: Global settings including unit preference
+        """
         self.hass = hass
         self._config = config
+        self._global_settings = global_settings or {}
+        self._unit_preference = self._global_settings.get("unit_preference", DEFAULT_UNIT_PREFERENCE)
         # Use Name or Reg to create a safe unique ID 
         name_or_reg = config.get("name") or config.get("reg") or "unknown"
         self._id_slug = name_or_reg.lower().replace(" ", "_")
@@ -189,19 +206,16 @@ class DensityAltSensor(HangarSensorBase):
         - pressure_sensor: Entity ID of pressure sensor (hPa or inHg)
     
     Outputs:
-        - native_value: Calculated Density Altitude in feet
-        - Range: Typically 500-10000 ft depending on weather
+        - native_value: Calculated Density Altitude in feet or meters based on unit preference
+        - Range: Typically 500-10000 ft (1500-3000 m)
     
     Used by:
         - GroundRollSensor to adjust takeoff distance calculations
         - Dashboard to indicate aircraft performance capability
     """
-    _attr_native_unit_of_measurement = UnitOfLength.FEET
-    _attr_device_class = SensorDeviceClass.DISTANCE
 
     def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
-        super().__init__(hass, config)
-        self._global_settings = global_settings or {}
+        super().__init__(hass, config, global_settings)
         self._source_entities = []
         if sensor := config.get('temp_sensor'):
             self._source_entities.append(sensor)
@@ -209,6 +223,8 @@ class DensityAltSensor(HangarSensorBase):
             self._source_entities.append(sensor)
         elif global_sensor := self._global_settings.get('global_pressure_sensor'):
             self._source_entities.append(global_sensor)
+        # Set unit based on preference
+        self._attr_native_unit_of_measurement = get_altitude_unit(self._unit_preference)
 
     @property
     def name(self) -> str:
@@ -217,7 +233,10 @@ class DensityAltSensor(HangarSensorBase):
 
     @property
     def native_value(self) -> float | None:
-        """Return the state of the sensor."""
+        """Return the state of the sensor.
+        
+        Calculates DA in feet, then converts to user's preferred unit.
+        """
         t_id = self._config.get('temp_sensor')
         p_id = self._config.get('pressure_sensor')
         gp_id = self._global_settings.get('global_pressure_sensor')
@@ -237,7 +256,7 @@ class DensityAltSensor(HangarSensorBase):
         if temp is None:
             return None
 
-        # Convert elevation to feet
+        # Convert elevation to feet for calculation
         elevation_ft = elevation_m * 3.28084
 
         # Calculate Pressure Altitude (PA)
@@ -252,7 +271,11 @@ class DensityAltSensor(HangarSensorBase):
         # Standard Aviation Formula: DA = PA + (120 * (OAT - ISA_Temp_at_alt))
         # ISA Temp drops ~2C per 1000ft
         isa_temp = 15 - (2 * (elevation_ft / 1000))
-        return round(pa + (120 * (temp - isa_temp)))
+        da_feet = round(pa + (120 * (temp - isa_temp)))
+        
+        # Convert to user's preferred unit
+        converted = convert_altitude(da_feet, from_feet=True, to_preference=self._unit_preference)
+        return round(converted) if converted is not None else None
 
 class CloudBaseSensor(HangarSensorBase):
     """Estimates cloud base height Above Ground Level (AGL).
@@ -268,21 +291,22 @@ class CloudBaseSensor(HangarSensorBase):
         - dp_sensor: Entity ID of dew point sensor (°C)
     
     Outputs:
-        - native_value: Estimated cloud base in feet above ground
-        - Range: Typically 500-10000 ft
+        - native_value: Estimated cloud base in feet or meters above ground
+        - Range: Typically 500-10000 ft (150-3000 m)
     
     Limitations:
         - Assumes typical atmospheric lapse rate
         - Only valid when T > DP (unsaturated air)
     """
-    _attr_native_unit_of_measurement = UnitOfLength.FEET
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         t_sensor = config.get('temp_sensor')
         dp_sensor = config.get('dp_sensor')
         if t_sensor and dp_sensor:
             self._source_entities = [t_sensor, dp_sensor]
+        # Set unit based on preference
+        self._attr_native_unit_of_measurement = get_altitude_unit(self._unit_preference)
 
     @property
     def name(self) -> str:
@@ -291,7 +315,10 @@ class CloudBaseSensor(HangarSensorBase):
 
     @property
     def native_value(self) -> float | None:
-        """Return the state of the sensor."""
+        """Return the state of the sensor.
+        
+        Calculates cloud base in feet, then converts to user's preferred unit.
+        """
         t_id = self._config.get('temp_sensor')
         dp_id = self._config.get('dp_sensor')
         if not t_id or not dp_id:
@@ -301,7 +328,11 @@ class CloudBaseSensor(HangarSensorBase):
         dp = self._get_sensor_value(dp_id)
         if t is None or dp is None:
             return None
-        return round(((t - dp) / 2.5) * 1000)
+        
+        cb_feet = round(((t - dp) / 2.5) * 1000)
+        # Convert to user's preferred unit
+        converted = convert_altitude(cb_feet, from_feet=True, to_preference=self._unit_preference)
+        return round(converted) if converted is not None else None
 
 class DataFreshnessSensor(HangarSensorBase):
     """Monitors the age of weather sensor data to ensure currency.
@@ -373,8 +404,8 @@ class CarbRiskSensor(HangarSensorBase):
         - Dashboard to highlight icing conditions
     """
     
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         t_sensor = config.get('temp_sensor')
         dp_sensor = config.get('dp_sensor')
         if t_sensor and dp_sensor:
@@ -434,21 +465,22 @@ class CarbRiskTransitionSensor(HangarSensorBase):
         - dp_sensor: Current dew point (°C)
     
     Outputs:
-        - native_value: Transition altitude in feet AGL
+        - native_value: Transition altitude in feet or meters AGL
         - 0 = Already in risk or no transition expected
     
     Used by:
         - Pilot briefing to indicate altitude restrictions
         - Flight planning to recommend flight levels
     """
-    _attr_native_unit_of_measurement = UnitOfLength.FEET
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         t_sensor = config.get('temp_sensor')
         dp_sensor = config.get('dp_sensor')
         if t_sensor and dp_sensor:
             self._source_entities = [t_sensor, dp_sensor]
+        # Set unit based on preference
+        self._attr_native_unit_of_measurement = get_altitude_unit(self._unit_preference)
 
     @property
     def name(self) -> str:
@@ -486,7 +518,11 @@ class CarbRiskTransitionSensor(HangarSensorBase):
         # This is a simplification, but we take the lower of the two 
         # that actually gets us into the T<30 and Spread<10 criteria.
         res = max(0, min(alt_t30, alt_s10))
-        return round(res) if res < 20000 else 0
+        alt_feet = round(res) if res < 20000 else 0
+        
+        # Convert to user's preferred unit
+        converted = convert_altitude(alt_feet, from_feet=True, to_preference=self._unit_preference)
+        return round(converted) if converted is not None else None
 
 class PrimaryRunwayCrosswindSensor(HangarSensorBase):
     """Calculates the crosswind component for the primary runway.
@@ -502,21 +538,22 @@ class PrimaryRunwayCrosswindSensor(HangarSensorBase):
         - primary_runway: Runway identifier (e.g., \"21\" for 210 degree heading)
     
     Outputs:
-        - native_value: Calculated crosswind component in knots
+        - native_value: Calculated crosswind component in knots or kph
         - Positive value always (absolute value)
     
     Used by:
         - Pilot briefing to assess runway suitability
         - Dashboard to display wind compatibility
     """
-    _attr_native_unit_of_measurement = "kt"
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         w_sensor = config.get('wind_sensor')
         wd_sensor = config.get('wind_dir_sensor')
         if w_sensor and wd_sensor:
             self._source_entities = [w_sensor, wd_sensor]
+        # Set unit based on preference
+        self._attr_native_unit_of_measurement = get_speed_unit(self._unit_preference)
 
     @property
     def name(self) -> str:
@@ -540,7 +577,10 @@ class PrimaryRunwayCrosswindSensor(HangarSensorBase):
         try:
             rwy_heading = int(primary.strip()) * 10
             angle_rad = math.radians(wind_dir - rwy_heading)
-            return round(abs(wind_speed * math.sin(angle_rad)), 1)
+            crosswind_kt = abs(wind_speed * math.sin(angle_rad))
+            # Convert to user's preferred unit
+            crosswind_converted = convert_speed(crosswind_kt, from_knots=True, to_preference=self._unit_preference)
+            return round(crosswind_converted, 1) if crosswind_converted else None
         except (ValueError, TypeError):
             return None
 
@@ -556,21 +596,22 @@ class IdealRunwayCrosswindSensor(HangarSensorBase):
         - runways: Comma-separated list of runway identifiers (e.g., \"03, 21\")
     
     Outputs:
-        - native_value: Minimum crosswind component in knots
+        - native_value: Minimum crosswind component in knots or kph
         - Calculated from best runway option
     
     Used by:
         - BestRunwaySensor as supporting calculation
         - Dashboard to show most favorable landing option
     """
-    _attr_native_unit_of_measurement = "kt"
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         w_sensor = config.get('wind_sensor')
         wd_sensor = config.get('wind_dir_sensor')
         if w_sensor and wd_sensor:
             self._source_entities = [w_sensor, wd_sensor]
+        # Set unit based on preference
+        self._attr_native_unit_of_measurement = get_speed_unit(self._unit_preference)
 
     @property
     def name(self) -> str:
@@ -605,7 +646,12 @@ class IdealRunwayCrosswindSensor(HangarSensorBase):
             except (ValueError, TypeError):
                 continue
 
-        return round(min_xwind, 1) if min_xwind != 999 else None
+        if min_xwind == 999:
+            return None
+        
+        # Convert to user's preferred unit
+        min_xwind_converted = convert_speed(min_xwind, from_knots=True, to_preference=self._unit_preference)
+        return round(min_xwind_converted, 1) if min_xwind_converted else None
 
 class AIBriefingSensor(HangarSensorBase):
     """Stores and displays the latest AI-generated pre-flight briefing.
@@ -633,8 +679,8 @@ class AIBriefingSensor(HangarSensorBase):
     
     _attr_icon = "mdi:robot"
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         self._briefing_text = "Waiting for first briefing..."
         self._last_update = None
 
@@ -676,6 +722,63 @@ class AIBriefingSensor(HangarSensorBase):
         self._last_update = dt_util.now().isoformat()
         self.async_write_ha_state()
 
+
+class AirfieldTimezoneSensor(HangarSensorBase):
+    """Provide the local timezone identifier for an airfield.
+
+    Calculates the IANA timezone string from configured latitude/longitude using
+    timezonefinder, falling back to the Home Assistant configured timezone when
+    coordinates are missing or a lookup fails.
+
+    Inputs (from config):
+        - latitude: Airfield latitude (float)
+        - longitude: Airfield longitude (float)
+
+    Outputs:
+        - native_value: IANA timezone string (e.g., "Europe/London")
+        - extra_state_attributes:
+            - source: "airfield_coords", "home_assistant", or "utc_fallback"
+
+    Used by:
+        - Briefings and scheduling to align times to the local airfield timezone.
+    """
+
+    @property
+    def name(self) -> str:
+        return "Airfield Timezone"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the best-available timezone string for this airfield."""
+        lat = self._config.get("latitude")
+        lon = self._config.get("longitude")
+
+        # Attempt coordinate-based lookup when possible
+        if lat is not None and lon is not None and _TZ_FINDER:
+            try:
+                tz_name = _TZ_FINDER.timezone_at(lat=float(lat), lng=float(lon))
+                if tz_name:
+                    self._tz_source = "airfield_coords"
+                    return tz_name
+            except Exception as exc:  # pragma: no cover - defensive guard
+                _LOGGER.debug("Timezone lookup failed for %s/%s: %s", lat, lon, exc)
+
+        # Fall back to Home Assistant configured timezone
+        ha_tz = getattr(self.hass.config, "time_zone", None)
+        if ha_tz:
+            self._tz_source = "home_assistant"
+            return ha_tz
+
+        # Final fallback to UTC
+        self._tz_source = "utc_fallback"
+        return "UTC"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = super().extra_state_attributes
+        attrs["source"] = getattr(self, "_tz_source", None)
+        return attrs
+
 class AirfieldWeatherPassThrough(HangarSensorBase):
     """Passes through individual weather sensor values for consistent dashboard display.
     
@@ -698,12 +801,14 @@ class AirfieldWeatherPassThrough(HangarSensorBase):
     Created instances: 5 per airfield (one for each weather parameter)
     """
     
-    def __init__(self, hass: HomeAssistant, config: dict, sensor_key: str, label: str, device_class=None, unit=None):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, sensor_key: str, label: str, device_class=None, unit=None, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         self._sensor_key = sensor_key
         self._label = label
         self._attr_device_class = device_class
         self._attr_native_unit_of_measurement = unit
+        # Ensure each weather pass-through gets a stable, non-colliding unique_id
+        self._attr_unique_id = f"{self._id_slug}_weather_{sensor_key}"
         if sensor := config.get(sensor_key):
             self._source_entities = [sensor]
 
@@ -744,8 +849,8 @@ class BestRunwaySensor(HangarSensorBase):
         - Pilot briefing for runway selection
     """
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         w_sensor = config.get('wind_sensor')
         wd_sensor = config.get('wind_dir_sensor')
         if w_sensor and wd_sensor:
@@ -794,7 +899,7 @@ class BestRunwaySensor(HangarSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return crosswind and headwind components."""
+        """Return crosswind and headwind components in user's preferred units."""
         attrs = super().extra_state_attributes
         w_id = self._config.get('wind_sensor')
         wd_id = self._config.get('wind_dir_sensor')
@@ -810,8 +915,16 @@ class BestRunwaySensor(HangarSensorBase):
             try:
                 rwy_heading = int(best_rwy) * 10
                 angle_rad = math.radians(wind_dir - rwy_heading)
-                attrs["crosswind_component"] = round(abs(wind_speed * math.sin(angle_rad)), 1)
-                attrs["headwind_component"] = round(wind_speed * math.cos(angle_rad), 1)
+                crosswind_kt = abs(wind_speed * math.sin(angle_rad))
+                headwind_kt = wind_speed * math.cos(angle_rad)
+                
+                # Convert to user's preferred unit
+                crosswind_converted = convert_speed(crosswind_kt, from_knots=True, to_preference=self._unit_preference)
+                headwind_converted = convert_speed(headwind_kt, from_knots=True, to_preference=self._unit_preference)
+                
+                attrs["crosswind_component"] = round(crosswind_converted, 1) if crosswind_converted else None
+                attrs["headwind_component"] = round(headwind_converted, 1) if headwind_converted else None
+                attrs["wind_unit"] = get_speed_unit(self._unit_preference)
             except ValueError:
                 pass
         
@@ -842,16 +955,17 @@ class GroundRollSensor(HangarSensorBase):
     
     Example: Baseline 500m, DA 5000ft => Adjusted = 500 * 1.50 = 750m
     """
-    _attr_native_unit_of_measurement = UnitOfLength.METERS
 
-    def __init__(self, hass: HomeAssistant, config: dict):
-        super().__init__(hass, config)
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
         self._da_sensor_id: str | None = None
         if airfield_name := config.get("linked_airfield"):
             # Predict the DA sensor ID for the linked airfield
             slug = airfield_name.lower().replace(" ", "_")
             self._da_sensor_id = f"sensor.{slug}_density_altitude"
             self._source_entities = [self._da_sensor_id]
+        # Set unit based on preference
+        self._attr_native_unit_of_measurement = get_altitude_unit(self._unit_preference)
 
     @property
     def name(self) -> str:
@@ -859,20 +973,28 @@ class GroundRollSensor(HangarSensorBase):
         return "Calculated Ground Roll"
 
     @property
-    def native_value(self) -> int | None:
-        """Return the state of the sensor."""
-        base = self._config.get("baseline_roll", 0)
+    def native_value(self) -> float | None:
+        """Return the state of the sensor in meters or user's preferred unit."""
+        base_m = self._config.get("baseline_roll", 0)
         
         if self._da_sensor_id:
             da = self._get_sensor_value(self._da_sensor_id)
             if da is not None:
                 # Rule of thumb: 10% increase per 1000ft DA above sea level
                 # We cap DA at 0 for this simple calculation
-                factor = 1 + (max(0, da) / 1000) * 0.10
-                return round(base * factor)
+                # Note: DA is in user's preferred unit, need to normalize to feet for calculation
+                da_ft_converted = convert_altitude(da, from_feet=False, to_preference="aviation") if self._unit_preference == "si" else da
+                da_ft = da_ft_converted if da_ft_converted is not None else 0
+                factor = 1 + (max(0, da_ft) / 1000) * 0.10
+                adjusted_m = base_m * factor
+                # Convert result to user's preferred unit
+                adjusted_converted = convert_altitude(adjusted_m, from_feet=False, to_preference=self._unit_preference)
+                return round(adjusted_converted) if adjusted_converted is not None else None
         
         # Fallback to a static safety factor if no DA is available
-        return round(base * 1.15)
+        adjusted_m = base_m * 1.15
+        adjusted_converted = convert_altitude(adjusted_m, from_feet=False, to_preference=self._unit_preference)
+        return round(adjusted_converted) if adjusted_converted is not None else None
 
 class PilotInfoSensor(HangarSensorBase):
     """Displays pilot qualification and license information.
@@ -888,12 +1010,13 @@ class PilotInfoSensor(HangarSensorBase):
         - medical_expiry: Medical certificate expiration date
     
     Outputs:
-        - native_value: License type (e.g., \"Commercial\")
+        - native_value: License type (e.g., "Commercial")
         - extra_state_attributes: Full pilot record including:
             - pilot_name
             - email
             - licence_number
             - medical_expiry (used by PilotMedicalAlert)
+            - ratings: dict of boolean flags (IFR, Night, Tailwheel, Complex, High-Performance, Multi-Engine, Seaplane, Glider, Aerobatic, Mountain) defaulting to False unless explicitly set
     
     Used by:
         - Compliance logging
@@ -914,9 +1037,23 @@ class PilotInfoSensor(HangarSensorBase):
     @property
     def extra_state_attributes(self) -> dict:
         """Return the state attributes."""
+        ratings = {
+            "ifr_rating": bool(self._config.get("ifr_rating", False)),
+            "night_rating": bool(self._config.get("night_rating", False)),
+            "tailwheel_rating": bool(self._config.get("tailwheel_rating", False)),
+            "complex_rating": bool(self._config.get("complex_rating", False)),
+            "high_performance_rating": bool(self._config.get("high_performance_rating", False)),
+            "multi_engine_rating": bool(self._config.get("multi_engine_rating", False)),
+            "seaplane_rating": bool(self._config.get("seaplane_rating", False)),
+            "glider_rating": bool(self._config.get("glider_rating", False)),
+            "aerobatic_rating": bool(self._config.get("aerobatic_rating", False)),
+            "mountain_rating": bool(self._config.get("mountain_rating", False)),
+        }
+
         return {
             "pilot_name": self._config.get("name"),
             "email": self._config.get("email"),
             "licence_number": self._config.get("licence_number"),
             "medical_expiry": self._config.get("medical_expiry"),
+            "ratings": ratings,
         }

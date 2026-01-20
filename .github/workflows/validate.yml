@@ -4,11 +4,11 @@ on:
   push:
     branches: 
       - main
-      - dev        # Added dev branch support
+      - beta        # We dont test on dev to save GitHub tokens for frequent pushes
   pull_request:
     branches: 
       - main
-      - dev        # Ensures PRs targeting dev are also checked
+      - beta        # Ensures PRs targeting dev are also checked
   schedule:
     - cron: "0 0 * * *"
 

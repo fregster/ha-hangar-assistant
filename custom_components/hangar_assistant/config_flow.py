@@ -476,6 +476,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("licence_number"): str,
                 vol.Required("licence_type"): str,
                 vol.Required("medical_expiry"): selector.DateSelector(),
+                vol.Required("ifr_rating", default=False): selector.BooleanSelector(),
             })
         )
 
@@ -533,6 +534,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("licence_number", default=pilot.get("licence_number")): str,
                 vol.Required("licence_type", default=pilot.get("licence_type")): str,
                 vol.Required("medical_expiry", default=pilot.get("medical_expiry")): selector.DateSelector(),
+                vol.Required("ifr_rating", default=pilot.get("ifr_rating", False)): selector.BooleanSelector(),
             })
         )
 

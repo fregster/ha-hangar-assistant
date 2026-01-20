@@ -21,11 +21,67 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
   - Cloud Base: `((t - dp) / 2.5) * 1000` ft
   - Carb Risk: "Serious" if `T < 25` and `Spread < 5`.
 
-## Implementation Details
+## Code Documentation Standards
+
+**All new classes and functions must include comprehensive docstrings** that follow this format:
+
+### Class Docstrings
+```python
+class MyClass:
+    """Brief one-line description of what the class does.
+    
+    Longer description explaining the purpose, key responsibilities, and how it fits into the system.
+    
+    Inputs (if applicable):
+        - config_param: Description and expected type
+        - another_param: Description and expected type
+    
+    Outputs/Behavior:
+        - Brief description of what the class produces or manages
+        - Key properties or methods
+    
+    Used by:
+        - Dashboard cards
+        - Automation triggers
+        - Other systems that depend on this class
+    
+    Example:
+        - Specific usage example if helpful
+    """
+```
+
+### Function Docstrings
+```python
+def my_function(param1: str, param2: int) -> bool:
+    """Brief description of what the function does.
+    
+    Longer explanation of the function's purpose, algorithm, or key behavior.
+    
+    Args:
+        param1: Description and expected format/range
+        param2: Description and expected format/range
+    
+    Returns:
+        Description of return value and when it occurs
+    
+    Raises:
+        ValueError: When inputs are invalid
+    """
+```
+
+**Key Documentation Principles:**
+- **Purpose**: Clearly state what the code does and why it exists
+- **Inputs**: Document all parameters with types and expected values/ranges
+- **Outputs**: Explain return values or behavior changes
+- **Context**: Mention how the code integrates with the broader system
+- **Examples**: Include usage examples for complex functions/classes
+- **Comments**: Use inline comments for non-obvious logic or calculations (especially aviation formulas)
+
+## Key Patterns
 - **Safety Alerts**: `HangarMasterSafetyAlert` (Binary Sensor, class `SAFETY`) triggers if weather data > 30 mins old or Carb Risk is "Serious Risk".
 - **File Management**: PDFs stored in `hass.config.path("www/hangar/")`. `manual_cleanup` service handles deletion.
 - **AI Prompts**: All AI-related prompts (system prompts, briefing templates) must be stored as `.txt` files in the `custom_components/hangar_assistant/prompts/` directory. Do not hardcode complex prompts in Python code.
-- **Reference Documentation**: Context-specific reference materials are stored as `.txt` files in `custom_components/hangar_assistant/refrences/` (note the typo in folder name). These include:
+- **Reference Documentation**: Context-specific reference materials are stored as `.txt` files in `custom_components/hangar_assistant/references/`. These include:
   - `vfr.txt`: UK CAA Visual Flight Rules (VFR) requirements and minima
   - Other aviation regulations and compliance standards
   - Use these files as authoritative sources when implementing rules-based features
@@ -48,6 +104,7 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 ## Developer Workflow & Testing
 
 ### Unit Testing Best Practices
+- **Mandatory Test Coverage**: For any code edits, new functions, or new classes, you MUST create or update corresponding unit tests. Tests must be added to the appropriate test file in the `tests/` directory.
 - **Use Mocks, Not Real HA System**: Create unit tests with `unittest.mock` (MagicMock, patch) rather than requiring the full Home Assistant system. Mock `hass`, `states`, and `config_entries` as needed.
 - **Mock Architecture Example**:
   ```python

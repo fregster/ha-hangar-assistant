@@ -9,6 +9,7 @@ from custom_components.hangar_assistant.sensor import (
     AIBriefingSensor,
     AirfieldWeatherPassThrough,
     PilotInfoSensor,
+    AirfieldTimezoneSensor,
 )
 
 
@@ -18,6 +19,8 @@ def mock_hass():
     hass = MagicMock(spec=HomeAssistant)
     hass.states = MagicMock()
     hass.bus = MagicMock()
+    hass.config = MagicMock()
+    hass.config.time_zone = "UTC"
     return hass
 
 
@@ -180,6 +183,34 @@ class TestAirfieldWeatherPassThrough:
         mock_hass.states.get.return_value = MagicMock(state="12")
         assert sensor.native_value == 12.0
 
+    def test_weather_pass_through_unique_ids(self, mock_hass):
+        """Each pass-through sensor should have a distinct unique_id."""
+        config = {
+            "name": "Test Airfield",
+            "wind_sensor": "sensor.wind",
+            "wind_dir_sensor": "sensor.wind_dir"
+        }
+
+        speed = AirfieldWeatherPassThrough(
+            mock_hass,
+            config,
+            "wind_sensor",
+            "Wind Speed",
+            device_class=None,
+            unit="kt"
+        )
+
+        direction = AirfieldWeatherPassThrough(
+            mock_hass,
+            config,
+            "wind_dir_sensor",
+            "Wind Direction",
+            device_class=None,
+            unit="°"
+        )
+
+        assert speed._attr_unique_id != direction._attr_unique_id
+
     def test_missing_sensor_returns_none(self, mock_hass):
         """Test returns None when sensor_key not in config."""
         config = {"name": "Test Airfield"}
@@ -326,3 +357,74 @@ class TestPilotInfoSensor:
         attrs = sensor.extra_state_attributes
 
         assert attrs["medical_expiry"] is None
+
+
+class TestAirfieldTimezoneSensor:
+    """Tests for AirfieldTimezoneSensor."""
+
+    def test_timezone_from_coordinates(self, mocker, mock_hass):
+        """Return timezone from coordinate lookup when available."""
+        config = {
+            "name": "Test Airfield",
+            "latitude": 51.47,
+            "longitude": -0.45,
+        }
+
+        from types import SimpleNamespace
+        fake_finder = SimpleNamespace(timezone_at=lambda lat, lng: "Europe/London")
+        mocker.patch("custom_components.hangar_assistant.sensor._TZ_FINDER", fake_finder)
+
+        sensor = AirfieldTimezoneSensor(mock_hass, config)
+        assert sensor.native_value == "Europe/London"
+        assert sensor.extra_state_attributes.get("source") == "airfield_coords"
+
+    def test_timezone_falls_back_to_ha(self, mocker, mock_hass):
+        """Fall back to Home Assistant timezone when lookup fails or no coords."""
+        config = {"name": "Test Airfield"}
+        mock_hass.config.time_zone = "Europe/Paris"
+        mocker.patch("custom_components.hangar_assistant.sensor._TZ_FINDER", None)
+
+        sensor = AirfieldTimezoneSensor(mock_hass, config)
+        assert sensor.native_value == "Europe/Paris"
+        assert sensor.extra_state_attributes.get("source") == "home_assistant"
+
+    def test_timezone_final_fallback_utc(self, mocker, mock_hass):
+        """Fallback to UTC when no HA timezone is configured."""
+        config = {"name": "Test Airfield"}
+        mock_hass.config.time_zone = None
+        mocker.patch("custom_components.hangar_assistant.sensor._TZ_FINDER", None)
+
+        sensor = AirfieldTimezoneSensor(mock_hass, config)
+        assert sensor.native_value == "UTC"
+        assert sensor.extra_state_attributes.get("source") == "utc_fallback"
+
+    def test_ratings_defaults_false(self, mock_hass):
+        """Ratings should default to False when not provided."""
+        config = {
+            "name": "John Doe",
+            "licence_type": "Commercial"
+        }
+        sensor = PilotInfoSensor(mock_hass, config)
+        ratings = sensor.extra_state_attributes["ratings"]
+
+        assert all(value is False for value in ratings.values())
+
+    def test_ratings_respect_config(self, mock_hass):
+        """Ratings should reflect provided configuration flags."""
+        config = {
+            "name": "John Doe",
+            "licence_type": "Commercial",
+            "ifr_rating": True,
+            "night_rating": True,
+            "tailwheel_rating": True,
+            "complex_rating": False,
+            "multi_engine_rating": True,
+        }
+        sensor = PilotInfoSensor(mock_hass, config)
+        ratings = sensor.extra_state_attributes["ratings"]
+
+        assert ratings["ifr_rating"] is True
+        assert ratings["night_rating"] is True
+        assert ratings["tailwheel_rating"] is True
+        assert ratings["complex_rating"] is False
+        assert ratings["multi_engine_rating"] is True

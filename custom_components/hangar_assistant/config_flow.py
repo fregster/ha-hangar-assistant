@@ -5,29 +5,34 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION
+from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, UNIT_PREFERENCE_AVIATION, UNIT_PREFERENCE_SI, DEFAULT_UNIT_PREFERENCE
 
 _LOGGER = logging.getLogger(__name__)
 
-class HangarAssistantConfigFlow(config_entries.ConfigFlow):
+@config_entries.HANDLERS.register(DOMAIN)
+class HangarAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle initial onboarding for Hangar Assistant.
-    
-    This config flow manages the initial setup when users add the integration.
-    Since Hangar Assistant only supports a single configuration entry, this flow
-    prevents duplicate entries and creates a blank entry to start configuration.
-    
-    After initial setup, users access the full configuration through the Options flow.
-    
-    Steps:
-        1. async_step_user: Check for existing entry, create blank entry if allowed
-    
-    After this flow completes:
-        - Users see the \"Configure\" button to access HangarOptionsFlowHandler
-        - They can add airfields, aircraft, and pilots through the Options menu
+
+    This config flow manages the first-time setup and enforces a single configuration
+    entry for the integration.
+
+    Inputs:
+        - user_input: Optional dict submitted from the initial form (empty payload is
+          sufficient to proceed).
+
+    Outputs/Behavior:
+        - Creates one blank ConfigEntry that users refine via the Options flow.
+        - Aborts with reason "already_configured" if an entry already exists.
+
+    Used by:
+        - Devices & Services > Hangar Assistant (Configure button routes to
+          HangarOptionsFlowHandler).
+
+    Example:
+        - User clicks "Add Integration" → selects Hangar Assistant → flow creates the
+          entry and exposes the Configure menu.
     """
     VERSION = 1
-    DOMAIN = DOMAIN
-
     async def async_step_user(self, user_input=None):
         """Initial step when adding the integration for the first time.
         
@@ -52,13 +57,13 @@ class HangarAssistantConfigFlow(config_entries.ConfigFlow):
 
         return self.async_show_form(step_id="user")
 
-    @staticmethod
+    @classmethod
     @callback
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
+        cls, config_entry: config_entries.ConfigEntry,
     ) -> HangarOptionsFlowHandler:
         """Directs 'Configure' button clicks to the Options Flow."""
-        return HangarOptionsFlowHandler()
+        return HangarOptionsFlowHandler(config_entry)
 
 
 class HangarOptionsFlowHandler(config_entries.OptionsFlow):
@@ -83,6 +88,36 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     Each submenu has add/edit/delete/manage options for managing the corresponding lists.
     """
 
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow.
+        
+        Args:
+            config_entry: The ConfigEntry to manage options for.
+        """
+        super().__init__()
+        # Store config_entry as a private attribute since OptionsFlow manages it as a property
+        self._config_entry = config_entry
+
+    def _entry_data(self) -> dict:
+        """Return config entry data as a mutable dict, defaulting to empty."""
+        return dict(self._config_entry.data or {})
+
+    def _entry_options(self) -> dict:
+        """Return config entry options as a mutable dict, defaulting to empty."""
+        return dict(self._config_entry.options or {})
+
+    @staticmethod
+    def _list_from(value) -> list:
+        """Return a safe list copy from stored data."""
+        return list(value) if isinstance(value, list) else []
+
+    def _safe_item(self, items: list, index: int) -> dict:
+        """Return a dict item at index or an empty dict if out of range/invalid."""
+        if 0 <= index < len(items):
+            item = items[index]
+            return item if isinstance(item, dict) else {}
+        return {}
+
     async def async_step_init(self, user_input=None):
         """Main configuration menu."""
         return self.async_show_menu(
@@ -100,18 +135,27 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_settings(self, user_input=None):
         """Configure global system settings."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
+            new_data = self._entry_data()
             new_data["settings"] = user_input
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
-        settings = self.config_entry.data.get("settings", {})
+        settings = self._entry_data().get("settings", {})
         return self.async_show_form(
             step_id="settings",
             data_schema=vol.Schema({
                 vol.Required("language", default=settings.get("language", "en")): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[selector.SelectOptionDict(value="en", label="English")],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required("unit_preference", default=settings.get("unit_preference", DEFAULT_UNIT_PREFERENCE)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=UNIT_PREFERENCE_AVIATION, label="Aviation (ft, kt, lbs)"),
+                            selector.SelectOptionDict(value=UNIT_PREFERENCE_SI, label="Metric (m, kph, kg)")
+                        ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
@@ -126,7 +170,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_airfield(self, user_input=None):
         """Sub-menu for airfield management."""
-        airfields = self.config_entry.data.get("airfields", [])
+        airfields = self._list_from(self._entry_data().get("airfields", []))
         
         if airfields:
             return self.async_show_menu(
@@ -138,12 +182,19 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_airfield_add(self, user_input=None):
         """Form to add a new airfield from scratch."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            airfields = list(new_data.get("airfields", []))
+            new_data = self._entry_data()
+            airfields = self._list_from(new_data.get("airfields", []))
+            
+            # Convert runway_length and elevation from feet to meters if needed
+            distance_unit = user_input.pop("distance_unit", "m")
+            if distance_unit == "ft":
+                user_input["runway_length"] = round(user_input["runway_length"] * 0.3048, 2)
+                user_input["elevation"] = round(user_input["elevation"] * 0.3048, 2)
+            
             airfields.append(user_input)
             new_data["airfields"] = airfields
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="airfield_add",
@@ -159,6 +210,15 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("elevation", default=25): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=-500, max=9000, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m")
                 ),
+                vol.Required("distance_unit", default="m"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="m", label="Meters"),
+                            selector.SelectOptionDict(value="ft", label="Feet"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 vol.Required("runways"): str,
                 vol.Required("primary_runway"): str,
                 vol.Required("runway_length", default=500): selector.NumberSelector(
@@ -170,27 +230,29 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         unit_of_measurement="m"
                     )
                 ),
-                vol.Required("temp_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                ),
-                vol.Required("dp_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                ),
-                vol.Required("pressure_sensor"): selector.EntitySelector(
+                vol.Optional("temp_sensor"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
-                vol.Required("wind_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="speed")
-                ),
-                vol.Required("wind_dir_sensor"): selector.EntitySelector(
+                vol.Optional("dp_sensor"): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
+                vol.Optional("pressure_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("wind_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("wind_dir_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("radio_frequency"): str,
+                vol.Optional("ppl_required", default=False): selector.BooleanSelector(),
             })
         )
 
     async def async_step_airfield_manage(self, user_input=None):
         """Menu to manage existing airfields."""
-        airfields = self.config_entry.data.get("airfields", [])
+        airfields = self._list_from(self._entry_data().get("airfields", []))
         options = {str(i): a.get("name", f"Airfield {i}") for i, a in enumerate(airfields)}
 
         if user_input is not None:
@@ -223,16 +285,23 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_airfield_edit(self, user_input=None):
         """Edit an existing airfield."""
         index = self._index
-        airfields = self.config_entry.data.get("airfields", [])
-        airfield = airfields[index]
+        airfields = self._list_from(self._entry_data().get("airfields", []))
+        airfield = self._safe_item(airfields, index)
 
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            airfields = list(new_data.get("airfields", []))
+            new_data = self._entry_data()
+            airfields = self._list_from(new_data.get("airfields", []))
+            
+            # Convert runway_length and elevation from feet to meters if needed
+            distance_unit = user_input.pop("distance_unit", "m")
+            if distance_unit == "ft":
+                user_input["runway_length"] = round(user_input["runway_length"] * 0.3048, 2)
+                user_input["elevation"] = round(user_input["elevation"] * 0.3048, 2)
+            
             airfields[index] = user_input
             new_data["airfields"] = airfields
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="airfield_edit",
@@ -248,6 +317,15 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("elevation", default=airfield.get("elevation", 0)): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=-500, max=9000, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m")
                 ),
+                vol.Required("distance_unit", default="m"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="m", label="Meters"),
+                            selector.SelectOptionDict(value="ft", label="Feet"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 vol.Required("runways", default=airfield.get("runways")): str,
                 vol.Required("primary_runway", default=airfield.get("primary_runway")): str,
                 vol.Required("runway_length", default=airfield.get("runway_length", 500)): selector.NumberSelector(
@@ -259,21 +337,23 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         unit_of_measurement="m"
                     )
                 ),
-                vol.Required("temp_sensor", default=airfield.get("temp_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                ),
-                vol.Required("dp_sensor", default=airfield.get("dp_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                ),
-                vol.Required("pressure_sensor", default=airfield.get("pressure_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="pressure")
-                ),
-                vol.Required("wind_sensor", default=airfield.get("wind_sensor")): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="wind_speed")
-                ),
-                vol.Required("wind_dir_sensor", default=airfield.get("wind_dir_sensor")): selector.EntitySelector(
+                vol.Optional("temp_sensor", default=airfield.get("temp_sensor")): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
+                vol.Optional("dp_sensor", default=airfield.get("dp_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("pressure_sensor", default=airfield.get("pressure_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("wind_sensor", default=airfield.get("wind_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("wind_dir_sensor", default=airfield.get("wind_dir_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("radio_frequency", default=airfield.get("radio_frequency", "")): str,
+                vol.Optional("ppl_required", default=airfield.get("ppl_required", False)): selector.BooleanSelector(),
             })
         )
 
@@ -281,25 +361,26 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Delete an airfield."""
         if user_input is not None:
             if user_input["confirm"]:
-                new_data = dict(self.config_entry.data)
-                airfields = list(new_data.get("airfields", []))
-                airfields.pop(self._index)
+                new_data = self._entry_data()
+                airfields = self._list_from(new_data.get("airfields", []))
+                if 0 <= self._index < len(airfields):
+                    airfields.pop(self._index)
                 new_data["airfields"] = airfields
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="airfield_delete",
             data_schema=vol.Schema({
                 vol.Required("confirm", default=False): selector.BooleanSelector()
             }),
-            description_placeholders={"name": self.config_entry.data["airfields"][self._index]["name"]}
+            description_placeholders={"name": self._safe_item(self._list_from(self._entry_data().get("airfields", [])), self._index).get("name", "Airfield")}
         )
 
 
     async def async_step_aircraft(self, user_input=None):
         """Sub-menu for aircraft management."""
-        fleet = self.config_entry.data.get("aircraft", [])
+        fleet = self._list_from(self._entry_data().get("aircraft", []))
         
         if fleet:
             return self.async_show_menu(
@@ -311,14 +392,29 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_aircraft_add(self, user_input=None):
         """Form to add a new aircraft."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            fleet = list(new_data.get("aircraft", []))
+            new_data = self._entry_data()
+            fleet = self._list_from(new_data.get("aircraft", []))
+            
+            # Convert weights from lbs to kg if needed
+            weight_unit = user_input.pop("weight_unit", "kg")
+            if weight_unit == "lbs":
+                user_input["empty_weight"] = round(float(user_input["empty_weight"]) * 0.453592, 2)
+                user_input["max_tow"] = round(float(user_input["max_tow"]) * 0.453592, 2)
+            
+            # Convert distances from feet to meters if needed
+            distance_unit = user_input.pop("distance_unit", "m")
+            if distance_unit == "ft":
+                user_input["baseline_roll"] = round(float(user_input["baseline_roll"]) * 0.3048, 2)
+                user_input["baseline_50ft"] = round(float(user_input["baseline_50ft"]) * 0.3048, 2)
+            
             fleet.append(user_input)
             new_data["aircraft"] = fleet
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
-        airfields = [a["name"] for a in self.config_entry.data.get("airfields", [])]
+        airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
+        airfield_options = [selector.SelectOptionDict(value=a, label=a) for a in airfields] if airfields else [selector.SelectOptionDict(value="", label="No airfields configured")]
+        
         return self.async_show_form(
             step_id="aircraft_add",
             data_schema=vol.Schema({
@@ -330,6 +426,15 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("max_tow", default=1200): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
                 ),
+                vol.Required("weight_unit", default="kg"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="kg", label="Kilograms"),
+                            selector.SelectOptionDict(value="lbs", label="Pounds"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 vol.Required("max_xwind", default=15): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="kt")
                 ),
@@ -339,19 +444,29 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("baseline_50ft", default=600): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=10, max=1500, step=5, unit_of_measurement="m")
                 ),
-                vol.Optional("linked_airfield"): selector.SelectSelector(
+                vol.Required("distance_unit", default="m"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[selector.SelectOptionDict(value=a, label=a) for a in airfields],
+                        options=[
+                            selector.SelectOptionDict(value="m", label="Meters"),
+                            selector.SelectOptionDict(value="ft", label="Feet"),
+                        ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
+                vol.Optional("linked_airfield"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=airfield_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required("ifr_capable", default=False): selector.BooleanSelector(),
             })
         )
 
     async def async_step_aircraft_manage(self, user_input=None):
         """Menu to manage existing aircraft."""
-        fleet = self.config_entry.data.get("aircraft", [])
-        options = {str(i): f"{a['reg']} ({a['model']})" for i, a in enumerate(fleet)}
+        fleet = self._list_from(self._entry_data().get("aircraft", []))
+        options = {str(i): f"{a.get('reg', 'Aircraft')} ({a.get('model', 'Unknown')})" for i, a in enumerate(fleet)}
 
         if user_input is not None:
             self._index = int(user_input["index"])
@@ -383,18 +498,33 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_aircraft_edit(self, user_input=None):
         """Edit an existing aircraft."""
         index = self._index
-        fleet = self.config_entry.data.get("aircraft", [])
-        ac = fleet[index]
+        fleet = self._list_from(self._entry_data().get("aircraft", []))
+        ac = self._safe_item(fleet, index)
 
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            fleet = list(new_data.get("aircraft", []))
+            new_data = self._entry_data()
+            fleet = self._list_from(new_data.get("aircraft", []))
+            
+            # Convert weights from lbs to kg if needed
+            weight_unit = user_input.pop("weight_unit", "kg")
+            if weight_unit == "lbs":
+                user_input["empty_weight"] = round(user_input["empty_weight"] * 0.453592, 2)
+                user_input["max_tow"] = round(user_input["max_tow"] * 0.453592, 2)
+            
+            # Convert distances from feet to meters if needed
+            distance_unit = user_input.pop("distance_unit", "m")
+            if distance_unit == "ft":
+                user_input["baseline_roll"] = round(user_input["baseline_roll"] * 0.3048, 2)
+                user_input["baseline_50ft"] = round(user_input["baseline_50ft"] * 0.3048, 2)
+            
             fleet[index] = user_input
             new_data["aircraft"] = fleet
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
-        airfields = [a["name"] for a in self.config_entry.data.get("airfields", [])]
+        airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
+        airfield_options = [selector.SelectOptionDict(value=a, label=a) for a in airfields] if airfields else [selector.SelectOptionDict(value="", label="No airfields configured")]
+        
         return self.async_show_form(
             step_id="aircraft_edit",
             data_schema=vol.Schema({
@@ -406,6 +536,15 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("max_tow", default=ac.get("max_tow")): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
                 ),
+                vol.Required("weight_unit", default="kg"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="kg", label="Kilograms"),
+                            selector.SelectOptionDict(value="lbs", label="Pounds"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 vol.Required("max_xwind", default=ac.get("max_xwind")): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="kt")
                 ),
@@ -415,12 +554,22 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("baseline_50ft", default=ac.get("baseline_50ft", 0)): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=10, max=1500, step=5, unit_of_measurement="m")
                 ),
-                vol.Optional("linked_airfield", default=ac.get("linked_airfield")): selector.SelectSelector(
+                vol.Required("distance_unit", default="m"): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[selector.SelectOptionDict(value=a, label=a) for a in airfields],
+                        options=[
+                            selector.SelectOptionDict(value="m", label="Meters"),
+                            selector.SelectOptionDict(value="ft", label="Feet"),
+                        ],
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
+                vol.Optional("linked_airfield", default=ac.get("linked_airfield")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=airfield_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required("ifr_capable", default=ac.get("ifr_capable", False)): selector.BooleanSelector(),
             })
         )
 
@@ -428,24 +577,25 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Delete an aircraft."""
         if user_input is not None:
             if user_input["confirm"]:
-                new_data = dict(self.config_entry.data)
-                fleet = list(new_data.get("aircraft", []))
-                fleet.pop(self._index)
+                new_data = self._entry_data()
+                fleet = self._list_from(new_data.get("aircraft", []))
+                if 0 <= self._index < len(fleet):
+                    fleet.pop(self._index)
                 new_data["aircraft"] = fleet
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="aircraft_delete",
             data_schema=vol.Schema({
                 vol.Required("confirm", default=False): selector.BooleanSelector()
             }),
-            description_placeholders={"reg": self.config_entry.data["aircraft"][self._index]["reg"]}
+            description_placeholders={"reg": self._safe_item(self._list_from(self._entry_data().get("aircraft", [])), self._index).get("reg", "Aircraft")}
         )
 
     async def async_step_pilot(self, user_input=None):
         """Sub-menu for pilot management."""
-        pilots = self.config_entry.data.get("pilots", [])
+        pilots = self._list_from(self._entry_data().get("pilots", []))
         
         if pilots:
             return self.async_show_menu(
@@ -459,12 +609,12 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_pilot_add(self, user_input=None):
         """Form to add a new pilot."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            pilots = list(new_data.get("pilots", []))
+            new_data = self._entry_data()
+            pilots = self._list_from(new_data.get("pilots", []))
             pilots.append(user_input)
             new_data["pilots"] = pilots
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="pilot_add",
@@ -474,13 +624,23 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("licence_number"): str,
                 vol.Required("licence_type"): str,
                 vol.Required("medical_expiry"): selector.DateSelector(),
+                vol.Required("ifr_rating", default=False): selector.BooleanSelector(),
+                vol.Required("night_rating", default=False): selector.BooleanSelector(),
+                vol.Required("tailwheel_rating", default=False): selector.BooleanSelector(),
+                vol.Required("complex_rating", default=False): selector.BooleanSelector(),
+                vol.Required("high_performance_rating", default=False): selector.BooleanSelector(),
+                vol.Required("multi_engine_rating", default=False): selector.BooleanSelector(),
+                vol.Required("seaplane_rating", default=False): selector.BooleanSelector(),
+                vol.Required("glider_rating", default=False): selector.BooleanSelector(),
+                vol.Required("aerobatic_rating", default=False): selector.BooleanSelector(),
+                vol.Required("mountain_rating", default=False): selector.BooleanSelector(),
             })
         )
 
     async def async_step_pilot_manage(self, user_input=None):
         """Menu to manage existing pilots."""
-        pilots = self.config_entry.data.get("pilots", [])
-        options = {str(i): p["name"] for i, p in enumerate(pilots)}
+        pilots = self._list_from(self._entry_data().get("pilots", []))
+        options = {str(i): p.get("name", f"Pilot {i}") for i, p in enumerate(pilots)}
 
         if user_input is not None:
             self._index = int(user_input["index"])
@@ -512,16 +672,16 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_pilot_edit(self, user_input=None):
         """Edit an existing pilot."""
         index = self._index
-        pilots = self.config_entry.data.get("pilots", [])
-        pilot = pilots[index]
+        pilots = self._list_from(self._entry_data().get("pilots", []))
+        pilot = self._safe_item(pilots, index)
 
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            new_pilots = list(new_data.get("pilots", []))
+            new_data = self._entry_data()
+            new_pilots = self._list_from(new_data.get("pilots", []))
             new_pilots[index] = user_input
             new_data["pilots"] = new_pilots
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="pilot_edit",
@@ -531,6 +691,16 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("licence_number", default=pilot.get("licence_number")): str,
                 vol.Required("licence_type", default=pilot.get("licence_type")): str,
                 vol.Required("medical_expiry", default=pilot.get("medical_expiry")): selector.DateSelector(),
+                vol.Required("ifr_rating", default=pilot.get("ifr_rating", False)): selector.BooleanSelector(),
+                vol.Required("night_rating", default=pilot.get("night_rating", False)): selector.BooleanSelector(),
+                vol.Required("tailwheel_rating", default=pilot.get("tailwheel_rating", False)): selector.BooleanSelector(),
+                vol.Required("complex_rating", default=pilot.get("complex_rating", False)): selector.BooleanSelector(),
+                vol.Required("high_performance_rating", default=pilot.get("high_performance_rating", False)): selector.BooleanSelector(),
+                vol.Required("multi_engine_rating", default=pilot.get("multi_engine_rating", False)): selector.BooleanSelector(),
+                vol.Required("seaplane_rating", default=pilot.get("seaplane_rating", False)): selector.BooleanSelector(),
+                vol.Required("glider_rating", default=pilot.get("glider_rating", False)): selector.BooleanSelector(),
+                vol.Required("aerobatic_rating", default=pilot.get("aerobatic_rating", False)): selector.BooleanSelector(),
+                vol.Required("mountain_rating", default=pilot.get("mountain_rating", False)): selector.BooleanSelector(),
             })
         )
 
@@ -538,30 +708,31 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Delete a pilot."""
         if user_input is not None:
             if user_input["confirm"]:
-                new_data = dict(self.config_entry.data)
-                new_pilots = list(new_data.get("pilots", []))
-                new_pilots.pop(self._index)
+                new_data = self._entry_data()
+                new_pilots = self._list_from(new_data.get("pilots", []))
+                if 0 <= self._index < len(new_pilots):
+                    new_pilots.pop(self._index)
                 new_data["pilots"] = new_pilots
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="pilot_delete",
             data_schema=vol.Schema({
                 vol.Required("confirm", default=False): selector.BooleanSelector()
             }),
-            description_placeholders={"name": self.config_entry.data["pilots"][self._index]["name"]}
+            description_placeholders={"name": self._safe_item(self._list_from(self._entry_data().get("pilots", [])), self._index).get("name", "Pilot")}
         )
 
     async def async_step_ai(self, user_input=None):
         """Configure AI conversation assistant (generic across all tools)."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
+            new_data = self._entry_data()
             new_data["ai_assistant"] = user_input
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
-        ai_config = self.config_entry.data.get("ai_assistant", {})
+        ai_config = self._entry_data().get("ai_assistant", {})
         use_custom = ai_config.get("use_custom_system_prompt", False)
 
         schema_dict = {
@@ -588,7 +759,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_briefing(self, user_input=None):
         """Sub-menu for configuring automated briefings."""
-        briefings = self.config_entry.data.get("briefings", [])
+        briefings = self._list_from(self._entry_data().get("briefings", []))
         
         if briefings:
             return self.async_show_menu(
@@ -602,17 +773,17 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_briefing_add(self, user_input=None):
         """Form to add a new automated briefing."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            briefings = list(new_data.get("briefings", []))
+            new_data = self._entry_data()
+            briefings = self._list_from(new_data.get("briefings", []))
             briefings.append(user_input)
             new_data["briefings"] = briefings
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         # Get existing airfields, aircraft, and pilots for selection
-        airfields = [a["name"] for a in self.config_entry.data.get("airfields", [])]
-        aircraft = [a["reg"] for a in self.config_entry.data.get("aircraft", [])]
-        pilots = [p["name"] for p in self.config_entry.data.get("pilots", [])]
+        airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
+        aircraft = [a.get("reg", "") for a in self._list_from(self._entry_data().get("aircraft", []))]
+        pilots = [p.get("name", "") for p in self._list_from(self._entry_data().get("pilots", []))]
 
         return self.async_show_form(
             step_id="briefing_add",
@@ -643,7 +814,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_briefing_manage(self, user_input=None):
         """Menu to manage existing briefings."""
-        briefings = self.config_entry.data.get("briefings", [])
+        briefings = self._list_from(self._entry_data().get("briefings", []))
         
         if user_input is not None:
             action = user_input.get("action")
@@ -685,25 +856,25 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_briefing_edit(self, user_input=None):
         """Edit an existing automated briefing."""
         index = self._briefing_index
-        briefings = self.config_entry.data.get("briefings", [])
+        briefings = self._list_from(self._entry_data().get("briefings", []))
         
         if index >= len(briefings):
             return self.async_abort(reason="reconfigure_successful")
         
-        briefing = briefings[index]
+        briefing = self._safe_item(briefings, index)
 
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
-            new_briefings = list(new_data.get("briefings", []))
+            new_data = self._entry_data()
+            new_briefings = self._list_from(new_data.get("briefings", []))
             new_briefings[index] = user_input
             new_data["briefings"] = new_briefings
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         # Get existing airfields, aircraft, and pilots for selection
-        airfields = [a["name"] for a in self.config_entry.data.get("airfields", [])]
-        aircraft = [a["reg"] for a in self.config_entry.data.get("aircraft", [])]
-        pilots = [p["name"] for p in self.config_entry.data.get("pilots", [])]
+        airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
+        aircraft = [a.get("reg", "") for a in self._list_from(self._entry_data().get("aircraft", []))]
+        pilots = [p.get("name", "") for p in self._list_from(self._entry_data().get("pilots", []))]
 
         return self.async_show_form(
             step_id="briefing_edit",
@@ -735,21 +906,22 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_briefing_delete(self, user_input=None):
         """Confirm deletion of a briefing."""
         index = self._briefing_index
-        briefings = self.config_entry.data.get("briefings", [])
+        briefings = self._list_from(self._entry_data().get("briefings", []))
         
         if index >= len(briefings):
             return self.async_abort(reason="reconfigure_successful")
         
-        briefing = briefings[index]
+        briefing = self._safe_item(briefings, index)
 
         if user_input is not None:
             if user_input.get("confirm_delete"):
-                new_data = dict(self.config_entry.data)
-                new_briefings = list(new_data.get("briefings", []))
-                new_briefings.pop(index)
+                new_data = self._entry_data()
+                new_briefings = self._list_from(new_data.get("briefings", []))
+                if 0 <= index < len(new_briefings):
+                    new_briefings.pop(index)
                 new_data["briefings"] = new_briefings
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
         return self.async_show_form(
             step_id="briefing_delete",
@@ -767,10 +939,10 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             if user_input.get("action") == "rebuild":
                 # Call the rebuild service
                 await self.hass.services.async_call("hangar_assistant", "rebuild_dashboard")
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            return self.async_create_entry(data=self._entry_options())
 
         # Get current dashboard info
-        dashboard_info = self.config_entry.data.get("dashboard_info", {})
+        dashboard_info = self._entry_data().get("dashboard_info", {})
         current_version = dashboard_info.get("version", 0)
         last_updated = dashboard_info.get("last_updated", "Never")
         
@@ -796,15 +968,15 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_retention(self, user_input=None):
         """Configure data retention policy."""
         if user_input is not None:
-            new_data = dict(self.config_entry.data)
+            new_data = self._entry_data()
             new_data["retention"] = {
                 "auto_delete_enabled": user_input.get("auto_delete_enabled", True),
                 "retention_months": user_input.get("retention_months", 7)
             }
-            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(data=dict(self.config_entry.options))
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
 
-        retention_config = self.config_entry.data.get("retention", {})
+        retention_config = self._entry_data().get("retention", {})
         
         return self.async_show_form(
             step_id="retention",

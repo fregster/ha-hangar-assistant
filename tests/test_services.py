@@ -3,6 +3,8 @@ import pytest
 from unittest.mock import MagicMock, patch, AsyncMock, call
 from homeassistant.core import HomeAssistant, ServiceCall
 from custom_components.hangar_assistant.const import DOMAIN
+from custom_components.hangar_assistant import async_generate_all_ai_briefings
+from custom_components.hangar_assistant import async_generate_all_ai_briefings
 
 
 @pytest.fixture
@@ -20,6 +22,7 @@ def mock_hass():
     hass.config_entries = MagicMock()
     hass.config = MagicMock()
     hass.config.path = MagicMock(return_value="/config/www/hangar/")
+    hass.async_add_executor_job = AsyncMock()
     return hass
 
 
@@ -41,8 +44,9 @@ def test_manual_cleanup_service_registration(mock_hass):
 async def test_manual_cleanup_default_retention():
     """Test manual cleanup uses default retention when not specified."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_call = MagicMock(spec=ServiceCall)
-    mock_call.data.get.return_value = None
+    mock_call.data = {}
 
     # Simulate the handler
     with patch(
@@ -75,6 +79,7 @@ async def test_manual_cleanup_custom_retention():
 async def test_rebuild_dashboard_no_entries():
     """Test rebuild dashboard handles no config entries gracefully."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_hass.config_entries.async_entries.return_value = []
 
     with patch("custom_components.hangar_assistant.async_create_dashboard"):
@@ -86,6 +91,7 @@ async def test_rebuild_dashboard_no_entries():
 async def test_rebuild_dashboard_with_entry():
     """Test rebuild dashboard uses first config entry."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_entry = MagicMock()
     mock_hass.config_entries.async_entries.return_value = [mock_entry]
 
@@ -103,6 +109,7 @@ async def test_rebuild_dashboard_with_entry():
 async def test_rebuild_dashboard_creation_failure():
     """Test rebuild dashboard handles creation failure."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_entry = MagicMock()
     mock_hass.config_entries.async_entries.return_value = [mock_entry]
 
@@ -119,6 +126,7 @@ async def test_rebuild_dashboard_creation_failure():
 async def test_refresh_ai_briefings_no_entries():
     """Test refresh AI briefings with no config entries."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_hass.config_entries.async_entries.return_value = []
 
     with patch(
@@ -135,6 +143,7 @@ async def test_refresh_ai_briefings_no_entries():
 async def test_refresh_ai_briefings_multiple_entries():
     """Test refresh AI briefings processes all entries."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_entry1 = MagicMock()
     mock_entry2 = MagicMock()
     mock_hass.config_entries.async_entries.return_value = [
@@ -155,6 +164,7 @@ async def test_refresh_ai_briefings_multiple_entries():
 async def test_refresh_ai_briefings_failure_handling():
     """Test refresh AI briefings handles generation errors."""
     mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config_entries = MagicMock()
     mock_entry = MagicMock()
     mock_hass.config_entries.async_entries.return_value = [mock_entry]
 
@@ -166,3 +176,46 @@ async def test_refresh_ai_briefings_failure_handling():
         with pytest.raises(Exception):
             for entry in mock_hass.config_entries.async_entries(DOMAIN):
                 await mock_gen(mock_hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_ai_prompt_includes_timezone():
+    """AI prompt should include the airfield timezone value."""
+    mock_hass = MagicMock(spec=HomeAssistant)
+    mock_hass.config = MagicMock()
+    mock_hass.config.time_zone = "UTC"
+    mock_hass.states = MagicMock()
+    mock_hass.bus = MagicMock()
+    mock_hass.bus.async_fire = MagicMock()
+    mock_hass.async_add_executor_job = AsyncMock(return_value="Test system prompt")
+    async_call = AsyncMock(return_value={"response": {"speech": {"plain": {"speech": "ok"}}}})
+    mock_hass.services = MagicMock()
+    mock_hass.services.async_call = async_call
+
+    entry = MagicMock()
+    entry.data = {
+        "ai_assistant": {"ai_agent_entity": "agent.test"},
+        "airfields": [{"name": "Test Airfield", "icao_code": "TEST"}],
+    }
+
+    def state_for(entity_id):
+        mapping = {
+            "sensor.test_airfield_density_altitude": MagicMock(state="1500"),
+            "sensor.test_airfield_carb_risk": MagicMock(state="Low Risk"),
+            "sensor.test_airfield_weather_wind_speed": MagicMock(state="12"),
+            "sensor.test_airfield_weather_wind_direction": MagicMock(state="220"),
+            "sensor.test_airfield_est_cloud_base": MagicMock(state="3500"),
+            "sensor.test_airfield_best_runway": MagicMock(state="22"),
+            "sensor.test_airfield_airfield_timezone": MagicMock(state="Europe/London"),
+            "sun.sun": MagicMock(attributes={"next_rising": "2026-01-21T07:30:00Z", "next_setting": "2026-01-21T16:30:00Z"}),
+        }
+        return mapping.get(entity_id)
+
+    mock_hass.states.get.side_effect = state_for
+
+    await async_generate_all_ai_briefings(mock_hass, entry)
+
+    assert async_call.call_count == 1
+    text = async_call.call_args[0][2]["text"]
+    assert "Local Timezone: Europe/London" in text
+    mock_hass.async_add_executor_job.assert_awaited()

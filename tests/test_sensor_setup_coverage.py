@@ -1,6 +1,6 @@
 """Tests for sensor setup and base functionality."""
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from custom_components.hangar_assistant.sensor import (
@@ -59,7 +59,7 @@ async def test_async_setup_entry_creates_airfield_sensors(
     mock_hass, mock_config_entry
 ):
     """Test that async_setup_entry creates sensors for airfields."""
-    async_add_entities = AsyncMock()
+    async_add_entities = MagicMock()
 
     await async_setup_entry(mock_hass, mock_config_entry, async_add_entities)
 
@@ -79,7 +79,7 @@ async def test_async_setup_entry_creates_aircraft_sensors(
     mock_hass, mock_config_entry
 ):
     """Test that async_setup_entry creates sensors for aircraft."""
-    async_add_entities = AsyncMock()
+    async_add_entities = MagicMock()
 
     await async_setup_entry(mock_hass, mock_config_entry, async_add_entities)
 
@@ -100,7 +100,7 @@ async def test_async_setup_entry_with_empty_config(mock_hass):
         "pilots": []
     }
 
-    async_add_entities = AsyncMock()
+    async_add_entities = MagicMock()
 
     await async_setup_entry(mock_hass, entry, async_add_entities)
 
@@ -136,7 +136,7 @@ async def test_async_setup_entry_multiple_airfields(mock_hass):
         "settings": {}
     }
 
-    async_add_entities = AsyncMock()
+    async_add_entities = MagicMock()
 
     await async_setup_entry(mock_hass, entry, async_add_entities)
 

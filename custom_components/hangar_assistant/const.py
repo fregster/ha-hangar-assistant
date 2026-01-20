@@ -22,6 +22,11 @@ DEFAULT_RETENTION_MONTHS = 7
 # Dashboard version for tracking template updates
 DEFAULT_DASHBOARD_VERSION = 2
 
+# Unit preferences
+UNIT_PREFERENCE_AVIATION = "aviation"  # Feet, knots, pounds
+UNIT_PREFERENCE_SI = "si"  # Meters, kph, kilograms
+DEFAULT_UNIT_PREFERENCE = UNIT_PREFERENCE_AVIATION
+
 # Default AI system prompt for aviation briefings
 DEFAULT_AI_SYSTEM_PROMPT = """You are an aviation safety assistant specializing in pre-flight briefings and CAP 1590B compliance.
 

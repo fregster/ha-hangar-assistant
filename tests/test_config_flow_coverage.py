@@ -1,9 +1,10 @@
 """Tests for config flow options handler."""
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import HomeAssistant
 from custom_components.hangar_assistant.config_flow import (
+    HangarAssistantConfigFlow,
     HangarOptionsFlowHandler
 )
 from custom_components.hangar_assistant.const import DOMAIN
@@ -53,23 +54,54 @@ def mock_config_entry():
 
 
 @pytest.fixture
+def mock_empty_config_entry():
+    """Create a minimal config entry to catch init regressions."""
+    entry = MagicMock(spec=config_entries.ConfigEntry)
+    entry.domain = DOMAIN
+    entry.data = {}
+    entry.options = {}
+    return entry
+
+
+@pytest.fixture
 def mock_hass():
     """Create mock Home Assistant instance."""
     hass = MagicMock(spec=HomeAssistant)
     hass.config_entries = MagicMock()
-    hass.config_entries.async_update_entry = AsyncMock()
+    hass.config_entries.async_update_entry = MagicMock()
     return hass
 
 
 class TestHangarOptionsFlowHandlerAirfieldAdd:
     """Tests for airfield_add step."""
 
+    def test_options_flow_factory_returns_handler(self, mock_config_entry):
+        """Factory should return a valid options flow handler without TypeError."""
+        flow = HangarAssistantConfigFlow.async_get_options_flow(mock_config_entry)
+
+        assert isinstance(flow, HangarOptionsFlowHandler)
+        assert flow._config_entry == mock_config_entry
+
+    def test_options_flow_factory_keeps_config_entry_reference(self, mock_config_entry):
+        """Factory must attach the provided config_entry to the handler."""
+        handler = HangarAssistantConfigFlow.async_get_options_flow(mock_config_entry)
+
+        # Ensure the handler uses the same entry object, not a copy or None
+        assert handler._config_entry is mock_config_entry
+
+    def test_options_flow_factory_called_via_instance(self, mock_config_entry):
+        """Instance-level access should still produce an options flow handler."""
+        flow_instance = HangarAssistantConfigFlow()
+        handler = flow_instance.async_get_options_flow(mock_config_entry)
+
+        assert isinstance(handler, HangarOptionsFlowHandler)
+        assert handler._config_entry is mock_config_entry
+
     async def test_airfield_add_form_displayed(
         self, mock_hass, mock_config_entry
     ):
         """Test that add airfield form is displayed."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         result = await handler.async_step_airfield_add()
@@ -81,8 +113,7 @@ class TestHangarOptionsFlowHandlerAirfieldAdd:
         self, mock_hass, mock_config_entry
     ):
         """Test adding a new airfield creates entry."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         new_airfield = {
@@ -114,8 +145,7 @@ class TestHangarOptionsFlowHandlerAirfieldAdd:
         self, mock_hass, mock_config_entry
     ):
         """Test new airfield is appended to existing list."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         new_airfield = {
@@ -146,8 +176,7 @@ class TestHangarOptionsFlowHandlerAirfieldEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test that edit airfield form is displayed."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -160,8 +189,7 @@ class TestHangarOptionsFlowHandlerAirfieldEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test edit form is prefilled with existing airfield data."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -175,8 +203,7 @@ class TestHangarOptionsFlowHandlerAirfieldEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test editing an airfield updates the entry."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -201,8 +228,7 @@ class TestHangarOptionsFlowHandlerAircraftAdd:
         self, mock_hass, mock_config_entry
     ):
         """Test that add aircraft form is displayed."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         result = await handler.async_step_aircraft_add()
@@ -214,8 +240,7 @@ class TestHangarOptionsFlowHandlerAircraftAdd:
         self, mock_hass, mock_config_entry
     ):
         """Test aircraft form includes airfield options."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         result = await handler.async_step_aircraft_add()
@@ -227,8 +252,7 @@ class TestHangarOptionsFlowHandlerAircraftAdd:
         self, mock_hass, mock_config_entry
     ):
         """Test adding new aircraft creates entry."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         new_aircraft = {
@@ -253,8 +277,7 @@ class TestHangarOptionsFlowHandlerAircraftAdd:
         self, mock_hass, mock_config_entry
     ):
         """Test new aircraft is appended to existing fleet."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         new_aircraft = {
@@ -279,8 +302,7 @@ class TestHangarOptionsFlowHandlerAircraftEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test that edit aircraft form is displayed."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -293,8 +315,7 @@ class TestHangarOptionsFlowHandlerAircraftEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test edit form is prefilled with existing aircraft data."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -307,8 +328,7 @@ class TestHangarOptionsFlowHandlerAircraftEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test editing aircraft updates the entry."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -329,8 +349,7 @@ class TestHangarOptionsFlowHandlerAircraftEdit:
         self, mock_hass, mock_config_entry
     ):
         """Test aircraft registration is preserved in edit."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
         handler._index = 0
 
@@ -353,8 +372,7 @@ class TestHangarOptionsFlowHandlerInit:
 
     async def test_init_shows_main_menu(self, mock_hass, mock_config_entry):
         """Test init step shows main menu."""
-        handler = HangarOptionsFlowHandler()
-        handler.config_entry = mock_config_entry
+        handler = HangarOptionsFlowHandler(mock_config_entry)
         handler.hass = mock_hass
 
         result = await handler.async_step_init()
@@ -363,3 +381,27 @@ class TestHangarOptionsFlowHandlerInit:
         assert result["step_id"] == "init"
         assert "airfield" in result["menu_options"]
         assert "aircraft" in result["menu_options"]
+
+
+class TestHangarOptionsFlowRegression:
+    """Regression tests to guard config-flow 500s."""
+
+    async def test_options_flow_init_with_empty_data(self, mock_hass, mock_empty_config_entry):
+        """Ensure init menu loads even when entry.data is empty."""
+        handler = HangarOptionsFlowHandler(mock_empty_config_entry)
+        handler.hass = mock_hass
+
+        result = await handler.async_step_init()
+
+        assert result["type"] == data_entry_flow.FlowResultType.MENU
+        assert result["step_id"] == "init"
+
+    async def test_aircraft_add_handles_no_airfields(self, mock_hass, mock_empty_config_entry):
+        """Ensure aircraft add form renders without airfields configured."""
+        handler = HangarOptionsFlowHandler(mock_empty_config_entry)
+        handler.hass = mock_hass
+
+        result = await handler.async_step_aircraft_add()
+
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "aircraft_add"

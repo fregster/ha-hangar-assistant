@@ -1,0 +1,33 @@
+Visual Flight Rules (VFR) in the UK are governed by the UK Air Navigation Order (ANO), the UK Rules of the Air Regulations, and the UK Aeronautical Information Publication (AIP), specifically ENR 1.2 and SERA 5005.  VFR flight is permitted only by day in Visual Meteorological Conditions (VMC), except in Class A airspace, which is reserved for Instrument Flight Rules (IFR) only. 
+
+Key VFR Requirements
+VMC Minima are determined by airspace class, altitude, and aircraft type:
+Above 10,000 ft AMSL (FL100):
+8 km visibility, 1,500 m horizontal and 300 m (1,000 ft) vertical clearance from cloud.
+Below 10,000 ft AMSL and above 3,000 ft AMSL (or 1,000 ft above terrain):
+5 km visibility, 1,500 m horizontal and 1,000 ft vertical clearance from cloud.
+Below 3,000 ft AMSL or 1,000 ft above terrain (whichever is higher):
+5 km visibility (reduced to 1,500 m for aircraft ≤140 KIAS), clear of cloud and with surface in sight.
+Class D airspace (e.g., Stansted, Gatwick):
+No longer exempt from SERA rules (since 26 March 2020). 
+1,000 ft vertical clearance from cloud is now required unless operating under a Special VFR clearance. 
+Special VFR (SVFR)
+Permitted in controlled airspace (e.g., Class D) when VMC conditions are below standard VFR minima.
+Requires prior clearance from Air Traffic Control (ATC). 
+No flight plan required, but flight details must be communicated to ATC.
+Pilots must maintain continuous sight of the surface and ceiling of at least 450 m (1,500 ft). 
+Flight Restrictions
+Minimum height:
+150 m (500 ft) above ground/water or highest obstacle within 150 m radius, unless authorized (e.g., for takeoff, landing, aerial work, or special operations).
+1,000 ft (300 m) above congested areas unless under SVFR or with CAA permission. 
+Night flying: Not permitted under VFR (defined as half an hour after sunset to half an hour before sunrise). 
+Operational Guidance
+Pilots must maintain safe separation from other aircraft — ATC does not provide separation for VFR flights (except in Class C airspace, where VFR is separated from IFR). 
+Flight plans are not mandatory for VFR, but must be filed when transiting controlled airspace or leaving the vicinity of an aerodrome. 
+Use correct radio phraseology and monitor appropriate ATC frequencies.
+Resources
+UK AIP ENR 1.2: https://www.aidu.mod.uk/aip/pdf/enr/ENR-1-2.pdf
+CAA VFR Guide: https://skybrary.aero/sites/default/files/VFR_Guide.pdf
+SERA 5005: https://regulatorylibrary.caa.co.uk/923-2012/Content/Regs/01280_SERA5005_Visual_flight_rules.htm
+Always verify the latest information via the CAA website or AIS (Aeronautical Information Services) before flight. 
+

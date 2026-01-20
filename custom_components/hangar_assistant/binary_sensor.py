@@ -54,14 +54,18 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
     Alert Triggers:
         1. Weather Data Stale: Temperature sensor > 30 minutes old
         2. Carb Icing Risk Serious: Temperature < 25°C AND Dew Point Spread < 5°C
+        3. VFR Compliance Violation: Cloud Base < 1000 ft (below safe VFR minimum)
+        4. Moderate Carb Risk + Stale Data: Combined low-confidence icing threat
     
     Inputs (monitored sensors):
         - sensor.{airfield_slug}_weather_data_age: Minutes since last temperature update
         - sensor.{airfield_slug}_carb_risk: Current icing risk level
+        - sensor.{airfield_slug}_cloud_base: Estimated cloud base height (feet AGL)
     
     Outputs:
         - is_on: True if ANY alert condition is present, False if all clear
         - Device Class: SAFETY (displays as \"Unsafe\" / \"Safe\" in UI)
+        - Attributes: active_alerts (list of reasons), pilot_action_required (bool)
     
     Used by:
         - Dashboard critical alerts
@@ -69,8 +73,8 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         - Preflight decision making
     
     Example states:
-        - ON (Unsafe): Weather data stale OR icing risk serious
-        - OFF (Safe): Weather fresh AND icing risk low
+        - ON (Unsafe): Weather data stale OR icing risk serious OR below VFR minima
+        - OFF (Safe): Weather fresh AND icing risk acceptable AND within VFR envelope
     """
 
     _attr_has_entity_name = True
@@ -99,6 +103,7 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         # We listen to our own generated sensors
         self._freshness_id = f"sensor.{self._id_slug}_weather_data_age"
         self._carb_id = f"sensor.{self._id_slug}_carb_risk"
+        self._cloud_base_id = f"sensor.{self._id_slug}_cloud_base"
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks for sibling sensors."""
@@ -110,7 +115,7 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
 
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, [self._freshness_id, self._carb_id], _update_state
+                self.hass, [self._freshness_id, self._carb_id, self._cloud_base_id], _update_state
             )
         )
 
@@ -123,9 +128,8 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
     def is_on(self) -> bool:
         """Return True if an alert condition exists for THIS airfield."""
         
-        # 1. Check Data Freshness
+        # 1. Check Data Freshness (>30 mins = ALERT)
         freshness_state = self.hass.states.get(self._freshness_id)
-        
         if freshness_state and freshness_state.state not in ("unknown", "unavailable"):
             try:
                 if int(float(freshness_state.state)) > 30:
@@ -133,11 +137,28 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
             except ValueError:
                 pass
 
-        # 2. Check Carb Icing Risk
+        # 2. Check Carb Icing Risk (Serious = ALERT)
         carb_state = self.hass.states.get(self._carb_id)
-        
         if carb_state and carb_state.state == "Serious Risk":
             return True  # ALERT: Atmospheric conditions favor serious icing
+
+        # 3. Check VFR Compliance: Cloud Base < 1000 ft = ALERT
+        cloud_base_state = self.hass.states.get(self._cloud_base_id)
+        if cloud_base_state and cloud_base_state.state not in ("unknown", "unavailable"):
+            try:
+                cloud_base = int(float(cloud_base_state.state))
+                if cloud_base < 1000:
+                    return True  # ALERT: Below VFR cloud clearance minimum
+            except ValueError:
+                pass
+
+        # 4. Check Moderate Risk + Stale Data (combined low-confidence threat)
+        if carb_state and carb_state.state == "Moderate Risk" and freshness_state:
+            try:
+                if int(float(freshness_state.state)) > 15:
+                    return True  # ALERT: Moderate icing risk with uncertain data
+            except ValueError:
+                pass
 
         return False
 
@@ -146,23 +167,43 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         """Provide detailed reasons for the alert state."""
         active_reasons = []
         
-        # Logic for attributes
-        f_state = self.hass.states.get(f"sensor.{self._id_slug}_weather_data_age")
+        # 1. Stale Weather Data
+        f_state = self.hass.states.get(self._freshness_id)
         if f_state and f_state.state not in ("unknown", "unavailable"):
             try:
-                if int(float(f_state.state)) > 30:
-                    active_reasons.append("Stale Weather Data")
+                freshness_minutes = int(float(f_state.state))
+                if freshness_minutes > 30:
+                    active_reasons.append(f"Stale Weather Data ({freshness_minutes} min)")
             except ValueError:
                 pass
 
-        c_state = self.hass.states.get(f"sensor.{self._id_slug}_carb_risk")
+        # 2. Carb Icing Risk
+        c_state = self.hass.states.get(self._carb_id)
         if c_state and c_state.state == "Serious Risk":
             active_reasons.append("Serious Carb Icing Risk")
+        elif c_state and c_state.state == "Moderate Risk" and f_state:
+            try:
+                if int(float(f_state.state)) > 15:
+                    active_reasons.append("Moderate Carb Risk (Low Data Confidence)")
+            except ValueError:
+                pass
+
+        # 3. VFR Compliance: Cloud Base
+        cloud_state = self.hass.states.get(self._cloud_base_id)
+        if cloud_state and cloud_state.state not in ("unknown", "unavailable"):
+            try:
+                cloud_base = int(float(cloud_state.state))
+                if cloud_base < 1000:
+                    active_reasons.append(f"Below VFR Cloud Minimum ({cloud_base} ft)")
+            except ValueError:
+                pass
                 
         return {
-            "airfield": self._config["name"],
+            "airfield": self._config.get("name", "Unknown"),
             "active_alerts": active_reasons,
-            "pilot_action_required": len(active_reasons) > 0
+            "pilot_action_required": len(active_reasons) > 0,
+            "alert_count": len(active_reasons),
+            "last_updated": dt_util.now().isoformat()
         }
 
 class PilotMedicalAlert(BinarySensorEntity):

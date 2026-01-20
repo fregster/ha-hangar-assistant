@@ -1,0 +1,6 @@
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "fregster",
+        "projectKey": "fregster_ha-hangar-assistant"
+    }
+}

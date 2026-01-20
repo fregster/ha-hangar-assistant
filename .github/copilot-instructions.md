@@ -42,11 +42,33 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 - Performance sliders: Uses `input_number` helpers (user-defined) to drive dynamic ground roll adjustments.
 
 ## Developer Workflow & Testing
-- **Testing**: Local tests in `tests/`. Run with `pytest`.
+
+### Local Development & Testing
+- **Development Environment**: Solutions are developed locally on the developer's machine.
+- **Remote Testing**: Code is tested on a remote Home Assistant server before release to ensure real-world integration with actual HA instances.
+- **Testing**: Local unit tests in `tests/` directory. Run with `pytest`.
   - `test_formulas.py`: Pure python unit tests for aviation math.
-  - `test_integration.py` & `test_binary_sensor.py`: Integration tests.
-- **Validation**: CI/CD uses GitHub Actions (`validate.yml`) for Hassfest/HACS validation.
-- **New Sensor Workflow**:
-  1. Subclass `HangarSensorBase`.
-  2. Implement `name` property and logic.
-  3. Add to `async_setup_entry` in `sensor.py`.
+  - `test_binary_sensor.py`: Binary sensor logic tests.
+  - `test_enhanced_logic.py`: Integration tests for complex logic.
+  - `test_integration.py`: End-to-end integration tests.
+  - `test_sensor_coverage.py`, `test_config_flow_coverage.py`, `test_sensor_setup_coverage.py`: Additional coverage tests.
+  - Run all tests: `.venv/bin/pytest tests/`
+
+### GitHub & Continuous Integration
+- **Repository**: All code changes are pushed to GitHub repository.
+- **GitHub Actions CI/CD**: Automated workflows run on every commit/PR:
+  - **Code Validation** (`validate.yml`): Runs Hassfest validation and HACS compliance checks.
+  - **Linting**: flake8 and mypy type checking on all Python files.
+  - **Release Tests**: Automated tests execute against the code to verify functionality.
+- **Deployment**: GitHub Actions handles automated releases and package distribution to HACS (Home Assistant Community Store).
+- **Version Management**: Follows `YYYYNN.V.H` format (e.g., `2601.1.0`). GitHub Actions tags releases and creates release notes.
+
+### New Sensor Workflow
+1. Subclass `HangarSensorBase`.
+2. Implement `name` property and logic.
+3. Add to `async_setup_entry` in `sensor.py`.
+4. Write unit tests in `tests/` covering the new functionality.
+5. Run local tests: `.venv/bin/pytest tests/`
+6. Run flake8 and mypy for code quality.
+7. Deploy to remote Home Assistant server for integration testing.
+8. Push to GitHub and let CI/CD pipeline validate.

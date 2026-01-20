@@ -5,7 +5,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, UNIT_PREFERENCE_AVIATION, UNIT_PREFERENCE_SI, DEFAULT_UNIT_PREFERENCE
+from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, UNIT_PREFERENCE_AVIATION, UNIT_PREFERENCE_SI, DEFAULT_UNIT_PREFERENCE, DEFAULT_SENSOR_CACHE_TTL_SECONDS
 from .utils.i18n import get_available_languages, get_distance_unit_options, get_action_options, get_unit_preference_options
 
 _LOGGER = logging.getLogger(__name__)
@@ -177,6 +177,9 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("default_pressure", default=settings.get("default_pressure", 1013.25)): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=800, max=1100, step=0.1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="hPa")
                 ),
+                vol.Optional("cache_ttl_seconds", default=settings.get("cache_ttl_seconds", DEFAULT_SENSOR_CACHE_TTL_SECONDS)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=300, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="s")
+                ),
             })
         )
 
@@ -194,6 +197,36 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_airfield_add(self, user_input=None):
         """Form to add a new airfield from scratch."""
         if user_input is not None:
+            # Validate ICAO code format if provided
+            icao_code = user_input.get("icao_code", "").strip().upper()
+            if icao_code:
+                if not (len(icao_code) == 4 and icao_code.isalpha()):
+                    return self.async_show_form(
+                        step_id="airfield_add",
+                        errors={"icao_code": "ICAO codes must be exactly 4 uppercase letters (e.g., EGLL, KSFO)"},
+                        data_schema=self._get_airfield_add_schema()
+                    )
+                user_input["icao_code"] = icao_code
+            
+            # Validate runway format (comma-separated identifiers)
+            runways = user_input.get("runways", "").strip()
+            if not runways:
+                return self.async_show_form(
+                    step_id="airfield_add",
+                    errors={"runways": "At least one runway must be specified"},
+                    data_schema=self._get_airfield_add_schema()
+                )
+            
+            # Validate primary runway is in runway list
+            primary = user_input.get("primary_runway", "").strip()
+            runway_list = [r.strip() for r in runways.split(",")]
+            if primary not in runway_list:
+                return self.async_show_form(
+                    step_id="airfield_add",
+                    errors={"primary_runway": "Primary runway must be one of the available runways"},
+                    data_schema=self._get_airfield_add_schema()
+                )
+            
             new_data = self._entry_data()
             airfields = self._list_from(new_data.get("airfields", []))
             
@@ -210,56 +243,60 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="airfield_add",
-            data_schema=vol.Schema({
-                vol.Required("name"): str,
-                vol.Optional("icao_code"): str,
-                vol.Required("latitude", default=51.47): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-90, max=90, step="any", mode=selector.NumberSelectorMode.BOX)
-                ),
-                vol.Required("longitude", default=-0.45): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-180, max=180, step="any", mode=selector.NumberSelectorMode.BOX)
-                ),
-                vol.Required("elevation", default=25): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=-500, max=9000, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m")
-                ),
-                vol.Required("distance_unit", default="m"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_distance_unit_options(self._lang())
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
-                vol.Required("runways"): str,
-                vol.Required("primary_runway"): str,
-                vol.Required("runway_length", default=500): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=100, 
-                        max=2000, 
-                        step=1, 
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="m"
-                    )
-                ),
-                vol.Optional("temp_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("dp_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("pressure_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("wind_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("wind_dir_sensor"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional("radio_frequency"): str,
-                vol.Optional("ppl_required", default=False): selector.BooleanSelector(),
-            })
+            data_schema=self._get_airfield_add_schema()
         )
+    
+    def _get_airfield_add_schema(self) -> vol.Schema:
+        """Return the schema for airfield add form."""
+        return vol.Schema({
+            vol.Required("name"): str,
+            vol.Optional("icao_code"): str,
+            vol.Required("latitude", default=51.47): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=-90, max=90, step="any", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Required("longitude", default=-0.45): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=-180, max=180, step="any", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Required("elevation", default=25): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=-500, max=9000, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m")
+            ),
+            vol.Required("distance_unit", default="m"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=o["value"], label=o["label"]) for o in get_distance_unit_options(self._lang())
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Required("runways"): str,
+            vol.Required("primary_runway"): str,
+            vol.Required("runway_length", default=500): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=100, 
+                    max=2000, 
+                    step=1, 
+                    mode=selector.NumberSelectorMode.SLIDER,
+                    unit_of_measurement="m"
+                )
+            ),
+            vol.Optional("temp_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("dp_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("pressure_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("wind_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("wind_dir_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("radio_frequency"): str,
+            vol.Optional("ppl_required", default=False): selector.BooleanSelector(),
+        })
 
     async def async_step_airfield_manage(self, user_input=None):
         """Menu to manage existing airfields."""
@@ -401,6 +438,28 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_aircraft_add(self, user_input=None):
         """Form to add a new aircraft."""
         if user_input is not None:
+            # Validate registration format (basic alphanumeric check)
+            reg = user_input.get("reg", "").strip().upper()
+            if not reg or not reg.replace("-", "").isalnum():
+                return self.async_show_form(
+                    step_id="aircraft_add",
+                    errors={"reg": "Registration must contain only letters, numbers, and hyphens"},
+                    data_schema=self._get_aircraft_add_schema()
+                )
+            user_input["reg"] = reg
+            
+            # Validate weights (empty weight must be less than MTOW)
+            empty_weight = float(user_input.get("empty_weight", 0))
+            max_tow = float(user_input.get("max_tow", 0))
+            weight_unit = user_input.get("weight_unit", "kg")
+            
+            if empty_weight >= max_tow:
+                return self.async_show_form(
+                    step_id="aircraft_add",
+                    errors={"empty_weight": "Empty weight must be less than MTOW"},
+                    data_schema=self._get_aircraft_add_schema()
+                )
+            
             new_data = self._entry_data()
             fleet = self._list_from(new_data.get("aircraft", []))
             
@@ -421,56 +480,60 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return self.async_create_entry(data=self._entry_options())
 
+        return self.async_show_form(
+            step_id="aircraft_add",
+            data_schema=self._get_aircraft_add_schema()
+        )
+    
+    def _get_aircraft_add_schema(self) -> vol.Schema:
+        """Return the schema for aircraft add form."""
         airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
         airfield_options = [selector.SelectOptionDict(value=a, label=a) for a in airfields] if airfields else [selector.SelectOptionDict(value="", label="No airfields configured")]
         
-        return self.async_show_form(
-            step_id="aircraft_add",
-            data_schema=vol.Schema({
-                vol.Required("reg"): str,
-                vol.Required("model"): str,
-                vol.Required("empty_weight", default=750): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
-                ),
-                vol.Required("max_tow", default=1200): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
-                ),
-                vol.Required("weight_unit", default="kg"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value="kg", label="Kilograms"),
-                            selector.SelectOptionDict(value="lbs", label="Pounds"),
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
-                vol.Required("max_xwind", default=15): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="kt")
-                ),
-                vol.Required("baseline_roll", default=300): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=10, max=750, step=5, unit_of_measurement="m")
-                ),
-                vol.Required("baseline_50ft", default=600): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=10, max=1500, step=5, unit_of_measurement="m")
-                ),
-                vol.Required("distance_unit", default="m"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value="m", label="Meters"),
-                            selector.SelectOptionDict(value="ft", label="Feet"),
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
-                vol.Optional("linked_airfield"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=airfield_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
-                vol.Required("ifr_capable", default=False): selector.BooleanSelector(),
-            })
-        )
+        return vol.Schema({
+            vol.Required("reg"): str,
+            vol.Required("model"): str,
+            vol.Required("empty_weight", default=750): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
+            ),
+            vol.Required("max_tow", default=1200): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=500, max=10000, step=50, unit_of_measurement="kg")
+            ),
+            vol.Required("weight_unit", default="kg"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="kg", label="Kilograms"),
+                        selector.SelectOptionDict(value="lbs", label="Pounds"),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Required("max_xwind", default=15): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=50, step=1, unit_of_measurement="kt")
+            ),
+            vol.Required("baseline_roll", default=300): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=10, max=750, step=5, unit_of_measurement="m")
+            ),
+            vol.Required("baseline_50ft", default=600): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=10, max=1500, step=5, unit_of_measurement="m")
+            ),
+            vol.Required("distance_unit", default="m"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="m", label="Meters"),
+                        selector.SelectOptionDict(value="ft", label="Feet"),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("linked_airfield"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=airfield_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Required("ifr_capable", default=False): selector.BooleanSelector(),
+        })
 
     async def async_step_aircraft_manage(self, user_input=None):
         """Menu to manage existing aircraft."""

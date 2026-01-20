@@ -33,6 +33,9 @@ DEFAULT_AIRFRAME_ICING_MIN_C = -10
 DEFAULT_AIRFRAME_ICING_MAX_C = 5
 DEFAULT_SATURATION_SPREAD_C = 3
 
+# Sensor value caching (performance optimization)
+DEFAULT_SENSOR_CACHE_TTL_SECONDS = 60  # 1 minute default cache TTL
+
 # Unit preferences
 UNIT_PREFERENCE_AVIATION = "aviation"  # Feet, knots, pounds
 UNIT_PREFERENCE_SI = "si"  # Meters, kph, kilograms

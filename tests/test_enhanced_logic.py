@@ -39,10 +39,12 @@ def test_best_runway_selection(mock_hass):
     assert sensor.native_value == "03"
 
     # Wind from 200 should pick 21
+    sensor._sensor_cache.clear()  # Clear cache to force re-read
     mock_hass.states.get.return_value = MagicMock(state="200")
     assert sensor.native_value == "21"
 
     # Wind from 100 should pick 09
+    sensor._sensor_cache.clear()  # Clear cache to force re-read
     mock_hass.states.get.return_value = MagicMock(state="100")
     assert sensor.native_value == "09"
 
@@ -133,9 +135,11 @@ def test_carb_risk_levels(mock_hass):
     set_mock("20", "18")
     assert sensor.native_value == "Serious Risk"
 
+    sensor._sensor_cache.clear()  # Clear cache to force re-read
     set_mock("28", "20")
     assert sensor.native_value == "Moderate Risk"
 
+    sensor._sensor_cache.clear()  # Clear cache to force re-read
     set_mock("35", "30")
     assert sensor.native_value == "Low Risk"
 

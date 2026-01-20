@@ -101,6 +101,10 @@ class TestWeatherDeterioration:
             return None
 
         mock_hass.states.get.side_effect = get_state_25
+        
+        # Clear cache to force re-read of updated values
+        sensor._sensor_cache.clear()
+        
         da_warmer = sensor.native_value
 
         # DA should increase with temperature

@@ -20,6 +20,15 @@ views:
               - type: template
                 content: "Density Alt: {{ states('sensor.airfield_slug_density_altitude') }}ft"
                 icon: mdi:elevation-rise
+              - type: template
+                content: >-
+                  {% set mins = states('sensor.airfield_slug_daylight_countdown') | int(0) %}
+                  {% set phase = state_attr('sensor.airfield_slug_daylight_countdown', 'phase') %}
+                  {{ 'Daylight' if phase == 'day' else 'Daylight Starts' }}: {{ mins }}m
+                icon: mdi:weather-sunset-down
+                icon_color: >-
+                  {% set mins = states('sensor.airfield_slug_daylight_countdown') | int(0) %}
+                  {% if mins < 45 %}red{% elif mins < 90 %}amber{% else %}green{% endif %}
 
       - title: Primary Airfield Briefing
         cards:
@@ -43,6 +52,13 @@ views:
                 entity: sensor.airfield_slug_carb_risk
                 name: Carb Icing
                 icon_color: "{{ state_attr('sensor.airfield_slug_carb_risk', 'color') }}"
+              - type: custom:mushroom-entity-card
+                entity: sensor.airfield_slug_icing_advisory
+                name: Icing Advisory
+                icon: mdi:snowflake-alert
+                icon_color: >-
+                  {% set sev = state_attr('sensor.airfield_slug_icing_advisory', 'severity') %}
+                  {% if sev == 'warning' %}red{% elif sev == 'caution' %}amber{% else %}green{% endif %}
               - type: custom:mushroom-entity-card
                 entity: sensor.airfield_slug_est_cloud_base
                 name: Cloud Base

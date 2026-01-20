@@ -1,6 +1,7 @@
 """Hangar Assistant: Aviation Safety & Compliance for Home Assistant."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import yaml  # type: ignore
@@ -15,6 +16,70 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS, DEFAULT_DASHBOARD_VERSION
 
 _LOGGER = logging.getLogger(__name__)
+
+def _load_integration_version() -> str:
+    """Load the integration version from manifest.json.
+    
+    Returns the version string defined in the integration manifest. If the
+    manifest cannot be read or the version is missing, a safe fallback of
+    "0.0.0" is returned so callers can continue with conservative defaults.
+    """
+    manifest_path = os.path.join(os.path.dirname(__file__), "manifest.json")
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+        version = manifest.get("version", "0.0.0")
+        return str(version)
+    except Exception as error:  # pragma: no cover - defensive fallback
+        _LOGGER.debug("Unable to read manifest version: %s", error)
+    return "0.0.0"
+
+
+def _extract_major_version(version_value) -> int:
+    """Extract the major version component from a Hangar Assistant version string.
+    
+    Args:
+        version_value: A version string in YYYYNN.V.H format or an int.
+
+    Returns:
+        The major portion as an integer. Defaults to 0 when parsing fails so
+        that upgrade checks degrade gracefully.
+    """
+    if isinstance(version_value, int):
+        return version_value
+    try:
+        major_segment = str(version_value).split(".")[0]
+        return int(major_segment)
+    except (ValueError, AttributeError, IndexError):
+        return 0
+
+
+def should_force_dashboard_rebuild(dashboard_info: dict) -> bool:
+    """Determine whether the dashboard must be rebuilt.
+    
+    A rebuild is required when we cannot determine the stored integration
+    version (first install) or when the stored major version differs from the
+    currently installed integration. This ensures users automatically receive
+    dashboard updates on major releases without manual intervention.
+
+    Args:
+        dashboard_info: The persisted dashboard metadata from the config entry.
+
+    Returns:
+        True when a rebuild is needed, False when the existing dashboard can be
+        reused safely.
+    """
+    stored_major = _extract_major_version(
+        dashboard_info.get("integration_version")
+        or dashboard_info.get("integration_major")
+    )
+    if stored_major == 0:
+        return True
+    return stored_major != INTEGRATION_MAJOR_VERSION
+
+
+INTEGRATION_VERSION = _load_integration_version()
+INTEGRATION_MAJOR_VERSION = _extract_major_version(INTEGRATION_VERSION)
 
 # This line resolves the [CONFIG_SCHEMA] error for Hassfest
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -39,7 +104,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         
         entry = entries[0]  # Use the first (and typically only) entry
         _LOGGER.info("Starting dashboard rebuild with force_rebuild=True")
-        result = await async_create_dashboard(hass, entry, force_rebuild=True)
+        result = await async_create_dashboard(
+            hass,
+            entry,
+            force_rebuild=True,
+            reason="service_call",
+        )
         if result:
             _LOGGER.info("✅ Hangar Assistant dashboard rebuilt successfully")
         else:
@@ -82,8 +152,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""
-    # Create the dashboard on first setup or if template version changed
-    await async_create_dashboard(hass, entry)
+    dashboard_info = entry.data.get("dashboard_info", {}) if isinstance(entry.data, dict) else {}
+    force_dashboard_rebuild = should_force_dashboard_rebuild(dashboard_info)
+
+    # Create or refresh the dashboard on first setup, major version upgrade, or template change
+    await async_create_dashboard(
+        hass,
+        entry,
+        force_rebuild=force_dashboard_rebuild,
+        reason="major_version_upgrade" if force_dashboard_rebuild else "startup",
+    )
     
     # Forward setup to sensor and binary_sensor platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -128,8 +206,23 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
     await hass.config_entries.async_reload(entry.entry_id)
 
-async def async_create_dashboard(hass: HomeAssistant, entry: ConfigEntry = None, force_rebuild: bool = False) -> bool:
-    """Create the Hangar Assistant dashboard from template."""
+async def async_create_dashboard(
+    hass: HomeAssistant,
+    entry: ConfigEntry = None,
+    force_rebuild: bool = False,
+    reason: str | None = None,
+) -> bool:
+    """Create or rebuild the Hangar Assistant dashboard from the template.
+    
+    Args:
+        hass: Home Assistant instance.
+        entry: Config entry for this integration (optional for service-triggered rebuilds).
+        force_rebuild: When True, always regenerate the dashboard from the template.
+        reason: Text context for logs (startup, major_version_upgrade, options_flow, service, etc.).
+
+    Returns:
+        True when the dashboard was created or refreshed successfully, False on failure.
+    """
     
     def _generate_dashboard():
         """Sync function to perform blocking I/O."""
@@ -154,7 +247,10 @@ async def async_create_dashboard(hass: HomeAssistant, entry: ConfigEntry = None,
             stored_version = 0
             if entry:
                 dashboard_info = entry.data.get("dashboard_info", {})
-                stored_version = dashboard_info.get("version", 0)
+                try:
+                    stored_version = int(dashboard_info.get("version", 0))
+                except (TypeError, ValueError):
+                    stored_version = 0
             
             # Check if we need to rebuild
             dashboard_exists = os.path.exists(dashboard_yaml_path)
@@ -180,6 +276,11 @@ async def async_create_dashboard(hass: HomeAssistant, entry: ConfigEntry = None,
             return False
 
     # Run the blocking I/O in the executor
+    _LOGGER.info(
+        "Creating Hangar Assistant dashboard (reason=%s, force=%s)",
+        reason or "auto",
+        force_rebuild,
+    )
     result = await hass.async_add_executor_job(_generate_dashboard)
     
     if not result:
@@ -189,16 +290,37 @@ async def async_create_dashboard(hass: HomeAssistant, entry: ConfigEntry = None,
         # Update config entry with new dashboard version ONLY if changed
         if entry:
             dashboard_info = entry.data.get("dashboard_info", {})
-            current_stored_version = dashboard_info.get("version", 0)
-            
-            if current_stored_version < DEFAULT_DASHBOARD_VERSION:
-                _LOGGER.debug("Updating dashboard version in config entry from %s to %s", 
-                             current_stored_version, DEFAULT_DASHBOARD_VERSION)
+            try:
+                current_stored_version = int(dashboard_info.get("version", 0))
+            except (TypeError, ValueError):
+                current_stored_version = 0
+            stored_major = _extract_major_version(
+                dashboard_info.get("integration_version")
+                or dashboard_info.get("integration_major")
+            )
+
+            if (
+                force_rebuild
+                or current_stored_version < DEFAULT_DASHBOARD_VERSION
+                or stored_major != INTEGRATION_MAJOR_VERSION
+            ):
+                _LOGGER.debug(
+                    "Updating dashboard metadata (reason=%s, stored_version=%s, stored_major=%s)",
+                    reason or "auto",
+                    current_stored_version,
+                    stored_major,
+                )
                 new_data = dict(entry.data)
-                new_data["dashboard_info"] = {
-                    "version": DEFAULT_DASHBOARD_VERSION,
-                    "last_updated": dt_util.now().isoformat()
-                }
+                updated_dashboard_info = dict(dashboard_info)
+                updated_dashboard_info.update(
+                    {
+                        "version": DEFAULT_DASHBOARD_VERSION,
+                        "last_updated": dt_util.now().isoformat(),
+                        "integration_version": INTEGRATION_VERSION,
+                        "integration_major": INTEGRATION_MAJOR_VERSION,
+                    }
+                )
+                new_data["dashboard_info"] = updated_dashboard_info
                 hass.config_entries.async_update_entry(entry, data=new_data)
         
         # Trigger dashboard reload via service if available

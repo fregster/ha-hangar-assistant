@@ -944,32 +944,34 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_dashboard(self, user_input=None):
         """Manage Hangar Assistant dashboard."""
         if user_input is not None:
-            if user_input.get("action") == "rebuild":
-                # Call the rebuild service
-                await self.hass.services.async_call("hangar_assistant", "rebuild_dashboard")
+            if user_input.get("recreate_dashboard", False):
+                # Recreate the dashboard directly to avoid service dependencies
+                from . import async_create_dashboard
+
+                await async_create_dashboard(
+                    self.hass,
+                    self._config_entry,
+                    force_rebuild=True,
+                    reason="options_flow",
+                )
             return self.async_create_entry(data=self._entry_options())
 
         # Get current dashboard info
         dashboard_info = self._entry_data().get("dashboard_info", {})
         current_version = dashboard_info.get("version", 0)
         last_updated = dashboard_info.get("last_updated", "Never")
+        integration_version = dashboard_info.get("integration_version", "Unknown")
         
         return self.async_show_form(
             step_id="dashboard",
             data_schema=vol.Schema({
-                vol.Required("action", default="rebuild"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value="rebuild", label="Rebuild Dashboard"),
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
+                vol.Optional("recreate_dashboard", default=False): selector.BooleanSelector(),
             }),
             description_placeholders={
                 "current_version": str(current_version),
                 "template_version": str(DEFAULT_DASHBOARD_VERSION),
-                "last_updated": str(last_updated)
+                "last_updated": str(last_updated),
+                "integration_version": str(integration_version),
             }
         )
 

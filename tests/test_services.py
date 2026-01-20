@@ -1,10 +1,15 @@
 """Tests for Hangar Assistant services."""
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock, call
+from unittest.mock import MagicMock, patch, AsyncMock
 from homeassistant.core import HomeAssistant, ServiceCall
-from custom_components.hangar_assistant.const import DOMAIN
-from custom_components.hangar_assistant import async_generate_all_ai_briefings
-from custom_components.hangar_assistant import async_generate_all_ai_briefings
+from custom_components.hangar_assistant.const import DOMAIN, DEFAULT_DASHBOARD_VERSION
+from custom_components.hangar_assistant import (
+    INTEGRATION_MAJOR_VERSION,
+    INTEGRATION_VERSION,
+    async_create_dashboard,
+    async_generate_all_ai_briefings,
+    async_setup_entry,
+)
 
 
 @pytest.fixture
@@ -120,6 +125,70 @@ async def test_rebuild_dashboard_creation_failure():
     ) as mock_create:
         result = await mock_create(mock_hass, mock_entry, force_rebuild=True)
         assert result is False
+
+
+@pytest.mark.asyncio
+async def test_async_create_dashboard_updates_metadata_on_success():
+    """Dashboard rebuild should record version and integration metadata."""
+    hass = MagicMock(spec=HomeAssistant)
+    hass.services = MagicMock()
+    hass.services.has_service = MagicMock(return_value=False)
+    hass.async_add_executor_job = AsyncMock(return_value=True)
+    hass.config_entries = MagicMock()
+    updated_payload = {}
+
+    def _capture_update(entry, data):
+        updated_payload.update(data)
+
+    hass.config_entries.async_update_entry = MagicMock(side_effect=_capture_update)
+
+    entry = MagicMock()
+    entry.data = {}
+
+    result = await async_create_dashboard(
+        hass,
+        entry,
+        force_rebuild=True,
+        reason="test",
+    )
+
+    assert result is True
+    assert "dashboard_info" in updated_payload
+    info = updated_payload["dashboard_info"]
+    assert info["version"] == DEFAULT_DASHBOARD_VERSION
+    assert info["integration_version"] == INTEGRATION_VERSION
+    assert info["integration_major"] == INTEGRATION_MAJOR_VERSION
+    assert info.get("last_updated") is not None
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_forces_dashboard_rebuild_on_major_upgrade():
+    """Major integration upgrades should trigger a forced dashboard rebuild."""
+    hass = MagicMock(spec=HomeAssistant)
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+
+    entry = MagicMock()
+    entry.data = {
+        "briefings": [],
+        "ai_assistant": {},
+        "dashboard_info": {
+            "integration_major": INTEGRATION_MAJOR_VERSION + 1,
+            "version": DEFAULT_DASHBOARD_VERSION,
+        },
+    }
+    entry.async_on_unload = MagicMock()
+    entry.add_update_listener = MagicMock(return_value=lambda *_args, **_kwargs: None)
+
+    with patch(
+        "custom_components.hangar_assistant.async_create_dashboard",
+        new_callable=AsyncMock,
+        return_value=True,
+    ) as mock_create:
+        await async_setup_entry(hass, entry)
+
+    mock_create.assert_awaited_once()
+    assert mock_create.call_args.kwargs["force_rebuild"] is True
 
 
 @pytest.mark.asyncio

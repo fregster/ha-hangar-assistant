@@ -10,8 +10,19 @@ from custom_components.hangar_assistant.sensor import (
     AirfieldWeatherPassThrough,
     PilotInfoSensor,
     AirfieldTimezoneSensor,
+    DensityAltSensor,
+    IcingAdvisorySensor,
+    DaylightCountdownSensor,
 )
-
+from custom_components.hangar_assistant.const import (
+    DEFAULT_STALE_WEATHER_MINUTES,
+    DEFAULT_DA_CAUTION_FT,
+    DEFAULT_DA_WARNING_FT,
+    DEFAULT_FROST_TEMP_C,
+    DEFAULT_AIRFRAME_ICING_MAX_C,
+    DEFAULT_AIRFRAME_ICING_MIN_C,
+    DEFAULT_SATURATION_SPREAD_C,
+)
 
 @pytest.fixture
 def mock_hass():
@@ -92,6 +103,36 @@ class TestDataFreshnessSensor:
 
         assert sensor._attr_native_unit_of_measurement == "min"
 
+    def test_freshness_status_and_threshold_defaults(self, mock_hass):
+        """Ensure freshness status and threshold attributes use defaults."""
+        config = {"name": "Test Airfield", "temp_sensor": "sensor.temp"}
+        sensor = DataFreshnessSensor(mock_hass, config)
+
+        now = dt_util.utcnow()
+        two_mins_ago = now - timedelta(minutes=2)
+        mock_state = MagicMock()
+        mock_state.last_updated = two_mins_ago
+        mock_hass.states.get.return_value = mock_state
+
+        attrs = sensor.extra_state_attributes
+        assert attrs["status"] == "fresh"
+        assert attrs["threshold_minutes"] == DEFAULT_STALE_WEATHER_MINUTES
+
+    def test_freshness_status_respects_custom_threshold(self, mock_hass):
+        """Ensure custom stale threshold is reflected in status calculation."""
+        config = {"name": "Test Airfield", "temp_sensor": "sensor.temp"}
+        sensor = DataFreshnessSensor(mock_hass, config, {"stale_weather_minutes": 20})
+
+        now = dt_util.utcnow()
+        twenty_five_mins_ago = now - timedelta(minutes=25)
+        mock_state = MagicMock()
+        mock_state.last_updated = twenty_five_mins_ago
+        mock_hass.states.get.return_value = mock_state
+
+        attrs = sensor.extra_state_attributes
+        assert attrs["status"] == "stale"
+        assert attrs["threshold_minutes"] == 20
+
 
 class TestAIBriefingSensor:
     """Tests for AIBriefingSensor."""
@@ -124,6 +165,161 @@ class TestAIBriefingSensor:
         sensor = AIBriefingSensor(mock_hass, config)
 
         assert sensor._attr_icon == "mdi:robot"
+
+
+class TestDensityAltitudeBanner:
+    """Tests for density altitude banner attributes."""
+
+    def test_da_banner_caution_level(self, mock_hass):
+        """DA banner flags elevated level when above caution threshold."""
+        config = {
+            "name": "Test Airfield",
+            "temp_sensor": "sensor.temp",
+            "pressure_sensor": "sensor.pressure",
+            "elevation": 0,
+        }
+        sensor = DensityAltSensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: {
+            "sensor.temp": MagicMock(state="40"),
+            "sensor.pressure": MagicMock(state="1013.25"),
+        }.get(entity_id)
+
+        attrs = sensor.extra_state_attributes
+        assert attrs["da_status"] == "Elevated DA"
+        assert attrs["da_severity"] == "caution"
+        assert attrs["da_caution_threshold_ft"] == DEFAULT_DA_CAUTION_FT
+        assert attrs["da_warning_threshold_ft"] == DEFAULT_DA_WARNING_FT
+
+    def test_da_banner_warning_level(self, mock_hass):
+        """DA banner flags high level when above warning threshold."""
+        config = {
+            "name": "Test Airfield",
+            "temp_sensor": "sensor.temp",
+            "pressure_sensor": "sensor.pressure",
+            "elevation": 150,
+        }
+        sensor = DensityAltSensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: {
+            "sensor.temp": MagicMock(state="60"),
+            "sensor.pressure": MagicMock(state="1013.25"),
+        }.get(entity_id)
+
+        attrs = sensor.extra_state_attributes
+        assert attrs["da_status"] == "High DA"
+        assert attrs["da_severity"] == "warning"
+
+
+class TestIcingAdvisorySensor:
+    """Tests for icing advisory strip."""
+
+    def test_frost_risk_advisory(self, mock_hass):
+        """Flags frost risk when temp near freezing and saturated."""
+        config = {
+            "name": "Test Airfield",
+            "temp_sensor": "sensor.temp",
+            "dp_sensor": "sensor.dp",
+        }
+        sensor = IcingAdvisorySensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: {
+            "sensor.temp": MagicMock(state="2.0"),
+            "sensor.dp": MagicMock(state="1.0"),
+            "sensor.test_airfield_carb_risk": MagicMock(state="Low Risk"),
+        }.get(entity_id)
+
+        assert sensor.native_value == "Frost Risk"
+        attrs = sensor.extra_state_attributes
+        assert attrs["severity"] == "caution"
+        assert attrs["frost_temp_threshold_c"] == DEFAULT_FROST_TEMP_C
+        assert attrs["saturation_spread_threshold_c"] == DEFAULT_SATURATION_SPREAD_C
+
+    def test_airframe_icing_potential(self, mock_hass):
+        """Flags airframe icing potential in visible moisture band."""
+        config = {
+            "name": "Test Airfield",
+            "temp_sensor": "sensor.temp",
+            "dp_sensor": "sensor.dp",
+        }
+        sensor = IcingAdvisorySensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: {
+            "sensor.temp": MagicMock(state="4.5"),
+            "sensor.dp": MagicMock(state="2.0"),
+            "sensor.test_airfield_carb_risk": MagicMock(state="Low Risk"),
+        }.get(entity_id)
+
+        assert sensor.native_value == "Airframe Icing Potential"
+        attrs = sensor.extra_state_attributes
+        assert attrs["severity"] == "warning"
+        assert attrs["airframe_icing_max_c"] == DEFAULT_AIRFRAME_ICING_MAX_C
+        assert attrs["airframe_icing_min_c"] == DEFAULT_AIRFRAME_ICING_MIN_C
+
+    def test_carb_icing_advisory(self, mock_hass):
+        """Falls back to carb icing state when no frost/airframe triggers."""
+        config = {
+            "name": "Test Airfield",
+            "temp_sensor": "sensor.temp",
+            "dp_sensor": "sensor.dp",
+        }
+        sensor = IcingAdvisorySensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: {
+            "sensor.temp": MagicMock(state="15"),
+            "sensor.dp": MagicMock(state="8"),
+            "sensor.test_airfield_carb_risk": MagicMock(state="Serious Risk"),
+        }.get(entity_id)
+
+        assert sensor.native_value == "Serious Carb Icing"
+        attrs = sensor.extra_state_attributes
+        assert attrs["carb_risk_level"] == "Serious Risk"
+
+
+class TestDaylightCountdownSensor:
+    """Tests for daylight countdown sensor."""
+
+    def test_daylight_remaining(self, mock_hass):
+        """Counts down to legal daylight end when above horizon."""
+        now = dt_util.utcnow()
+        next_setting = (now + timedelta(hours=1)).isoformat()
+        next_rising = (now + timedelta(hours=10)).isoformat()
+
+        sun_state = MagicMock(state="above_horizon", attributes={"next_rising": next_rising, "next_setting": next_setting})
+
+        config = {"name": "Test Airfield"}
+        sensor = DaylightCountdownSensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: sun_state if entity_id == "sun.sun" else None
+
+        value = sensor.native_value
+        attrs = sensor.extra_state_attributes
+
+        assert attrs["phase"] == "day"
+        assert attrs["legal_daylight_end"] is not None
+        assert value is not None and value > 0
+        assert 80 <= value <= 95  # ~90 minutes with small timing margin
+
+    def test_night_until_daylight(self, mock_hass):
+        """Counts down to legal daylight start when below horizon."""
+        now = dt_util.utcnow()
+        next_rising = (now + timedelta(hours=2)).isoformat()
+        next_setting = (now + timedelta(hours=12)).isoformat()
+
+        sun_state = MagicMock(state="below_horizon", attributes={"next_rising": next_rising, "next_setting": next_setting})
+
+        config = {"name": "Test Airfield"}
+        sensor = DaylightCountdownSensor(mock_hass, config, {})
+
+        mock_hass.states.get.side_effect = lambda entity_id: sun_state if entity_id == "sun.sun" else None
+
+        value = sensor.native_value
+        attrs = sensor.extra_state_attributes
+
+        assert attrs["phase"] == "night"
+        assert attrs["legal_daylight_start"] is not None
+        assert value is not None and value > 0
+        assert 80 <= value <= 125  # ~90 minutes with buffer
 
 
 class TestAirfieldWeatherPassThrough:

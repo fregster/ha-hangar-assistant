@@ -55,6 +55,10 @@ async def async_setup_entry(
     for aircraft in entry.data.get("aircraft", []):
         entities.append(GroundRollSensor(hass, aircraft))
 
+    # 3. Process Pilots from the list
+    for pilot in entry.data.get("pilots", []):
+        entities.append(PilotInfoSensor(hass, pilot))
+
     # Add all generated entities to the system
     async_add_entities(entities)
 
@@ -622,3 +626,26 @@ class GroundRollSensor(HangarSensorBase):
         
         # Fallback to a static safety factor if no DA is available
         return round(base * 1.15)
+
+class PilotInfoSensor(HangarSensorBase):
+    """Sensor for pilot licence and qualification information."""
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Pilot Qualifications"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        return self._config.get("licence_type")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return {
+            "pilot_name": self._config.get("name"),
+            "email": self._config.get("email"),
+            "licence_number": self._config.get("licence_number"),
+            "medical_expiry": self._config.get("medical_expiry"),
+        }

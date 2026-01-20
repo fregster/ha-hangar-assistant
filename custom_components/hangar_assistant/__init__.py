@@ -218,9 +218,6 @@ async def async_create_dashboard(hass: HomeAssistant, entry: ConfigEntry = None,
         _LOGGER.error("Error updating Hangar Assistant dashboard state: %s", e)
         return False
 
-async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update by reloading the integration."""
-    await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""

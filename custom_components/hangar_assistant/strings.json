@@ -278,10 +278,12 @@
       "carb_risk": { "name": "Carb Risk" },
       "best_runway": { "name": "Best Runway" },
       "data_freshness": { "name": "Data Freshness" },
-      "backup_integrity": { "name": "Backup Integrity" }
+      "backup_integrity": { "name": "Backup Integrity" },
+      "pilotinfosensor": { "name": "Pilot Qualifications" }
     },
     "binary_sensor": {
-      "safety_alert": { "name": "Safety Alert" }
+      "safety_alert": { "name": "Safety Alert" },
+      "pilotmedicalalert": { "name": "Medical Status" }
     }
   }
 }

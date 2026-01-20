@@ -20,7 +20,19 @@ async def async_setup_entry(
     entry: ConfigEntry, 
     async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up Hangar Assistant binary sensors dynamically."""
+    """Set up Hangar Assistant binary sensors from config entry.
+    
+    Creates safety alert entities for each configured airfield and pilot.
+    These sensors act as annunciators that turn ON when alert conditions are met.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: ConfigEntry containing airfields and pilots configuration
+        async_add_entities: Callback to register new entities with Home Assistant
+    
+    Returns:
+        None. Entities registered via async_add_entities callback.
+    """
     entities = []
     
     # Generate a Master Safety Alert for every Airfield in the list
@@ -34,7 +46,32 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 class HangarMasterSafetyAlert(BinarySensorEntity):
-    """Annunciator that trips if airfield-specific safety parameters are exceeded."""
+    """Airfield safety annunciator that activates on hazardous conditions.
+    
+    This binary sensor monitors multiple safety parameters for an airfield and returns ON
+    when dangerous conditions are detected. It serves as the primary safety alert for pilots.
+    
+    Alert Triggers:
+        1. Weather Data Stale: Temperature sensor > 30 minutes old
+        2. Carb Icing Risk Serious: Temperature < 25°C AND Dew Point Spread < 5°C
+    
+    Inputs (monitored sensors):
+        - sensor.{airfield_slug}_weather_data_age: Minutes since last temperature update
+        - sensor.{airfield_slug}_carb_risk: Current icing risk level
+    
+    Outputs:
+        - is_on: True if ANY alert condition is present, False if all clear
+        - Device Class: SAFETY (displays as \"Unsafe\" / \"Safe\" in UI)
+    
+    Used by:
+        - Dashboard critical alerts
+        - Automation for notifications
+        - Preflight decision making
+    
+    Example states:
+        - ON (Unsafe): Weather data stale OR icing risk serious
+        - OFF (Safe): Weather fresh AND icing risk low
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False

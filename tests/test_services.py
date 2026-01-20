@@ -18,6 +18,7 @@ def mock_hass():
     hass.services = MagicMock()
     hass.services.async_register = AsyncMock()
     hass.config_entries = MagicMock()
+    hass.config = MagicMock()
     hass.config.path = MagicMock(return_value="/config/www/hangar/")
     return hass
 

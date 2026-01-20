@@ -28,7 +28,21 @@ async def async_setup_entry(
     entry: ConfigEntry, 
     async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up Hangar Assistant sensors dynamically from config entry lists."""
+    """Set up Hangar Assistant sensors dynamically from config entry lists.
+    
+    This function creates all sensor entities based on configured airfields, aircraft, and pilots.
+    For each airfield, it creates 15 sensors covering weather, performance, and safety metrics.
+    For each aircraft, it creates ground roll calculation sensors.
+    For each pilot, it creates qualification tracking sensors.
+    
+    Args:
+        hass: Home Assistant instance for accessing state machine and config
+        entry: ConfigEntry containing airfields, aircraft, pilots, and global settings
+        async_add_entities: Callback to register new entities with Home Assistant
+    
+    Returns:
+        None. Entities are registered via async_add_entities callback.
+    """
     entities = []
     
     # 1. Process Airfields from the list
@@ -63,7 +77,18 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 class HangarSensorBase(SensorEntity):
-    """Common logic for all Hangar Assistant sensors."""
+    """Base class for all Hangar Assistant sensors.
+    
+    Provides common functionality for sensor initialization, device grouping, state tracking,
+    and entity callbacks. All specialized sensors (DensityAltSensor, CarbRiskSensor, etc.)
+    inherit from this class.
+    
+    Key features:
+    - Automatic device grouping by airfield/aircraft via _id_slug
+    - Safe state retrieval with _get_sensor_value() handling unavailable/unknown states
+    - Extra attributes for UI display (config metadata, calculations, etc.)
+    - State change callbacks to update when source entities change
+    """
     
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -150,7 +175,27 @@ class HangarSensorBase(SensorEntity):
 # --- AIRFIELD ENTITIES ---
 
 class DensityAltSensor(HangarSensorBase):
-    """Calculates Density Altitude for a specific airfield."""
+    """Calculates Density Altitude (DA) for an airfield.
+    
+    Density Altitude is the effective altitude experienced by an aircraft's engines due to
+    temperature and pressure conditions. Higher DA means thinner air, reducing aircraft performance.
+    
+    Formula: DA = PA + (120 * (OAT - ISA_temp_at_altitude))
+    Where: PA = Pressure Altitude (elevation adjusted for barometric pressure)
+    
+    Inputs (from config):
+        - elevation: Airfield elevation in meters
+        - temp_sensor: Entity ID of temperature sensor (°C)
+        - pressure_sensor: Entity ID of pressure sensor (hPa or inHg)
+    
+    Outputs:
+        - native_value: Calculated Density Altitude in feet
+        - Range: Typically 500-10000 ft depending on weather
+    
+    Used by:
+        - GroundRollSensor to adjust takeoff distance calculations
+        - Dashboard to indicate aircraft performance capability
+    """
     _attr_native_unit_of_measurement = UnitOfLength.FEET
     _attr_device_class = SensorDeviceClass.DISTANCE
 
@@ -210,7 +255,26 @@ class DensityAltSensor(HangarSensorBase):
         return round(pa + (120 * (temp - isa_temp)))
 
 class CloudBaseSensor(HangarSensorBase):
-    """Estimates Cloud Base height (AGL) for a specific airfield."""
+    """Estimates cloud base height Above Ground Level (AGL).
+    
+    Uses the relationship between temperature and dew point to estimate where clouds form.
+    This is important for VFR flying to ensure adequate cloud clearance.
+    
+    Formula: Cloud Base (ft AGL) = ((T - DP) / 2.5) * 1000
+    Where: T = Temperature, DP = Dew Point (both in °C)
+    
+    Inputs (from config):
+        - temp_sensor: Entity ID of temperature sensor (°C)
+        - dp_sensor: Entity ID of dew point sensor (°C)
+    
+    Outputs:
+        - native_value: Estimated cloud base in feet above ground
+        - Range: Typically 500-10000 ft
+    
+    Limitations:
+        - Assumes typical atmospheric lapse rate
+        - Only valid when T > DP (unsaturated air)
+    """
     _attr_native_unit_of_measurement = UnitOfLength.FEET
 
     def __init__(self, hass: HomeAssistant, config: dict):
@@ -240,7 +304,27 @@ class CloudBaseSensor(HangarSensorBase):
         return round(((t - dp) / 2.5) * 1000)
 
 class DataFreshnessSensor(HangarSensorBase):
-    """Monitors age of weather data in minutes."""
+    """Monitors the age of weather sensor data to ensure currency.
+    
+    Tracks how long it's been since the temperature sensor last reported a value.
+    This is critical for safety - stale data can lead to incorrect decisions.
+    
+    Inputs (from config):
+        - temp_sensor: Entity ID of temperature sensor
+    
+    Outputs:
+        - native_value: Age of data in minutes
+        - Unit: min
+    
+    Thresholds:
+        - < 5 min: Fresh (recommended for flight decisions)
+        - 5-30 min: Acceptable
+        - > 30 min: Stale (triggers Master Safety Alert)
+    
+    Used by:
+        - HangarMasterSafetyAlert to trigger safety annunciator
+        - Dashboard to indicate data reliability
+    """
     _attr_native_unit_of_measurement = "min"
     _attr_should_poll = True
 
@@ -264,7 +348,30 @@ class DataFreshnessSensor(HangarSensorBase):
         return int(diff.total_seconds() / 60)
 
 class CarbRiskSensor(HangarSensorBase):
-    """Assesses Carb Icing Risk level."""
+    """Assesses carburetor icing risk based on temperature and humidity.
+    
+    Carburetor icing occurs when moisture in air freezes in the carburetor, potentially
+    blocking fuel flow and causing engine failure. This is a serious hazard for piston aircraft.
+    
+    Risk Assessment Rules:
+        - Serious Risk: T < 25°C AND Spread < 5°C (highly saturated air)
+        - Moderate Risk: T < 30°C AND Spread < 10°C
+        - Low Risk: All other conditions
+    
+    Where: Spread = Temperature - Dew Point (measure of humidity)
+    
+    Inputs (from config):
+        - temp_sensor: Entity ID of temperature sensor (°C)
+        - dp_sensor: Entity ID of dew point sensor (°C)
+    
+    Outputs:
+        - native_value: Risk level string (\"Low Risk\", \"Moderate Risk\", \"Serious Risk\", \"Unknown\")
+        - color: Attribute with risk color (green/amber/red/gray)
+    
+    Used by:
+        - HangarMasterSafetyAlert to trigger when risk is \"Serious\"
+        - Dashboard to highlight icing conditions
+    """
     
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
@@ -313,7 +420,27 @@ class CarbRiskSensor(HangarSensorBase):
         return attrs
 
 class CarbRiskTransitionSensor(HangarSensorBase):
-    """Calculates the altitude (AGL) where Carb Risk increases from Low."""
+    """Calculates the altitude where carburetor icing risk transitions from \"Low\" to \"Moderate\".
+    
+    Uses atmospheric lapse rates to predict when climbing will create carb icing conditions.
+    This helps pilots avoid icing altitudes or prepare anti-ice systems.
+    
+    Assumptions:
+        - Temperature decreases ~2°C per 1000 ft climb
+        - Dew point spread closes ~1.5°C per 1000 ft climb
+    
+    Inputs (from config):
+        - temp_sensor: Current temperature (°C)
+        - dp_sensor: Current dew point (°C)
+    
+    Outputs:
+        - native_value: Transition altitude in feet AGL
+        - 0 = Already in risk or no transition expected
+    
+    Used by:
+        - Pilot briefing to indicate altitude restrictions
+        - Flight planning to recommend flight levels
+    """
     _attr_native_unit_of_measurement = UnitOfLength.FEET
 
     def __init__(self, hass: HomeAssistant, config: dict):
@@ -362,7 +489,26 @@ class CarbRiskTransitionSensor(HangarSensorBase):
         return round(res) if res < 20000 else 0
 
 class PrimaryRunwayCrosswindSensor(HangarSensorBase):
-    """Reports crosswind component for the Primary Runway."""
+    """Calculates the crosswind component for the primary runway.
+    
+    Crosswind is the component of wind perpendicular to the runway direction.
+    Exceeding aircraft limitations can lead to loss of directional control.
+    
+    Formula: Crosswind = Wind Speed * sin(angle between wind and runway)
+    
+    Inputs (from config):
+        - wind_sensor: Entity ID of wind speed sensor (knots)
+        - wind_dir_sensor: Entity ID of wind direction sensor (degrees)
+        - primary_runway: Runway identifier (e.g., \"21\" for 210 degree heading)
+    
+    Outputs:
+        - native_value: Calculated crosswind component in knots
+        - Positive value always (absolute value)
+    
+    Used by:
+        - Pilot briefing to assess runway suitability
+        - Dashboard to display wind compatibility
+    """
     _attr_native_unit_of_measurement = "kt"
 
     def __init__(self, hass: HomeAssistant, config: dict):
@@ -399,7 +545,24 @@ class PrimaryRunwayCrosswindSensor(HangarSensorBase):
             return None
 
 class IdealRunwayCrosswindSensor(HangarSensorBase):
-    """Reports crosswind component for the Ideal (Least Crosswind) Runway."""
+    """Calculates the minimum crosswind by finding the best runway option.
+    
+    Evaluates all available runways and determines which has the least crosswind,
+    helping pilots select the most favorable runway for current wind conditions.
+    
+    Inputs (from config):
+        - wind_sensor: Entity ID of wind speed sensor (knots)
+        - wind_dir_sensor: Entity ID of wind direction sensor (degrees)
+        - runways: Comma-separated list of runway identifiers (e.g., \"03, 21\")
+    
+    Outputs:
+        - native_value: Minimum crosswind component in knots
+        - Calculated from best runway option
+    
+    Used by:
+        - BestRunwaySensor as supporting calculation
+        - Dashboard to show most favorable landing option
+    """
     _attr_native_unit_of_measurement = "kt"
 
     def __init__(self, hass: HomeAssistant, config: dict):
@@ -445,7 +608,28 @@ class IdealRunwayCrosswindSensor(HangarSensorBase):
         return round(min_xwind, 1) if min_xwind != 999 else None
 
 class AIBriefingSensor(HangarSensorBase):
-    """Stores the latest AI-generated pre-flight briefing for the airfield."""
+    """Stores and displays the latest AI-generated pre-flight briefing.
+    
+    Receives briefing text from the AI briefing generation service and makes it available
+    in Home Assistant. The briefing includes weather interpretation, runway recommendations,
+    and safety considerations.
+    
+    Inputs:
+        - Listens for 'hangar_assistant_ai_briefing' bus events
+        - Event data includes: airfield_name, text (briefing content)
+    
+    Outputs:
+        - native_value: \"Ready\" or \"Waiting\" status
+        - extra_state_attributes[\"briefing\"]: Full briefing text
+        - extra_state_attributes[\"last_updated\"]: Timestamp of last update
+    
+    Event Trigger:
+        - Activated by: refresh_ai_briefings service or scheduled briefing time
+    
+    Used by:
+        - Dashboard to display formatted briefing
+        - Mobile app to push notifications
+    """
     
     _attr_icon = "mdi:robot"
 
@@ -493,7 +677,26 @@ class AIBriefingSensor(HangarSensorBase):
         self.async_write_ha_state()
 
 class AirfieldWeatherPassThrough(HangarSensorBase):
-    """Passes through a weather sensor value for dashboard consistency."""
+    """Passes through individual weather sensor values for consistent dashboard display.
+    
+    Creates individual sensors for temperature, dew point, pressure, and wind data
+    so they appear grouped under the airfield device with consistent naming.
+    This improves dashboard organization and reduces clutter.
+    
+    Inputs (from config, via sensor_key):
+        - temp_sensor: Temperature sensor entity ID
+        - dp_sensor: Dew point sensor entity ID
+        - pressure_sensor: Pressure sensor entity ID
+        - wind_sensor: Wind speed sensor entity ID
+        - wind_dir_sensor: Wind direction sensor entity ID
+    
+    Outputs:
+        - native_value: Raw value from source sensor
+        - Unit: Converted to standard unit (°C, hPa, knots, degrees)
+        - Device class: Set for proper icon display
+    
+    Created instances: 5 per airfield (one for each weather parameter)
+    """
     
     def __init__(self, hass: HomeAssistant, config: dict, sensor_key: str, label: str, device_class=None, unit=None):
         super().__init__(hass, config)
@@ -516,7 +719,30 @@ class AirfieldWeatherPassThrough(HangarSensorBase):
         return self._get_sensor_value(sensor_id)
 
 class BestRunwaySensor(HangarSensorBase):
-    """Determines the best runway based on current wind."""
+    """Determines the best runway to use based on current wind conditions.
+    
+    Evaluates all available runways and selects the one with minimum crosswind component.
+    This helps pilots quickly identify the most favorable runway for takeoff or landing.
+    
+    Algorithm:
+        1. Calculate crosswind for each runway using wind speed and direction
+        2. Select runway with minimum crosswind
+        3. Return runway identifier (e.g., \"21\")
+    
+    Inputs (from config):
+        - runways: Comma-separated list of runway identifiers (e.g., \"03, 21\")
+        - wind_sensor: Entity ID of wind speed sensor (knots)
+        - wind_dir_sensor: Entity ID of wind direction sensor (degrees)
+    
+    Outputs:
+        - native_value: Best runway identifier (e.g., \"21\")
+        - extra_state_attributes[\"crosswind_component\"]: Crosswind for selected runway (kt)
+        - extra_state_attributes[\"headwind_component\"]: Headwind for selected runway (kt)
+    
+    Used by:
+        - Dashboard to display recommended runway
+        - Pilot briefing for runway selection
+    """
 
     def __init__(self, hass: HomeAssistant, config: dict):
         super().__init__(hass, config)
@@ -594,7 +820,28 @@ class BestRunwaySensor(HangarSensorBase):
 # --- AIRCRAFT ENTITIES ---
 
 class GroundRollSensor(HangarSensorBase):
-    """Calculates adjusted Takeoff Ground Roll for a specific aircraft."""
+    """Calculates adjusted takeoff distance based on density altitude conditions.
+    
+    Takes the published POH (Pilot's Operating Handbook) ground roll distance and adjusts
+    it for current weather conditions. Higher density altitude increases required distance.
+    
+    Formula: Adjusted GR = POH GR * (1 + (DA / 1000) * 0.10)
+    Where: 10% performance loss per 1000 ft of density altitude above sea level
+    
+    Inputs (from config):
+        - baseline_roll: POH ground roll at sea level in meters
+        - linked_airfield: Name of airfield to get density altitude
+    
+    Outputs:
+        - native_value: Adjusted ground roll distance in meters
+        - Falls back to 1.15x baseline if DA not available
+    
+    Used by:
+        - Pilot to assess runway suitability (compare to available distance)
+        - Dashboard to display go/no-go decision support
+    
+    Example: Baseline 500m, DA 5000ft => Adjusted = 500 * 1.50 = 750m
+    """
     _attr_native_unit_of_measurement = UnitOfLength.METERS
 
     def __init__(self, hass: HomeAssistant, config: dict):
@@ -628,7 +875,31 @@ class GroundRollSensor(HangarSensorBase):
         return round(base * 1.15)
 
 class PilotInfoSensor(HangarSensorBase):
-    """Sensor for pilot licence and qualification information."""
+    """Displays pilot qualification and license information.
+    
+    Stores and displays pilot credentials for compliance and safety tracking.
+    Integrates with medical alert system to flag expired medical certificates.
+    
+    Inputs (from config):
+        - name: Pilot name
+        - licence_type: License category (e.g., \"Commercial\", \"Private\")
+        - licence_number: License certificate number
+        - email: Pilot contact email
+        - medical_expiry: Medical certificate expiration date
+    
+    Outputs:
+        - native_value: License type (e.g., \"Commercial\")
+        - extra_state_attributes: Full pilot record including:
+            - pilot_name
+            - email
+            - licence_number
+            - medical_expiry (used by PilotMedicalAlert)
+    
+    Used by:
+        - Compliance logging
+        - Medical alert system for expiry notifications
+        - Dashboard crew display
+    """
 
     @property
     def name(self) -> str:

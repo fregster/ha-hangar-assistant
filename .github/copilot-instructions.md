@@ -1,5 +1,21 @@
 # AI Coding Agent Instructions: Hangar Assistant
 
+## Table of Contents
+- [Project Overview](#project-overview)
+- [Architecture & Data Model](#architecture--data-model)
+- [Backward Compatibility & Defaults](#backward-compatibility--defaults)
+- [External Integrations Architecture](#external-integrations-architecture)
+- [OpenWeatherMap Integration (Optional Feature)](#openweathermap-integration-optional-feature)
+- [Key Patterns](#key-patterns)
+- [Code Documentation Standards](#code-documentation-standards)
+- [Entity Implementation Patterns](#entity-implementation-patterns)
+- [Services Development](#services-development)
+- [Utility Modules](#utility-modules)
+- [Developer Workflow & Testing](#developer-workflow--testing)
+- [Error Detection & Prevention](#error-detection--prevention)
+
+---
+
 ## Project Overview
 Hangar Assistant is a Home Assistant integration for aviation safety and compliance.
 - **Domain**: `hangar_assistant`

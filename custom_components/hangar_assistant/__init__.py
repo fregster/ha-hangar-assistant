@@ -297,8 +297,54 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     
     return True
 
+
+async def _migrate_to_integrations(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Migrate OWM settings to integrations namespace with backward compatibility.
+    
+    This migration ensures existing installations continue working while moving
+    configuration to the new centralized integrations structure. Settings are
+    preserved in both locations during transition period.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry to migrate
+    """
+    if "integrations" not in entry.data:
+        settings = entry.data.get("settings", {})
+        
+        integrations = {
+            "openweathermap": {
+                "enabled": settings.get("openweathermap_enabled", False),
+                "api_key": settings.get("openweathermap_api_key", ""),
+                "cache_enabled": settings.get("openweathermap_cache_enabled", True),
+                "update_interval": settings.get("openweathermap_update_interval", 10),
+                "cache_ttl": settings.get("openweathermap_cache_ttl", 10),
+                "consecutive_failures": 0,
+                "last_error": None,
+                "last_success": None
+            },
+            "notams": {
+                "enabled": False,  # Existing installs: off by default
+                "update_time": "02:00",
+                "cache_days": 7,
+                "last_update": None,
+                "consecutive_failures": 0,
+                "last_error": None,
+                "stale_cache_allowed": True
+            }
+        }
+        
+        new_data = {**entry.data, "integrations": integrations}
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        
+        _LOGGER.info("Migrated OWM settings to integrations namespace")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""
+    # Migrate OWM settings to integrations namespace if needed
+    await _migrate_to_integrations(hass, entry)
+    
     dashboard_info = entry.data.get("dashboard_info", {}) if isinstance(entry.data, dict) else {}
     force_dashboard_rebuild = should_force_dashboard_rebuild(dashboard_info)
 
@@ -383,6 +429,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         
         hass.async_create_task(wait_for_sensors_and_brief())
 
+    # Set up scheduled NOTAM updates if enabled
+    integrations = entry.data.get("integrations", {})
+    notam_config = integrations.get("notams", {})
+    
+    if notam_config.get("enabled"):
+        from .utils.notam import NOTAMClient
+        
+        update_time = notam_config.get("update_time", "02:00")
+        hour, minute = map(int, update_time.split(":"))
+        
+        async def update_notams(now):
+            """Scheduled NOTAM update."""
+            notam_client = NOTAMClient(hass, notam_config.get("cache_days", 7), entry)
+            try:
+                notams, is_stale = await notam_client.fetch_notams()
+                _LOGGER.info("Updated %d NOTAMs at scheduled time (stale: %s)", len(notams), is_stale)
+                
+            except Exception as e:
+                _LOGGER.error("NOTAM scheduled update failed: %s", e)
+        
+        # Schedule daily update
+        entry.async_on_unload(
+            async_track_time_change(hass, update_notams, hour=hour, minute=minute, second=0)
+        )
+        
+        # Also run once on startup (after a brief delay for network)
+        async def initial_notam_update():
+            import asyncio
+            await asyncio.sleep(10)  # Wait 10 seconds for network to be ready
+            notam_client = NOTAMClient(hass, notam_config.get("cache_days", 7), entry)
+            try:
+                notams, is_stale = await notam_client.fetch_notams()
+                _LOGGER.info("Initial NOTAM fetch: %d NOTAMs (stale: %s)", len(notams), is_stale)
+            except Exception as e:
+                _LOGGER.debug("Initial NOTAM fetch failed (will retry at scheduled time): %s", e)
+        
+        hass.async_create_task(initial_notam_update())
+    
     return True
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -36,6 +36,7 @@ from .const import (
     DEFAULT_SENSOR_CACHE_TTL_SECONDS,
 )
 from .utils.units import convert_altitude, convert_speed, get_altitude_unit, get_speed_unit
+from .utils.notam import NOTAMClient
 
 try:
     from timezonefinder import TimezoneFinder
@@ -75,6 +76,11 @@ async def async_setup_entry(
         (a.get("name") or "").lower(): a for a in airfields if a.get("name")
     }
 
+    # Check if NOTAM integration is enabled
+    integrations = entry.data.get("integrations", {})
+    notam_config = integrations.get("notams", {})
+    notam_enabled = notam_config.get("enabled", False)
+
     for airfield in airfields:
         entities.extend([
             DensityAltSensor(hass, airfield, global_settings),
@@ -96,6 +102,10 @@ async def async_setup_entry(
             AirfieldWeatherPassThrough(hass, airfield, "wind_sensor", "Wind Speed", SensorDeviceClass.WIND_SPEED, "kn", global_settings),
             AirfieldWeatherPassThrough(hass, airfield, "wind_dir_sensor", "Wind Direction", None, "°", global_settings)
         ])
+        
+        # Add NOTAM sensor if integration is enabled
+        if notam_enabled:
+            entities.append(AirfieldNOTAMSensor(hass, airfield, global_settings, entry))
 
     # 2. Process Aircraft from the list
     for aircraft in entry.data.get("aircraft", []):
@@ -1722,3 +1732,126 @@ class PilotInfoSensor(HangarSensorBase):
             "medical_expiry": self._config.get("medical_expiry"),
             "ratings": ratings,
         }
+class AirfieldNOTAMSensor(HangarSensorBase):
+    """Displays active NOTAMs (Notices to Airmen) for an airfield.
+    
+    Fetches and filters NOTAMs relevant to the airfield's location. Shows count of active
+    NOTAMs as the sensor state, with full NOTAM details in attributes for dashboard display
+    and AI briefing integration.
+    
+    Data is provided by the NOTAMClient, which fetches daily from UK NATS PIB XML feed.
+    Gracefully handles stale data by showing last known NOTAMs with staleness warning.
+    
+    Inputs (from config):
+        - icao_code: Airfield ICAO identifier (e.g., "EGKA")
+        - latitude: Airfield latitude for proximity filtering
+        - longitude: Airfield longitude for proximity filtering
+        - name: Airfield name for display
+    
+    Outputs:
+        - native_value: Count of active NOTAMs within 50nm radius
+        - extra_state_attributes:
+            - notams: Full list of NOTAM dicts (id, location, category, text, start, end, q_code)
+            - airfield_notams: NOTAMs specific to this airfield's ICAO code
+            - area_notams: NOTAMs within 50nm proximity
+            - last_update: Timestamp of last successful NOTAM fetch
+            - is_stale: Boolean indicating if cache is expired
+            - cache_age_hours: Hours since last fetch
+    
+    Used by:
+        - AI briefing system for NOTAM integration
+        - Dashboard NOTAM display cards
+        - Compliance logging for flight preparation
+    """
+    
+    _attr_should_poll = True  # Enable polling for async updates
+
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict, entry: ConfigEntry):
+        """Initialize the NOTAM sensor.
+        
+        Args:
+            hass: Home Assistant instance
+            config: Airfield configuration dict
+            global_settings: Global settings
+            entry: ConfigEntry for accessing NOTAM client
+        """
+        super().__init__(hass, config, global_settings)
+        self._entry = entry
+        self._attr_icon = "mdi:alert-circle-outline"
+        
+        # Extract airfield coordinates for proximity filtering
+        self._icao = config.get("icao_code")
+        self._latitude = config.get("latitude")
+        self._longitude = config.get("longitude")
+        
+        # Store last fetched NOTAMs
+        self._notams: list[dict] = []
+        self._is_stale = True
+        self._last_update_time: datetime | None = None
+        self._cache_stats: dict = {}
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "NOTAMs"
+
+    @property
+    def native_value(self) -> int:
+        """Return the count of active NOTAMs."""
+        return len(self._notams)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes including full NOTAM details."""
+        attrs = super().extra_state_attributes
+        
+        # Separate NOTAMs by relevance
+        airfield_notams = [n for n in self._notams if n.get("location") == self._icao] if self._icao else []
+        area_notams = [n for n in self._notams if n not in airfield_notams]
+        
+        # Get last update from config
+        integrations = self._entry.data.get("integrations", {})
+        notam_config = integrations.get("notams", {})
+        
+        attrs.update({
+            "notams": self._notams,
+            "airfield_notams": airfield_notams,
+            "area_notams": area_notams,
+            "last_update": notam_config.get("last_update"),
+            "is_stale": self._is_stale,
+            "cache_age_hours": self._cache_stats.get("age_hours", 0) if self._cache_stats.get("exists") else None,
+            "consecutive_failures": notam_config.get("consecutive_failures", 0),
+        })
+        
+        return attrs
+
+    async def async_update(self) -> None:
+        """Fetch NOTAMs for this airfield."""
+        integrations = self._entry.data.get("integrations", {})
+        notam_config = integrations.get("notams", {})
+        cache_days = notam_config.get("cache_days", 7)
+        
+        notam_client = NOTAMClient(self.hass, cache_days, self._entry)
+        
+        try:
+            # Fetch all NOTAMs (client handles its own caching)
+            all_notams, is_stale = await notam_client.fetch_notams()
+            
+            # Filter for this airfield's location
+            filtered_notams = notam_client.filter_by_location(
+                all_notams, 
+                self._icao, 
+                self._latitude, 
+                self._longitude, 
+                radius_nm=50
+            )
+            
+            # Update state
+            self._notams = filtered_notams
+            self._is_stale = is_stale
+            self._last_update_time = dt_util.utcnow()
+            self._cache_stats = notam_client.get_cache_stats()
+            
+        except Exception as e:
+            _LOGGER.error("Failed to fetch NOTAMs for %s: %s", self._config.get("name"), e)
+            # Keep existing cached data

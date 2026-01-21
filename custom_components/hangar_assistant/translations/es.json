@@ -34,7 +34,8 @@
           "settings": "Ajustes generales",
           "ai": "Configurar asistente IA",
           "retention": "Configurar retención de datos",
-          "dashboard": "Gestión de panel"
+          "dashboard": "Gestión de panel",
+          "integrations": "Integraciones externas"
         }
       },
       "settings": {
@@ -355,6 +356,34 @@
           "recreate_dashboard": "Reconstruir panel ahora",
           "send_setup_help": "Enviar guía como mensaje lateral",
           "fire_setup_event": "Disparar evento 'hangar_assistant_dashboard_setup'"
+        }
+      },
+      "integrations": {
+        "title": "Integraciones externas",
+        "description": "Configura fuentes de datos y APIs externas para datos meteorológicos y NOTAM mejorados.",
+        "menu_options": {
+          "integrations_openweathermap": "API de OpenWeatherMap",
+          "integrations_notams": "Servicio NOTAM"
+        }
+      },
+      "integrations_openweathermap": {
+        "title": "Configuración de OpenWeatherMap",
+        "description": "Configura OpenWeatherMap One Call API 3.0 para datos meteorológicos profesionales. Requiere clave API de pago. Los datos en caché protegen contra límites de velocidad.",
+        "data": {
+          "enabled": "Activar OpenWeatherMap",
+          "api_key": "Clave API",
+          "cache_enabled": "Activar caché",
+          "update_interval": "Intervalo de actualización (minutos)",
+          "cache_ttl": "Vida útil de caché (minutos)"
+        }
+      },
+      "integrations_notams": {
+        "title": "Configuración del servicio NOTAM",
+        "description": "Configura actualizaciones automáticas de NOTAM desde UK NATS. Servicio gratuito con actualizaciones programadas diarias. Datos en caché para resistencia fuera de línea.",
+        "data": {
+          "enabled": "Activar integración NOTAM",
+          "update_time": "Hora de actualización diaria",
+          "cache_days": "Período de retención de caché (días)"
         }
       }
     }

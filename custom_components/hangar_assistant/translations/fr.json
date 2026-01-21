@@ -34,7 +34,8 @@
           "settings": "Paramètres généraux",
           "ai": "Configurer l'assistant IA",
           "retention": "Configurer la rétention des données",
-          "dashboard": "Gestion du tableau de bord"
+          "dashboard": "Gestion du tableau de bord",
+          "integrations": "Intégrations externes"
         }
       },
       "settings": {
@@ -353,6 +354,34 @@
           "recreate_dashboard": "Reconstruire maintenant",
           "send_setup_help": "Envoyer les instructions de configuration dans la barre latérale",
           "fire_setup_event": "Déclencher l'événement 'hangar_assistant_dashboard_setup'"
+        }
+      },
+      "integrations": {
+        "title": "Intégrations externes",
+        "description": "Configurez les sources de données externes et les API pour des données météo et NOTAM améliorées.",
+        "menu_options": {
+          "integrations_openweathermap": "API OpenWeatherMap",
+          "integrations_notams": "Service NOTAM"
+        }
+      },
+      "integrations_openweathermap": {
+        "title": "Configuration OpenWeatherMap",
+        "description": "Configurez l'API OpenWeatherMap One Call 3.0 pour des données météo professionnelles. Nécessite une clé API payante. Les données en cache protègent contre les limitations de débit.",
+        "data": {
+          "enabled": "Activer OpenWeatherMap",
+          "api_key": "Clé API",
+          "cache_enabled": "Activer la mise en cache",
+          "update_interval": "Intervalle de mise à jour (minutes)",
+          "cache_ttl": "Durée de vie du cache (minutes)"
+        }
+      },
+      "integrations_notams": {
+        "title": "Configuration du service NOTAM",
+        "description": "Configurez les mises à jour automatiques NOTAM depuis UK NATS. Service gratuit avec mises à jour quotidiennes planifiées. Données en cache pour résilience hors ligne.",
+        "data": {
+          "enabled": "Activer l'intégration NOTAM",
+          "update_time": "Heure de mise à jour quotidienne",
+          "cache_days": "Période de rétention du cache (jours)"
         }
       }
     }

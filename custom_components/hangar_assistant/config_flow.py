@@ -127,7 +127,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Main configuration menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["airfield", "hangar", "aircraft", "pilot", "briefing", "global_config"]
+            menu_options=["airfield", "hangar", "aircraft", "pilot", "briefing", "integrations", "global_config"]
         )
 
     async def async_step_global_config(self, _user_input=None):
@@ -1359,6 +1359,137 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional("auto_delete_enabled", default=retention_config.get("auto_delete_enabled", True)): selector.BooleanSelector(),
                 vol.Optional("retention_months", default=retention_config.get("retention_months", 7)): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=1, max=120, step=1, unit_of_measurement="months")
+                ),
+            })
+        )
+
+    # ========== Integrations Menu ==========
+
+    async def async_step_integrations(self, _user_input=None):
+        """Sub-menu for external integrations."""
+        return self.async_show_menu(
+            step_id="integrations",
+            menu_options=["integrations_openweathermap", "integrations_notams"]
+        )
+
+    async def async_step_integrations_openweathermap(self, user_input=None):
+        """Configure OpenWeatherMap integration."""
+        if user_input is not None:
+            new_data = self._entry_data()
+            if "integrations" not in new_data:
+                new_data["integrations"] = {}
+            
+            new_data["integrations"]["openweathermap"] = {
+                "enabled": user_input.get("enabled", False),
+                "api_key": user_input.get("api_key", ""),
+                "cache_enabled": user_input.get("cache_enabled", True),
+                "update_interval": user_input.get("update_interval", 10),
+                "cache_ttl": user_input.get("cache_ttl", 10),
+                "consecutive_failures": new_data.get("integrations", {}).get("openweathermap", {}).get("consecutive_failures", 0),
+                "last_error": new_data.get("integrations", {}).get("openweathermap", {}).get("last_error"),
+                "last_success": new_data.get("integrations", {}).get("openweathermap", {}).get("last_success")
+            }
+            
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
+
+        # Get current OWM config (check both locations for backward compat)
+        integrations = self._entry_data().get("integrations", {})
+        owm_config = integrations.get("openweathermap", {})
+        
+        # If not in integrations, check old settings location
+        if not owm_config:
+            settings = self._entry_data().get("settings", {})
+            owm_config = {
+                "enabled": settings.get("openweathermap_enabled", False),
+                "api_key": settings.get("openweathermap_api_key", ""),
+                "cache_enabled": settings.get("openweathermap_cache_enabled", True),
+                "update_interval": settings.get("openweathermap_update_interval", 10),
+                "cache_ttl": settings.get("openweathermap_cache_ttl", 10)
+            }
+        
+        # Build interval options
+        interval_options = [
+            selector.SelectOptionDict(value=5, label="5 minutes"),
+            selector.SelectOptionDict(value=10, label="10 minutes"),
+            selector.SelectOptionDict(value=15, label="15 minutes"),
+            selector.SelectOptionDict(value=30, label="30 minutes"),
+            selector.SelectOptionDict(value=60, label="60 minutes")
+        ]
+        
+        ttl_options = [
+            selector.SelectOptionDict(value=5, label="5 minutes"),
+            selector.SelectOptionDict(value=10, label="10 minutes"),
+            selector.SelectOptionDict(value=15, label="15 minutes"),
+            selector.SelectOptionDict(value=30, label="30 minutes")
+        ]
+        
+        return self.async_show_form(
+            step_id="integrations_openweathermap",
+            data_schema=vol.Schema({
+                vol.Required("enabled", default=owm_config.get("enabled", False)): selector.BooleanSelector(),
+                vol.Optional("api_key", default=owm_config.get("api_key", "")): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional("cache_enabled", default=owm_config.get("cache_enabled", True)): selector.BooleanSelector(),
+                vol.Optional("update_interval", default=owm_config.get("update_interval", 10)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=interval_options, mode=selector.SelectSelectorMode.DROPDOWN)
+                ),
+                vol.Optional("cache_ttl", default=owm_config.get("cache_ttl", 10)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=ttl_options, mode=selector.SelectSelectorMode.DROPDOWN)
+                ),
+            })
+        )
+
+    async def async_step_integrations_notams(self, user_input=None):
+        """Configure NOTAM integration."""
+        if user_input is not None:
+            new_data = self._entry_data()
+            if "integrations" not in new_data:
+                new_data["integrations"] = {}
+            
+            new_data["integrations"]["notams"] = {
+                "enabled": user_input.get("enabled", True),
+                "update_time": user_input.get("update_time", "02:00"),
+                "cache_days": user_input.get("cache_days", 7),
+                "consecutive_failures": new_data.get("integrations", {}).get("notams", {}).get("consecutive_failures", 0),
+                "last_error": new_data.get("integrations", {}).get("notams", {}).get("last_error"),
+                "last_update": new_data.get("integrations", {}).get("notams", {}).get("last_update"),
+                "stale_cache_allowed": True
+            }
+            
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
+
+        # Get current NOTAM config
+        integrations = self._entry_data().get("integrations", {})
+        notam_config = integrations.get("notams", {
+            "enabled": False,  # Default off for existing installs
+            "update_time": "02:00",
+            "cache_days": 7
+        })
+        
+        # Check if this is a new install (no existing integrations)
+        is_new_install = not integrations
+        if is_new_install:
+            notam_config["enabled"] = True  # Enable by default for new installs
+        
+        # Build cache retention options
+        cache_options = [
+            selector.SelectOptionDict(value=1, label="1 day"),
+            selector.SelectOptionDict(value=3, label="3 days"),
+            selector.SelectOptionDict(value=7, label="7 days"),
+            selector.SelectOptionDict(value=14, label="14 days"),
+            selector.SelectOptionDict(value=30, label="30 days")
+        ]
+        
+        return self.async_show_form(
+            step_id="integrations_notams",
+            data_schema=vol.Schema({
+                vol.Required("enabled", default=notam_config.get("enabled", False)): selector.BooleanSelector(),
+                vol.Optional("update_time", default=notam_config.get("update_time", "02:00")): selector.TimeSelector(),
+                vol.Optional("cache_days", default=notam_config.get("cache_days", 7)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=cache_options, mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
             })
         )

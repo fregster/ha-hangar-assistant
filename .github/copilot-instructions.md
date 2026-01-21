@@ -99,6 +99,59 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 ✗ Creating sensors/entities that fail if new features not configured  
 ✗ Changing default behavior without version-specific handling
 
+## External Integrations Architecture
+
+**Centralized Management Pattern:**
+All external data sources (APIs, XML feeds, etc.) are managed through a unified "Integrations" configuration menu. This provides:
+- Consistent UI/UX for enabling/disabling integrations
+- Centralized credential management
+- Uniform caching and rate limit strategies
+- Clear migration path for new features
+
+**Configuration Structure:**
+```python
+entry.data["integrations"] = {
+    "openweathermap": {
+        "enabled": bool,
+        "api_key": str,  # password field
+        "cache_enabled": bool,
+        "update_interval": int,  # minutes
+        "cache_ttl": int  # minutes
+    },
+    "notams": {
+        "enabled": bool,  # free service, toggle only
+        "update_time": str,  # "02:00" (HH:MM format)
+        "cache_days": int  # days to retain
+    }
+}
+```
+
+**Default Behavior (Backward Compatibility):**
+- **New installs**: Free integrations (NOTAM) enabled by default
+- **Existing installs**: Integrations remain in current state (migration preserves settings)
+- **Migration strategy**: Settings automatically moved from global to integrations namespace
+
+**Rate Limiting & Caching:**
+- **Paid APIs (OWM)**: Multi-level cache (memory + persistent), configurable update intervals
+- **Free Services (NOTAM)**: Daily scheduled updates at configured time, persistent cache only
+- **Respectful scraping**: Always cache, never poll more than necessary
+- **Restart protection**: Persistent cache prevents API calls during HA restarts
+
+**Integration Client Pattern:**
+Each integration has a dedicated client class in `utils/` directory:
+- `utils/openweathermap.py` - OWM API client
+- `utils/notam.py` - NOTAM XML parser and cache manager
+- Common interface: `get_data()`, `clear_cache()`, `get_cache_stats()`
+
+**Graceful Degradation (CRITICAL):**
+All integrations MUST implement graceful failure handling:
+- **Paid APIs (OWM)**: Auto-disable after 3 consecutive failures, preserve cache, notify user
+- **Free Services (NOTAM)**: Use stale cache indefinitely, create warning sensor, keep trying
+- **Failure tracking**: Store `consecutive_failures`, `last_error`, `last_success` in config
+- **User notification**: Persistent notifications for critical issues, warning sensors for non-critical
+- **Recovery**: Automatic for free services, manual re-enable for paid APIs after fixing issue
+- **Core sensors**: Must continue working even if all integrations fail
+
 ## OpenWeatherMap Integration (Optional Feature)
 
 The integration includes optional OpenWeatherMap (OWM) One Call API 3.0 support for professional weather data.
@@ -417,6 +470,40 @@ Provides professional weather data with robust caching:
   current = client.extract_current_weather(data)
   ```
 
+### notam.py - NOTAM Data Integration
+Provides aviation NOTAM (Notice to Airmen) data with graceful degradation:
+- **NOTAMClient**: Client for UK NATS PIB XML feed (https://pibs.nats.co.uk/operational/pibs/PIB.xml)
+- **XML parsing**: ElementTree-based parsing of PIB format NOTAMs
+- **Persistent caching**: JSON file cache with configurable retention (1-30 days)
+- **Graceful degradation**: Uses stale cache indefinitely on network failures
+- **Failure tracking**: Tracks consecutive failures in config entry for monitoring
+- **Location filtering**: Filter by ICAO code or geographic proximity (Haversine distance)
+- **Cache directory**: `hass.config.path("hangar_assistant_cache/notams.json")`
+- **Scheduled updates**: Daily updates via `async_track_time_change` in `__init__.py`
+- **Key methods**:
+  - `fetch_notams()` → Returns `Tuple[List[Dict], bool]` (notams, is_stale)
+  - `filter_by_location()` → Filter by ICAO or lat/lon with radius
+  - `clear_cache()` → Manual cache removal
+  - `get_cache_stats()` → Returns cache age, size, count
+- **NOTAM structure**: Each NOTAM dict contains:
+  - `id`: NOTAM identifier (e.g., "A0001/25")
+  - `location`: ICAO code (e.g., "EGKA")
+  - `category`: Type (AERODROME, AIRSPACE, NAVIGATION, etc.)
+  - `start_time`: ISO datetime string
+  - `end_time`: ISO datetime string
+  - `text`: Human-readable NOTAM text
+  - `q_code`: Q-code classification (optional)
+  - `latitude`: Decimal degrees (optional)
+  - `longitude`: Decimal degrees (optional)
+- Used by: Airfield NOTAM sensors, AI briefing system
+- Pattern:
+  ```python
+  client = NOTAMClient(hass, cache_days=7, entry=config_entry)
+  notams, is_stale = await client.fetch_notams()
+  filtered = client.filter_by_location(notams, icao="EGKA", latitude=51.3, longitude=-0.7, radius_nm=50)
+  ```
+- **Backward compatibility**: Sensors only created if NOTAM integration enabled in config
+
 ### hangar_helpers.py - Hangar Management & Backward Compatibility
 Provides hangar-aware sensor fallback and aircraft-airfield resolution:
 - **get_aircraft_airfield()**: Resolves airfield for aircraft with hangar → direct airfield → None priority
@@ -496,6 +583,8 @@ Contains branding assets:
 | `test_performance_margin.py` | Aircraft performance calculations | Margin of safety, ground roll adjustments |
 | `test_runway_suitability.py` | Runway selection logic | Wind component calculations, suitability |
 | `test_code_quality_validation.py` | Code quality checks | Complexity, async usage, clean imports |
+| `test_notam_client.py` | NOTAM client functionality | XML parsing, caching, location filtering, graceful degradation |
+| `test_integration_config_flow.py` | Integrations config flow | OWM/NOTAM settings, migration, backward compatibility |
 
 ### GitHub & Continuous Integration
 - **Repository**: All code changes are pushed to GitHub repository.
@@ -563,8 +652,16 @@ Tests catch logical errors and integration issues:
 
 **Run locally:**
 ```bash
-.venv/bin/pytest tests/ -v
+.venv/bin/pytest tests/ -v --strict-warnings
 ```
+
+**CRITICAL: Test warnings are considered failures.** All tests must pass with zero warnings. Common warning sources:
+- Unawaited coroutines (fix async mocking properly)
+- ResourceWarnings (ensure proper cleanup in async tests)
+- DeprecationWarnings (update deprecated API usage immediately)
+- RuntimeWarnings (fix async context manager mocking)
+
+If tests show warnings, the test suite is considered failing even if all assertions pass.
 
 **Best practices for config flow testing:**
 - Mock the `ConfigEntry` and `HA` objects properly
@@ -595,8 +692,8 @@ Before pushing code, run this locally:
 # 2. Syntax & quality
 .venv/bin/flake8 custom_components/hangar_assistant --count --select=E9,F63,F7,F82 --show-source --statistics
 
-# 3. All tests
-.venv/bin/pytest tests/ -v
+# 3. All tests (warnings treated as failures)
+.venv/bin/pytest tests/ -v --strict-warnings
 
 # 4. Complex checks
 .venv/bin/flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127

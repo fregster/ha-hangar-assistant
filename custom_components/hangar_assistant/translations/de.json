@@ -34,7 +34,8 @@
           "settings": "Allgemeine Einstellungen",
           "ai": "KI-Assistent konfigurieren",
           "retention": "Datenaufbewahrung konfigurieren",
-          "dashboard": "Dashboard-Verwaltung"
+          "dashboard": "Dashboard-Verwaltung",
+          "integrations": "Externe Integrationen"
         }
       },
       "settings": {
@@ -353,6 +354,34 @@
           "recreate_dashboard": "Dashboard jetzt neu erstellen",
           "send_setup_help": "Anleitung als Seitenleisten-Nachricht senden",
           "fire_setup_event": "Event 'hangar_assistant_dashboard_setup' auslösen"
+        }
+      },
+      "integrations": {
+        "title": "Externe Integrationen",
+        "description": "Externe Datenquellen und APIs für erweiterte Wetter- und NOTAM-Daten konfigurieren.",
+        "menu_options": {
+          "integrations_openweathermap": "OpenWeatherMap API",
+          "integrations_notams": "NOTAM-Dienst"
+        }
+      },
+      "integrations_openweathermap": {
+        "title": "OpenWeatherMap-Konfiguration",
+        "description": "OpenWeatherMap One Call API 3.0 für professionelle Wetterdaten konfigurieren. Erfordert kostenpflichtigen API-Schlüssel. Zwischengespeicherte Daten schützen vor Ratenbegrenzungen.",
+        "data": {
+          "enabled": "OpenWeatherMap aktivieren",
+          "api_key": "API-Schlüssel",
+          "cache_enabled": "Zwischenspeicherung aktivieren",
+          "update_interval": "Aktualisierungsintervall (Minuten)",
+          "cache_ttl": "Cache-Lebensdauer (Minuten)"
+        }
+      },
+      "integrations_notams": {
+        "title": "NOTAM-Dienst-Konfiguration",
+        "description": "Automatische NOTAM-Aktualisierungen von UK NATS konfigurieren. Kostenloser Dienst mit täglichen geplanten Aktualisierungen. Daten für Offline-Widerstandsfähigkeit zwischengespeichert.",
+        "data": {
+          "enabled": "NOTAM-Integration aktivieren",
+          "update_time": "Tägliche Aktualisierungszeit",
+          "cache_days": "Cache-Aufbewahrungsdauer (Tage)"
         }
       }
     }

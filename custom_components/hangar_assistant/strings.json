@@ -35,7 +35,8 @@
           "settings": "General Settings",
           "ai": "AI Conversation Assistant",
           "retention": "Data Retention",
-          "dashboard": "Dashboard Management"
+          "dashboard": "Dashboard Management",
+          "integrations": "External Integrations"
         }
       },
       "settings": {
@@ -355,6 +356,34 @@
           "recreate_dashboard": "Recreate dashboard now",
           "send_setup_help": "Send sidebar setup instructions (persistent notification)",
           "fire_setup_event": "Fire 'hangar_assistant_dashboard_setup' event for automations"
+        }
+      },
+      "integrations": {
+        "title": "External Integrations",
+        "description": "Configure external data sources and APIs for enhanced weather and NOTAM data.",
+        "menu_options": {
+          "integrations_openweathermap": "OpenWeatherMap API",
+          "integrations_notams": "NOTAM Service"
+        }
+      },
+      "integrations_openweathermap": {
+        "title": "OpenWeatherMap Configuration",
+        "description": "Configure OpenWeatherMap One Call API 3.0 for professional weather data. Requires paid API key. Cached data protects against rate limits.",
+        "data": {
+          "enabled": "Enable OpenWeatherMap",
+          "api_key": "API Key",
+          "cache_enabled": "Enable Caching",
+          "update_interval": "Update Interval (minutes)",
+          "cache_ttl": "Cache Lifetime (minutes)"
+        }
+      },
+      "integrations_notams": {
+        "title": "NOTAM Service Configuration",
+        "description": "Configure automatic NOTAM (Notice to Airmen) updates from UK NATS. Free service with daily scheduled updates. Data cached for offline resilience.",
+        "data": {
+          "enabled": "Enable NOTAM Integration",
+          "update_time": "Daily Update Time",
+          "cache_days": "Cache Retention Period (days)"
         }
       }
     }

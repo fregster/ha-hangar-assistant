@@ -48,6 +48,7 @@
           "global_pressure_sensor": "Global Sea Level Pressure Sensor",
           "default_pressure": "Fallback Sea Level Pressure (hPa)",
           "cache_ttl_seconds": "Sensor Cache TTL (seconds)",
+          "notam_default_radius_nm": "Default NOTAM Radius (nm)",
           "default_dashboard_airfield": "Default Dashboard Airfield",
           "default_dashboard_aircraft": "Default Dashboard Aircraft",
           "openweathermap_api_key": "OpenWeatherMap API Key (optional)",
@@ -87,7 +88,8 @@
           "ppl_required": "Prior Permission Required",
           "weather_data_source": "Weather Data Source",
           "use_owm_forecast": "Include OWM Forecast Data",
-          "use_owm_alerts": "Include Government Weather Alerts"
+          "use_owm_alerts": "Include Government Weather Alerts",
+          "notam_radius_override": "NOTAM Radius Override (nm, blank=use global)"
         }
       },
       "airfield_manage": {

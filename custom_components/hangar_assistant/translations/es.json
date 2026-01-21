@@ -53,7 +53,8 @@
           "openweathermap_enabled": "Activar integración OpenWeatherMap",
           "openweathermap_cache_enabled": "Activar caché de datos OWM (Protección contra límites de velocidad)",
           "openweathermap_update_interval": "Intervalo de actualización OWM (minutos)",
-          "openweathermap_cache_ttl": "Vida útil de caché OWM (minutos)"
+          "openweathermap_cache_ttl": "Vida útil de caché OWM (minutos)",
+          "notam_default_radius_nm": "Radio NOTAM predeterminado (nm)"
         }
       },
       "airfield": {
@@ -86,7 +87,8 @@
           "ppl_required": "PPR requerido",
           "weather_data_source": "Fuente de datos meteorológicos",
           "use_owm_forecast": "Incluir datos de pronóstico OWM",
-          "use_owm_alerts": "Incluir alertas meteorológicas gubernamentales"
+          "use_owm_alerts": "Incluir alertas meteorológicas gubernamentales",
+          "notam_radius_override": "Anular radio NOTAM (nm, vacío=usar global)"
         }
       },
       "airfield_manage": {

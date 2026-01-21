@@ -14,7 +14,14 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS, DEFAULT_DASHBOARD_VERSION
+from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS, DEFAULT_DASHBOARD_VERSION, DEFAULT_NOTAM_RADIUS_NM
+from .utils.qcode_parser import parse_qcode, sort_notams_by_criticality, get_criticality_emoji, NOTAMCriticality
+from .utils.forecast_analysis import (
+    calculate_sunset_sunrise,
+    get_forecast_window,
+    analyze_forecast_trends,
+    check_overnight_conditions,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -765,11 +772,20 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
 
     system_instructions = await hass.async_add_executor_job(_read_prompt_file)
     
+    # Get global settings for NOTAM radius
+    settings = entry.data.get("settings", {})
+    default_notam_radius = settings.get("notam_default_radius_nm", DEFAULT_NOTAM_RADIUS_NM)
+    
     # Generate briefings for each airfield
     for airfield in entry.data.get("airfields", []):
         airfield_name = airfield["name"]
         slug = airfield_name.lower().replace(" ", "_")
         icao = airfield.get("icao_code", "unknown")
+        lat = airfield.get("latitude")
+        lon = airfield.get("longitude")
+        
+        # Get NOTAM radius (airfield override or global default)
+        notam_radius = airfield.get("notam_radius_override") or default_notam_radius
         
         # Get current data from our sensors
         da = hass.states.get(f"sensor.{slug}_density_altitude")
@@ -778,33 +794,199 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
         wind_dir = hass.states.get(f"sensor.{slug}_weather_wind_direction")
         cloud_base = hass.states.get(f"sensor.{slug}_est_cloud_base")
         best_rwy = hass.states.get(f"sensor.{slug}_best_runway")
+        temp = hass.states.get(f"sensor.{slug}_weather_temperature")
+        dp = hass.states.get(f"sensor.{slug}_weather_dew_point")
+        pressure = hass.states.get(f"sensor.{slug}_weather_pressure")
+        weather_age = hass.states.get(f"sensor.{slug}_weather_data_age")
+        safety_alert = hass.states.get(f"binary_sensor.{slug}_master_safety_alert")
         tz = hass.states.get(f"sensor.{slug}_airfield_timezone")
         
-        # Get sunset/sunrise
+        # Get crosswind from best runway sensor attributes
+        crosswind = None
+        headwind = None
+        if best_rwy and best_rwy.attributes:
+            crosswind = best_rwy.attributes.get("crosswind_component")
+            headwind = best_rwy.attributes.get("headwind_component")
+        
+        # Get runway info if available
+        runway_number = best_rwy.state if best_rwy else "unknown"
+        runway_length = airfield.get("runway_length", "unknown")
+        
+        # Get timezone
+        tz_value = None
+        if tz:
+            tz_value = tz.state
+        if not tz_value:
+            tz_value = getattr(hass.config, "time_zone", None) or "UTC"
+        
+        # Get current time and solar information
+        now = dt_util.now()
         sun = hass.states.get("sun.sun")
         next_event = "unknown"
         if sun:
             next_rising = sun.attributes.get("next_rising")
             next_setting = sun.attributes.get("next_setting")
             next_event = f"Next Sunrise: {next_rising}, Next Sunset: {next_setting}"
-
-        tz_value = None
-        if tz:
-            tz_value = tz.state
-        if not tz_value:
-            tz_value = getattr(hass.config, "time_zone", None) or "unknown"
+        
+        # Calculate sunset/sunrise if coordinates available
+        sunrise_time = "unknown"
+        sunset_time = "unknown"
+        if lat is not None and lon is not None:
+            try:
+                sunrise, sunset = calculate_sunset_sunrise(float(lat), float(lon), now)
+                sunrise_time = sunrise.strftime("%H:%M %Z")
+                sunset_time = sunset.strftime("%H:%M %Z")
+            except Exception as e:
+                _LOGGER.debug("Could not calculate sunrise/sunset for %s: %s", airfield_name, e)
+        
+        # Fetch NOTAMs from NOTAM sensor
+        notam_sensor = hass.states.get(f"sensor.{slug}_notams")
+        notams_data = []
+        if notam_sensor and notam_sensor.attributes:
+            raw_notams = notam_sensor.attributes.get("notams", [])
+            
+            # Parse Q-codes and add criticality to each NOTAM
+            for notam in raw_notams:
+                q_code = notam.get("q_code")
+                parsed = parse_qcode(q_code)
+                notam["parsed_qcode"] = parsed
+                notams_data.append(notam)
+            
+            # Sort by criticality (most critical first)
+            notams_data = sort_notams_by_criticality(notams_data)
+        
+        # Format NOTAMs for AI prompt
+        notam_text = ""
+        if notams_data:
+            notam_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+            
+            for notam in notams_data:
+                parsed = notam.get("parsed_qcode", {})
+                crit = parsed.get("criticality", NOTAMCriticality.LOW).name
+                notam_counts[crit] += 1
+                
+                emoji = get_criticality_emoji(parsed.get("criticality", NOTAMCriticality.LOW))
+                category = parsed.get("category", "UNKNOWN")
+                description = parsed.get("description", "")
+                
+                notam_id = notam.get("id", "Unknown")
+                location = notam.get("location", "Unknown")
+                text = notam.get("text", "No details")
+                start = notam.get("start_time", "Unknown")
+                end = notam.get("end_time", "Unknown")
+                
+                notam_text += (
+                    f"\n{emoji} {crit} - {notam_id} ({location}) - {category}"
+                    f"\n  Q-code: {notam.get('q_code', 'N/A')} - {description}"
+                    f"\n  Valid: {start} to {end}"
+                    f"\n  Details: {text[:200]}..."  # Truncate long text
+                    f"\n"
+                )
+            
+            notam_summary = f"{len(notams_data)} NOTAMs within {notam_radius}nm:"
+            notam_summary += f" {notam_counts['CRITICAL']}🔴 CRITICAL, {notam_counts['HIGH']}🟠 HIGH, {notam_counts['MEDIUM']}🟡 MEDIUM, {notam_counts['LOW']}⚪ LOW"
+            notam_text = notam_summary + notam_text
+        else:
+            notam_text = f"No NOTAMs available within {notam_radius}nm (or NOTAM data not configured)"
+        
+        # Fetch OWM forecast data if enabled
+        forecast_text = ""
+        if lat is not None and lon is not None:
+            owm_enabled = entry.data.get("integrations", {}).get("openweathermap", {}).get("enabled", False)
+            
+            if owm_enabled:
+                # Get forecast window (current to sunset, or sunrise to sunset tomorrow)
+                try:
+                    window_start, window_end, is_overnight = get_forecast_window(float(lat), float(lon), now)
+                    
+                    # Fetch forecast data from OWM forecast sensor
+                    forecast_hourly_sensor = hass.states.get(f"sensor.{slug}_weather_forecast_hourly")
+                    
+                    if forecast_hourly_sensor and forecast_hourly_sensor.attributes:
+                        forecast_raw = forecast_hourly_sensor.attributes.get("forecast", [])
+                        
+                        if forecast_raw:
+                            # Filter forecast to window
+                            forecast_data = []
+                            for item in forecast_raw:
+                                item_time = dt_util.parse_datetime(item.get("datetime"))
+                                if item_time and window_start <= item_time <= window_end:
+                                    forecast_data.append(item)
+                            
+                            if forecast_data:
+                                # Analyze forecast trends
+                                trends = analyze_forecast_trends(forecast_data)
+                                
+                                forecast_text = f"\n### FORECAST TO {window_end.strftime('%H:%M %Z')}:\n"
+                                forecast_text += f"Overall Trend: {trends['overall'].upper()}\n"
+                                forecast_text += f"Summary: {trends['summary']}\n\n"
+                                forecast_text += "Key Forecast Points:\n"
+                                
+                                # Show forecast every 2-3 hours
+                                step = max(1, len(forecast_data) // 4)
+                                for item in forecast_data[::step]:
+                                    time_str = dt_util.parse_datetime(item.get("datetime")).strftime("%H:%M")
+                                    temp_f = item.get("temperature", "?")
+                                    wind_speed_f = item.get("wind_speed", "?")
+                                    wind_dir_f = item.get("wind_bearing", "?")
+                                    clouds_f = item.get("cloud_coverage", "?")
+                                    precip_f = item.get("precipitation", 0)
+                                    
+                                    forecast_text += (
+                                        f"  {time_str}: {temp_f}°C, Wind {wind_speed_f}kt @ {wind_dir_f}°, "
+                                        f"Clouds {clouds_f}%, Precip {precip_f}mm\n"
+                                    )
+                                
+                                # Check overnight conditions if forecast extends overnight
+                                if is_overnight:
+                                    overnight_warnings = check_overnight_conditions(forecast_data, window_start, window_end)
+                                    
+                                    if overnight_warnings["has_warnings"]:
+                                        forecast_text += f"\n⚠️ OVERNIGHT WARNINGS:\n{overnight_warnings['summary']}\n"
+                                        for detail in overnight_warnings["details"]:
+                                            forecast_text += f"  - {detail}\n"
+                                else:
+                                    forecast_text += "\n(No overnight period in forecast window)\n"
+                        else:
+                            forecast_text = "\nForecast data empty\n"
+                    else:
+                        forecast_text = "\nOWM forecast sensor not available\n"
+                        
+                except Exception as e:
+                    _LOGGER.warning("Error processing forecast for %s: %s", airfield_name, e)
+                    forecast_text = f"\nError processing forecast: {e}\n"
+            else:
+                forecast_text = "\nOpenWeatherMap forecast not enabled\n"
+        else:
+            forecast_text = "\nCoordinates not available for forecast\n"
 
         user_prompt = (
             f"{system_instructions}\n\n"
             f"### LIVE DATA FOR {airfield_name} ({icao}):\n"
+            f"**Airfield Information:**\n"
+            f"- ICAO: {icao}\n"
+            f"- Coordinates: {lat}, {lon}\n"
+            f"- Elevation: {airfield.get('elevation', 'unknown')} m\n"
+            f"- Runway: {runway_number} - {runway_length}m\n"
+            f"- Timezone: {tz_value}\n"
+            f"- Current Time: {now.strftime('%H:%M %Z')}\n"
+            f"- Sunrise: {sunrise_time} | Sunset: {sunset_time}\n\n"
+            f"**Current Weather:**\n"
             f"- Wind: {wind_speed.state if wind_speed else 'unknown'}kt at {wind_dir.state if wind_dir else 'unknown'}°\n"
-            f"- Recommended Runway: {best_rwy.state if best_rwy else 'unknown'}\n"
+            f"- Crosswind: {crosswind if crosswind else 'unknown'}kt | Headwind: {headwind if headwind else 'unknown'}kt\n"
+            f"- Temperature: {temp.state if temp else 'unknown'}°C | Dew Point: {dp.state if dp else 'unknown'}°C\n"
+            f"- Pressure: {pressure.state if pressure else 'unknown'} hPa\n"
+            f"- Cloud Base (Est): {cloud_base.state if cloud_base else 'unknown'} ft AGL\n"
             f"- Density Altitude: {da.state if da else 'unknown'} ft\n"
-            f"- Est. Cloud Base: {cloud_base.state if cloud_base else 'unknown'} ft\n"
             f"- Carburettor Icing Risk: {carb.state if carb else 'unknown'}\n"
-            f"- Local Timezone: {tz_value}\n"
-            f"- Solar: {next_event}\n\n"
-            f"Please provide the briefing based on this data and your general aviation knowledge."
+            f"- Recommended Runway: {runway_number}\n"
+            f"- Weather Data Age: {weather_age.state if weather_age else 'unknown'} minutes\n"
+            f"- Master Safety Alert: {'ACTIVE ⚠️' if safety_alert and safety_alert.state == 'on' else 'OK ✓'}\n\n"
+            f"**NOTAMs ({notam_radius}nm radius):**\n"
+            f"{notam_text}\n\n"
+            f"**FORECAST:**\n"
+            f"{forecast_text}\n\n"
+            f"Please provide the briefing based on this data following the CFI morning brief format specified."
         )
 
         # Request AI briefing with automatic retry on failure

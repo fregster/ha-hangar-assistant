@@ -38,11 +38,19 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generic, Optional, Tuple, TypeVar
 
 from homeassistant.core import HomeAssistant
+
+# Try to import orjson for 2-5x faster JSON operations
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    HAS_ORJSON = False
 
 # Optional import for notifications (may not be available in test env)
 try:
@@ -190,7 +198,8 @@ class CacheManager:
         memory_enabled: bool = DEFAULT_MEMORY_ENABLED,
         persistent_enabled: bool = DEFAULT_PERSISTENT_ENABLED,
         ttl_minutes: Optional[int] = DEFAULT_TTL_MINUTES,
-        cache_dir: Optional[str] = None
+        cache_dir: Optional[str] = None,
+        max_memory_entries: int = 1000
     ):
         """Initialize cache manager.
 
@@ -201,20 +210,22 @@ class CacheManager:
             persistent_enabled: Enable persistent file-based caching
             ttl_minutes: Default TTL in minutes (None = never expires)
             cache_dir: Custom cache directory name (defaults to hangar_assistant_cache)
+            max_memory_entries: Maximum entries in memory cache (LRU eviction)
         """
         self.hass = hass
         self.namespace = namespace
         self.memory_enabled = memory_enabled
         self.persistent_enabled = persistent_enabled
         self.ttl = timedelta(minutes=ttl_minutes) if ttl_minutes else None
+        self.max_memory_entries = max_memory_entries
 
         # Cache directory setup
         cache_dir_name = cache_dir or DEFAULT_CACHE_DIR
         self.cache_dir = Path(hass.config.path(cache_dir_name)) / namespace
         self._cache_dir_initialized = False
 
-        # In-memory cache
-        self._memory_cache: Dict[str, CacheEntry] = {}
+        # In-memory cache with OrderedDict for LRU eviction
+        self._memory_cache: OrderedDict[str, CacheEntry] = OrderedDict()
 
         # Statistics
         self._stats = {
@@ -226,11 +237,14 @@ class CacheManager:
         }
 
         _LOGGER.info(
-            "Cache manager initialized: namespace=%s, memory=%s, persistent=%s, ttl=%s",
+            "Cache manager initialized: namespace=%s, memory=%s, persistent=%s, ttl=%s, max_entries=%d, orjson=%s",
             namespace,
             memory_enabled,
             persistent_enabled,
-            f"{ttl_minutes}min" if ttl_minutes else "never")
+            f"{ttl_minutes}min" if ttl_minutes else "never",
+            max_memory_entries,
+            "enabled" if HAS_ORJSON else "disabled"
+        )
 
     def _ensure_cache_dir(self) -> bool:
         """Ensure cache directory exists (lazy initialization).
@@ -268,6 +282,38 @@ class CacheManager:
                 return False
 
         return self._cache_dir_initialized
+
+    def _serialize_json(self, data: Any) -> bytes:
+        """Serialize data to JSON with orjson optimization.
+
+        Uses orjson if available for 2-5x performance improvement,
+        falls back to standard json module.
+
+        Args:
+            data: Data to serialize
+
+        Returns:
+            JSON bytes
+        """
+        if HAS_ORJSON:
+            return orjson.dumps(data)
+        return json.dumps(data).encode('utf-8')
+
+    def _deserialize_json(self, data: bytes) -> Any:
+        """Deserialize JSON data with orjson optimization.
+
+        Uses orjson if available for 2-5x performance improvement,
+        falls back to standard json module.
+
+        Args:
+            data: JSON bytes to deserialize
+
+        Returns:
+            Deserialized data
+        """
+        if HAS_ORJSON:
+            return orjson.loads(data)
+        return json.loads(data.decode('utf-8'))
 
     def _get_cache_file_path(self, key: str) -> Path:
         """Get cache file path for key.
@@ -316,6 +362,8 @@ class CacheManager:
 
             if not entry.is_expired(now):
                 self._stats["memory_hits"] += 1
+                # Move to end for LRU (mark as recently used)
+                self._memory_cache.move_to_end(key)
                 _LOGGER.debug(
                     "Memory cache HIT: %s/%s (age: %.1fs)",
                     self.namespace,
@@ -429,9 +477,23 @@ class CacheManager:
             metadata=metadata
         )
 
-        # Store in memory cache
+        # Store in memory cache with LRU eviction
         if self.memory_enabled:
+            # Implement LRU eviction if cache is full
+            if len(self._memory_cache) >= self.max_memory_entries:
+                # Remove oldest entry (FIFO in OrderedDict)
+                oldest_key, oldest_entry = self._memory_cache.popitem(last=False)
+                self._stats["evictions"] += 1
+                _LOGGER.debug(
+                    "LRU eviction: %s/%s (age: %.1fs)",
+                    self.namespace,
+                    oldest_key,
+                    oldest_entry.age_seconds(now)
+                )
+            
+            # Add to cache and move to end (most recently used)
             self._memory_cache[key] = entry
+            self._memory_cache.move_to_end(key)
 
         # Store in persistent cache
         if self.persistent_enabled:
@@ -492,10 +554,10 @@ class CacheManager:
             return None
 
         try:
-            content = await self.hass.async_add_executor_job(
-                cache_file.read_text
+            content_bytes = await self.hass.async_add_executor_job(
+                cache_file.read_bytes
             )
-            data = json.loads(content)
+            data = self._deserialize_json(content_bytes)
             return CacheEntry.from_dict(data)
 
         except (OSError, json.JSONDecodeError, KeyError) as e:
@@ -509,7 +571,7 @@ class CacheManager:
 
     async def _write_persistent_cache(
             self, key: str, entry: CacheEntry) -> None:
-        """Write cache entry to disk.
+        """Write cache entry to disk with optimized JSON.
 
         Args:
             key: Cache key
@@ -521,11 +583,14 @@ class CacheManager:
         cache_file = self._get_cache_file_path(key)
 
         try:
-            content = json.dumps(entry.to_dict(), indent=2)
-            await self.hass.async_add_executor_job(
-                cache_file.write_text,
-                content
-            )
+            # Serialize with optimized JSON (orjson if available)
+            data_dict = entry.to_dict()
+            json_bytes = self._serialize_json(data_dict)
+
+            def _write():
+                cache_file.write_bytes(json_bytes)
+
+            await self.hass.async_add_executor_job(_write)
 
         except (OSError, TypeError) as e:
             _LOGGER.warning(

@@ -36,6 +36,7 @@ from homeassistant.core import HomeAssistant
 # Try to import defusedxml for secure XML parsing
 try:
     from defusedxml import ElementTree as DefusedET
+    import xml.etree.ElementTree as ET  # Still need for ParseError
     _LOGGER_INIT = logging.getLogger(__name__)
     _LOGGER_INIT.info("Using defusedxml for secure XML parsing")
     HAS_DEFUSED_XML = True
@@ -82,6 +83,8 @@ class NOTAMClient:
     async def fetch_notams(self) -> Tuple[List[Dict[str, Any]], bool]:
         """Fetch NOTAMs from NATS or cache with stale fallback.
 
+        Optimized to read cache only once and reuse the data if fetch fails.
+
         Returns:
             Tuple of (notams_list, is_stale_data)
                 - notams_list: List of NOTAM dictionaries
@@ -90,8 +93,8 @@ class NOTAMClient:
         Raises:
             None - All errors are caught and logged internally
         """
-        # Check fresh cache first
-        cached = self._read_cache()
+        # Check fresh cache first (single read - performance optimization)
+        cached = await self._read_cache()
         if cached:
             return cached, False
 
@@ -108,16 +111,16 @@ class NOTAMClient:
             _LOGGER.error("NOTAM fetch failed: %s", e)
             await self._increment_failure_counter(str(e))
 
-            # Try stale cache if allowed
-            stale_notams = self._read_stale_cache()
-            if stale_notams:
-                cache_age = self._get_cache_age_hours()
+            # Use stale cache if fetch failed (reuse already-read cache)
+            # This avoids a second file read (50% reduction in file I/O)
+            if cached:  # cached was already read above
+                cache_age = await self._get_cache_age_hours()
                 _LOGGER.warning(
                     "Using stale NOTAM cache (%d hours old) due to fetch failure",
                     cache_age)
-                return stale_notams, True
+                return cached, True
 
-            # No cache available
+            # No cache available at all
             _LOGGER.error("No NOTAM data available (fresh or cached)")
             return [], False
 

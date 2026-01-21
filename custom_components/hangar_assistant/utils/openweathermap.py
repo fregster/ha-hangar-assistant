@@ -15,8 +15,16 @@ import asyncio
 import json
 import logging
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# Try to import orjson for 2-5x faster JSON operations
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    HAS_ORJSON = False
 
 # Optional import for notifications (may not be available in test env)
 try:
@@ -83,8 +91,9 @@ class OpenWeatherMapClient:
         self.cache_dir = Path(hass.config.path("hangar_assistant_cache"))
         self._cache_dir_initialized = False
 
-        # In-memory cache for current session
-        self._memory_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
+        # In-memory cache for current session (LRU eviction for memory safety)
+        self._memory_cache: OrderedDict[str, tuple[Dict[str, Any], datetime]] = OrderedDict()
+        self._max_memory_entries = 1000  # Prevent unbounded growth
 
         # API call tracking (resets daily)
         self._api_calls_today = 0
@@ -165,8 +174,13 @@ class OpenWeatherMapClient:
             return None
 
         try:
-            with open(cache_file, "r") as f:
-                cached = json.load(f)
+            # Use orjson if available (2-5x faster)
+            if HAS_ORJSON:
+                cache_bytes = cache_file.read_bytes()
+                cached = orjson.loads(cache_bytes)
+            else:
+                with open(cache_file, "r") as f:
+                    cached = json.load(f)
 
             # Check if cache is still valid
             cached_time = datetime.fromisoformat(cached["cached_at"])
@@ -213,8 +227,13 @@ class OpenWeatherMapClient:
                 "data": data,
             }
 
-            with open(cache_file, "w") as f:
-                json.dump(cached, f, indent=2)
+            # Use orjson if available (2-5x faster)
+            if HAS_ORJSON:
+                cache_bytes = orjson.dumps(cached, option=orjson.OPT_INDENT_2)
+                cache_file.write_bytes(cache_bytes)
+            else:
+                with open(cache_file, "w") as f:
+                    json.dump(cached, f, indent=2)
 
             _LOGGER.debug("Wrote persistent cache to %s", cache_file.name)
 
@@ -255,6 +274,8 @@ class OpenWeatherMapClient:
             cache_age = datetime.now() - cached_time
 
             if cache_age < self.cache_ttl:
+                # Move to end to mark as recently used (LRU)
+                self._memory_cache.move_to_end(cache_key)
                 _LOGGER.debug(
                     "Using memory cache for %s (age: %d seconds)",
                     cache_key,
@@ -321,9 +342,16 @@ class OpenWeatherMapClient:
                 if response.status == 200:
                     data = await response.json()
 
-                    # Update both caches
+                    # Update both caches (with LRU eviction)
                     cache_key = f"{latitude}_{longitude}"
                     self._memory_cache[cache_key] = (data, datetime.now())
+                    self._memory_cache.move_to_end(cache_key)  # Mark as most recently used
+                    
+                    # Evict oldest entries if cache exceeds limit
+                    while len(self._memory_cache) > self._max_memory_entries:
+                        evicted_key, _ = self._memory_cache.popitem(last=False)
+                        _LOGGER.debug("Evicted oldest cache entry: %s", evicted_key)
+                    
                     await self.hass.async_add_executor_job(
                         self._write_persistent_cache, latitude, longitude, data
                     )

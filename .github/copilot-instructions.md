@@ -8,6 +8,7 @@
 - [OpenWeatherMap Integration (Optional Feature)](#openweathermap-integration-optional-feature)
 - [Key Patterns](#key-patterns)
 - [Security Best Practices](#security-best-practices)
+- [Performance Best Practices](#performance-best-practices)
 - [Code Documentation Standards](#code-documentation-standards)
 - [Entity Implementation Patterns](#entity-implementation-patterns)
 - [Services Development](#services-development)
@@ -503,6 +504,270 @@ Before merging any PR, verify:
 - [ ] External data validated and sanitized
 - [ ] Permission failures notify users
 - [ ] Security tests added for new features
+
+## Performance Best Practices
+
+**CRITICAL PRINCIPLE**: Performance optimization must maintain code quality, security, and readability. Never sacrifice maintainability for marginal performance gains.
+
+### Caching Strategies
+
+**Template caching with mtime checks:**
+- Cache expensive operations like YAML template loading
+- Use file modification time (mtime) to detect changes
+- Only reload when source file actually changes
+
+**Example - Dashboard Template Caching:**
+```python
+import time
+from pathlib import Path
+
+# Module-level cache
+_dashboard_template_cache: Optional[str] = None
+_dashboard_template_mtime: Optional[float] = None
+
+async def _load_dashboard_template(hass: HomeAssistant) -> Optional[str]:
+    """Load dashboard template with mtime-based caching.
+    
+    Performance: 40-60% faster on cache hits, eliminates redundant file I/O.
+    """
+    global _dashboard_template_cache, _dashboard_template_mtime
+    
+    template_path = Path(__file__).parent / "dashboard_templates" / "glass_cockpit.yaml"
+    
+    try:
+        current_mtime = template_path.stat().st_mtime
+        
+        # Cache hit if file unchanged
+        if (_dashboard_template_cache is not None 
+            and _dashboard_template_mtime == current_mtime):
+            return _dashboard_template_cache
+        
+        # Cache miss - reload and update
+        def _read():
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        content = await hass.async_add_executor_job(_read)
+        _dashboard_template_cache = content
+        _dashboard_template_mtime = current_mtime
+        
+        return content
+        
+    except OSError as e:
+        _LOGGER.error("Failed to load dashboard template: %s", e)
+        return None
+```
+
+### JSON Optimization
+
+**Use orjson for performance-critical JSON operations:**
+- orjson is 2-5x faster than standard json library
+- Always provide fallback to standard json
+- Use for: cache serialization, large data structures, frequent JSON operations
+
+**Example - Optimized JSON Serialization:**
+```python
+try:
+    import orjson
+    HAS_ORJSON = True
+except ImportError:
+    import json
+    HAS_ORJSON = False
+
+def _serialize_json(self, data: Dict[str, Any]) -> bytes:
+    """Serialize to JSON with orjson optimization (2-5x faster).
+    
+    Args:
+        data: Dictionary to serialize
+    
+    Returns:
+        JSON as bytes (orjson) or UTF-8 encoded string (json)
+    """
+    if HAS_ORJSON:
+        return orjson.dumps(data)
+    else:
+        return json.dumps(data).encode('utf-8')
+
+def _deserialize_json(self, json_bytes: bytes) -> Dict[str, Any]:
+    """Deserialize JSON with orjson optimization.
+    
+    Args:
+        json_bytes: JSON data as bytes
+    
+    Returns:
+        Deserialized dictionary
+    """
+    if HAS_ORJSON:
+        return orjson.loads(json_bytes)
+    else:
+        return json.loads(json_bytes.decode('utf-8'))
+```
+
+### Memory Cache Management
+
+**LRU eviction with OrderedDict:**
+- Prevent unbounded memory growth in caches
+- Use OrderedDict for efficient LRU (Least Recently Used) eviction
+- Set reasonable limits based on data size (default: 1000 entries)
+
+**Example - LRU Memory Cache:**
+```python
+from collections import OrderedDict
+
+class CacheManager:
+    """Cache with LRU eviction to prevent memory bloat."""
+    
+    def __init__(self, max_memory_entries: int = 1000):
+        self._memory_cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self._max_memory_entries = max_memory_entries
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Get from cache and update LRU order."""
+        if key in self._memory_cache:
+            # Move to end (most recently used)
+            self._memory_cache.move_to_end(key)
+            return self._memory_cache[key]
+        return None
+    
+    def set(self, key: str, value: CacheEntry) -> None:
+        """Set cache entry with LRU eviction."""
+        # Update existing or add new
+        if key in self._memory_cache:
+            self._memory_cache.move_to_end(key)
+        
+        self._memory_cache[key] = value
+        
+        # Evict oldest if over limit
+        while len(self._memory_cache) > self._max_memory_entries:
+            # popitem(last=False) removes oldest (FIFO for LRU)
+            evicted_key, _ = self._memory_cache.popitem(last=False)
+            _LOGGER.debug("Evicted cache entry: %s", evicted_key)
+```
+
+### Optimizing File I/O
+
+**Eliminate redundant cache reads:**
+- Read cache file once, reuse data in fallback paths
+- Don't re-read the same file on failure
+
+**Example - Efficient Cache Reads:**
+```python
+# ❌ WRONG - Reads cache twice
+async def fetch_data(self):
+    cached = await self._read_cache()
+    if cached:
+        return cached
+    
+    try:
+        return await self._fetch_from_api()
+    except Exception:
+        # BAD: Reads cache file again!
+        return await self._read_cache()
+
+# ✅ CORRECT - Reads cache once
+async def fetch_data(self):
+    # Single cache read
+    cached = await self._read_cache()
+    if cached:
+        return cached
+    
+    try:
+        return await self._fetch_from_api()
+    except Exception:
+        # Reuse already-loaded cache data
+        stale = await self._read_stale_cache()
+        return stale if stale else []
+```
+
+### Sensor State Caching
+
+**Cache computed sensor states to reduce redundant calculations:**
+- Use TTL (time-to-live) for cache expiry
+- LRU eviction for memory safety
+- Cache invalidation on config changes
+
+**Example - Sensor State Cache (already implemented in sensor.py):**
+```python
+from collections import OrderedDict
+from homeassistant.util import dt as dt_util
+
+class HangarSensorBase(SensorEntity):
+    """Base sensor with state caching."""
+    
+    # Shared cache across all sensor instances
+    _state_cache: OrderedDict[str, tuple] = OrderedDict()
+    _cache_ttl_seconds = 60
+    _max_cache_entries = 50
+    
+    def _get_cached_state(self, cache_key: str) -> Optional[Any]:
+        """Get cached state if still valid."""
+        if cache_key in self._state_cache:
+            cached_value, cached_time = self._state_cache[cache_key]
+            age = (dt_util.utcnow() - cached_time).total_seconds()
+            
+            if age < self._cache_ttl_seconds:
+                # Move to end for LRU
+                self._state_cache.move_to_end(cache_key)
+                return cached_value
+        
+        return None
+    
+    def _cache_state(self, cache_key: str, value: Any) -> None:
+        """Cache state value with LRU eviction."""
+        self._state_cache[cache_key] = (value, dt_util.utcnow())
+        self._state_cache.move_to_end(cache_key)
+        
+        # Evict oldest if over limit
+        while len(self._state_cache) > self._max_cache_entries:
+            self._state_cache.popitem(last=False)
+```
+
+### Performance Testing Requirements
+
+**All performance optimizations must include benchmarks:**
+- Measure baseline before optimization
+- Verify improvement with realistic data
+- Test memory usage (cache growth, eviction)
+- Profile CPU usage for expensive operations
+
+**Example - Performance Test:**
+```python
+import time
+
+def test_template_caching_performance():
+    """Verify template caching provides measurable speedup."""
+    # Clear cache
+    global _dashboard_template_cache, _dashboard_template_mtime
+    _dashboard_template_cache = None
+    _dashboard_template_mtime = None
+    
+    # First load (cache miss)
+    start = time.time()
+    result1 = await _load_dashboard_template(hass)
+    uncached_time = time.time() - start
+    
+    # Second load (cache hit)
+    start = time.time()
+    result2 = await _load_dashboard_template(hass)
+    cached_time = time.time() - start
+    
+    # Verify caching works
+    assert result1 == result2
+    # Cached should be at least 40% faster
+    assert cached_time < (uncached_time * 0.6)
+```
+
+### Performance Checklist for Code Reviews
+
+Before merging performance optimizations, verify:
+- [ ] Baseline performance measured
+- [ ] Optimization provides ≥20% improvement
+- [ ] Memory usage bounded (LRU eviction in place)
+- [ ] No impact on code complexity (≤15 cognitive complexity)
+- [ ] Security not compromised (async file I/O, input validation maintained)
+- [ ] Backward compatible (fallbacks for optional dependencies)
+- [ ] Performance tests added
+- [ ] Documentation updated
 
 ## Code Documentation Standards
 

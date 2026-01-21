@@ -163,14 +163,16 @@ class TestExceptionHandlingQuality:
         mock_hass = MagicMock()
         mock_hass.services.async_call = AsyncMock(side_effect=Exception("Service error"))
 
-        result = await _request_ai_briefing_with_retry(
-            mock_hass,
-            "conversation.openai",
-            "test_airfield",
-            "test prompt"
-        )
+        # Patch asyncio.sleep to prevent actual delays during testing
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _request_ai_briefing_with_retry(
+                mock_hass,
+                "conversation.openai",
+                "test_airfield",
+                "test prompt"
+            )
 
-        assert result is False
+            assert result is False
 
     @pytest.mark.asyncio
     async def test_ai_briefing_retry_retries_on_no_response(self):
@@ -379,16 +381,18 @@ class TestAsyncAwaitHygiene:
         mock_hass = MagicMock()
         mock_hass.services.async_call = AsyncMock(return_value=None)
 
-        # Should complete without blocking
-        result = await _request_ai_briefing_with_retry(
-            mock_hass,
-            "test_agent",
-            "test_airfield",
-            "test"
-        )
+        # Patch asyncio.sleep to prevent actual delays during testing
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            # Should complete without blocking
+            result = await _request_ai_briefing_with_retry(
+                mock_hass,
+                "test_agent",
+                "test_airfield",
+                "test"
+            )
 
-        # Verify async_call was actually awaited (called)
-        mock_hass.services.async_call.assert_called()
+            # Verify async_call was actually awaited (called)
+            mock_hass.services.async_call.assert_called()
 
 
 class TestCodeQualityMetrics:

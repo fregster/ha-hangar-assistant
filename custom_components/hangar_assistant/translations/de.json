@@ -20,6 +20,7 @@
         "description": "Verwalten Sie Ihren virtuellen Hangar. Wählen Sie eine Aktion:",
         "menu_options": {
           "airfield": "Flugplatz hinzufügen oder bearbeiten",
+          "hangar": "Hangar hinzufügen oder bearbeiten",
           "aircraft": "Flugzeug hinzufügen oder bearbeiten",
           "pilot": "Pilot hinzufügen oder bearbeiten",
           "briefing": "Automatische Briefings hinzufügen oder bearbeiten",
@@ -123,8 +124,49 @@
         "data": {
           "confirm": "Löschung bestätigen"
         }
+      },      "hangar": {
+        "title": "Hangar-Verwaltung",
+        "description": "Flugzeughangars hinzufügen oder verwalten.",
+        "menu_options": {
+          "hangar_add": "Neuen Hangar hinzufügen",
+          "hangar_manage": "Bestehende Hangars verwalten"
+        }
       },
-      "aircraft": {
+      "hangar_add": {
+        "title": "Hangar hinzufügen",
+        "description": "Neuen Hangar an einem Ihrer Flugplätze erstellen.",
+        "data": {
+          "name": "Hangar-Name (z.B., Hangar 3)",
+          "airfield_name": "Flugplatz",
+          "temp_sensor": "Hangar-Temperatursensor (optional)",
+          "humidity_sensor": "Hangar-Luftfeuchtigkeitssensor (optional)"
+        }
+      },
+      "hangar_manage": {
+        "title": "Hangars verwalten",
+        "description": "Wählen Sie einen Hangar zum Bearbeiten oder Löschen aus.",
+        "data": {
+          "index": "Hangar auswählen",
+          "action": "Aktion"
+        }
+      },
+      "hangar_edit": {
+        "title": "Hangar bearbeiten",
+        "description": "Hangar-Details aktualisieren.",
+        "data": {
+          "name": "Hangar-Name",
+          "airfield_name": "Flugplatz",
+          "temp_sensor": "Temperatursensor",
+          "humidity_sensor": "Luftfeuchtigkeitssensor"
+        }
+      },
+      "hangar_delete": {
+        "title": "Hangar löschen",
+        "description": "Möchten Sie {name} wirklich löschen? Flugzeuge, die diesem Hangar zugewiesen sind, werden nur noch dem Flugplatz zugeordnet.",
+        "data": {
+          "confirm": "Löschen bestätigen"
+        }
+      },      "aircraft": {
         "title": "Flugzeugverwaltung",
         "description": "Fügen Sie Leistungsprofile hinzu oder verwalten Sie diese.",
         "menu_options": {
@@ -143,7 +185,8 @@
           "max_xwind": "Max. demonstrierter Seitenwind (kt)",
           "baseline_roll": "Basis-Strecke SL (m)",
           "baseline_50ft": "Basis 50ft-Strecke SL (m)",
-          "linked_airfield": "Verknüpfter Flugplatz"
+          "hangar": "Hangar (optional)",
+          "linked_airfield": "Verknüpfter Flugplatz (falls kein Hangar)"
         }
       },
       "aircraft_manage": {
@@ -165,7 +208,8 @@
           "max_xwind": "Max. demonstrierter Seitenwind (kt)",
           "baseline_roll": "Basis-Strecke SL (m)",
           "baseline_50ft": "Basis 50ft-Strecke SL (m)",
-          "linked_airfield": "Verknüpfter Flugplatz"
+          "hangar": "Hangar (optional)",
+          "linked_airfield": "Verknüpfter Flugplatz (falls kein Hangar)"
         }
       },
       "aircraft_delete": {

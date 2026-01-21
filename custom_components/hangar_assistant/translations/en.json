@@ -20,6 +20,7 @@
         "description": "Manage your virtual hangar. Select an action below:",
         "menu_options": {
           "airfield": "Add or Edit an Airfield",
+          "hangar": "Add or Edit a Hangar",
           "aircraft": "Add or Edit an Aircraft",
           "pilot": "Add or Edit a Pilot",
           "briefing": "Add or Edit Automated Briefings",
@@ -121,6 +122,49 @@
           "confirm": "Confirm Deletion"
         }
       },
+      "hangar": {
+        "title": "Hangar Management",
+        "description": "Add or manage your aircraft hangars.",
+        "menu_options": {
+          "hangar_add": "Add New Hangar",
+          "hangar_manage": "Manage Existing Hangars"
+        }
+      },
+      "hangar_add": {
+        "title": "Add Hangar",
+        "description": "Create a new hangar at one of your airfields.",
+        "data": {
+          "name": "Hangar Name (e.g., Hangar 3)",
+          "airfield_name": "Airfield",
+          "temp_sensor": "Hangar Temperature Sensor (optional)",
+          "humidity_sensor": "Hangar Humidity Sensor (optional)"
+        }
+      },
+      "hangar_manage": {
+        "title": "Manage Hangars",
+        "description": "Select a hangar to edit or delete.",
+        "data": {
+          "index": "Select Hangar",
+          "action": "Action"
+        }
+      },
+      "hangar_edit": {
+        "title": "Edit Hangar",
+        "description": "Update hangar details.",
+        "data": {
+          "name": "Hangar Name",
+          "airfield_name": "Airfield",
+          "temp_sensor": "Temperature Sensor",
+          "humidity_sensor": "Humidity Sensor"
+        }
+      },
+      "hangar_delete": {
+        "title": "Delete Hangar",
+        "description": "Are you sure you want to delete {name}? Aircraft assigned to this hangar will revert to airfield-only.",
+        "data": {
+          "confirm": "Confirm Deletion"
+        }
+      },
       "aircraft": {
         "title": "Aircraft Management",
         "description": "Add or manage your aircraft performance profiles.",
@@ -140,7 +184,8 @@
           "max_xwind": "Max Demonstrated Crosswind (kt)",
           "baseline_roll": "Baseline SL Ground Roll (m)",
           "baseline_50ft": "Baseline SL 50ft Distance (m)",
-          "linked_airfield": "Linked Airfield"
+          "hangar": "Hangar (optional)",
+          "linked_airfield": "Linked Airfield (if no hangar)"
         }
       },
       "aircraft_manage": {
@@ -162,7 +207,8 @@
           "max_xwind": "Max Demonstrated Crosswind (kt)",
           "baseline_roll": "Baseline SL Ground Roll (m)",
           "baseline_50ft": "Baseline SL 50ft Distance (m)",
-          "linked_airfield": "Linked Airfield"
+          "hangar": "Hangar (optional)",
+          "linked_airfield": "Linked Airfield (if no hangar)"
         }
       },
       "aircraft_delete": {

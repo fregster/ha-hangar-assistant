@@ -7,10 +7,12 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 - **Versioning**: `YYYYNN.V.H` format (e.g., `2601.1.0`). Hotfix defaults to 0.
 
 ## Architecture & Data Model
-- **Single ConfigEntry**: Configuration is centralized. `entry.data` holds `airfields` (list) and `aircraft` (list).
+- **Single ConfigEntry**: Configuration is centralized. `entry.data` holds `airfields` (list), `hangars` (list), and `aircraft` (list).
+- **Hangar System**: Hangars belong to airfields. Aircraft can link to hangars (which implies their airfield) or directly to airfields (legacy).
+- **Data Hierarchy**: Airfield → Hangar → Aircraft. Sensor fallback: hangar sensor → airfield sensor → global sensor.
 - **Dynamic Entities**: `sensor.py` and `binary_sensor.py` iterate over config lists in `async_setup_entry` to create entities.
 - **Device Grouping**: Entities for a specific airfield or aircraft share `device_info` linked via `_id_slug`.
-- **Unique IDs**: Generated as `{_id_slug}_{class_name_lower}` (e.g., `ksfo_densityaltsensor`).
+- **Unique IDs**: Generated as `{_id_slug}_{class_name_lower}` (e.g., `ksfo_densityaltsensor`). Hangars use `{airfield_slug}_{hangar_slug}`.
 
 ## Backward Compatibility & Defaults
 
@@ -415,6 +417,24 @@ Provides professional weather data with robust caching:
   current = client.extract_current_weather(data)
   ```
 
+### hangar_helpers.py - Hangar Management & Backward Compatibility
+Provides hangar-aware sensor fallback and aircraft-airfield resolution:
+- **get_aircraft_airfield()**: Resolves airfield for aircraft with hangar → direct airfield → None priority
+- **get_aircraft_hangar()**: Returns hangar config if aircraft assigned to hangar
+- **get_hangar_sensor_value()**: Core fallback logic for environment sensors (hangar → airfield → global)
+- **find_hangar_by_name()**: Locates hangar config by name
+- **get_airfield_for_hangar()**: Gets airfield config for a hangar
+- **get_hangar_temperature()**: Convenience function for temperature with full fallback chain
+- **get_hangar_humidity()**: Convenience function for humidity with full fallback chain
+- Used by: Sensors needing location-based data, migration logic, automation helpers
+- Pattern:
+  ```python
+  from custom_components.hangar_assistant.utils.hangar_helpers import get_aircraft_airfield
+  
+  airfield = get_aircraft_airfield(aircraft_config, hangars, airfields)
+  temp = get_hangar_sensor_value(hass, "temp_sensor", hangar, airfield, global_sensor)
+  ```
+
 ### Brand Directory
 Contains branding assets:
 - Integration logo and icons for HACS/HA UI
@@ -458,6 +478,7 @@ Contains branding assets:
 | `test_config_flow.py` | Config flow user interactions | Form validation, data storage |
 | `test_config_flow_coverage.py` | Config flow edge cases | Error handling, partial configs |
 | `test_config_flow_init.py` | Options flow initialization | Flow handler setup without errors |
+| `test_hangar_config_flow.py` | Hangar config flow and helpers | Hangar CRUD, sensor fallback, backward compat |
 | `test_enhanced_logic.py` | Complex integration logic | Multi-sensor interactions, mocked HA system |
 | `test_integration.py` | End-to-end integration tests | Full setup flow, entity coordination |
 | `test_select_entities.py` | Select entity implementation | Dropdown options, state updates |

@@ -20,6 +20,7 @@
         "description": "Administra tu hangar virtual. Elige una acción:",
         "menu_options": {
           "airfield": "Añadir o editar aeródromo",
+          "hangar": "Añadir o Editar un Hangar",
           "aircraft": "Añadir o editar aeronave",
           "pilot": "Añadir o editar piloto",
           "briefing": "Añadir o editar briefings automáticos",
@@ -124,6 +125,49 @@
           "confirm": "Confirmar eliminación"
         }
       },
+      "hangar": {
+        "title": "Gestión de Hangares",
+        "description": "Añadir o gestionar los hangares de aeronaves.",
+        "menu_options": {
+          "hangar_add": "Añadir Nuevo Hangar",
+          "hangar_manage": "Gestionar Hangares Existentes"
+        }
+      },
+      "hangar_add": {
+        "title": "Añadir Hangar",
+        "description": "Crear un nuevo hangar en uno de sus aeródromos.",
+        "data": {
+          "name": "Nombre del Hangar (ej., Hangar 3)",
+          "airfield_name": "Aeródromo",
+          "temp_sensor": "Sensor de Temperatura del Hangar (opcional)",
+          "humidity_sensor": "Sensor de Humedad del Hangar (opcional)"
+        }
+      },
+      "hangar_manage": {
+        "title": "Gestionar Hangares",
+        "description": "Seleccione un hangar para editar o eliminar.",
+        "data": {
+          "index": "Seleccionar Hangar",
+          "action": "Acción"
+        }
+      },
+      "hangar_edit": {
+        "title": "Editar Hangar",
+        "description": "Actualizar detalles del hangar.",
+        "data": {
+          "name": "Nombre del Hangar",
+          "airfield_name": "Aeródromo",
+          "temp_sensor": "Sensor de Temperatura",
+          "humidity_sensor": "Sensor de Humedad"
+        }
+      },
+      "hangar_delete": {
+        "title": "Eliminar Hangar",
+        "description": "¿Está seguro de que desea eliminar {name}? Las aeronaves asignadas a este hangar volverán a solo el aeródromo.",
+        "data": {
+          "confirm": "Confirmar Eliminación"
+        }
+      },
       "aircraft": {
         "title": "Gestión de aeronaves",
         "description": "Añade o gestiona perfiles de rendimiento POH.",
@@ -143,7 +187,8 @@
           "max_xwind": "Máx. componente de cruz (kt)",
           "baseline_roll": "Rodaje base SL (m)",
           "baseline_50ft": "Base a 50 ft SL (m)",
-          "linked_airfield": "Aeródromo vinculado"
+          "hangar": "Hangar (opcional)",
+          "linked_airfield": "Aeródromo Vinculado (si no hay hangar)"
         }
       },
       "aircraft_manage": {
@@ -165,7 +210,8 @@
           "max_xwind": "Máx. componente de cruz (kt)",
           "baseline_roll": "Rodaje base SL (m)",
           "baseline_50ft": "Base a 50 ft SL (m)",
-          "linked_airfield": "Aeródromo vinculado"
+          "hangar": "Hangar (opcional)",
+          "linked_airfield": "Aeródromo Vinculado (si no hay hangar)"
         }
       },
       "aircraft_delete": {

@@ -127,7 +127,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Main configuration menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["airfield", "aircraft", "pilot", "briefing", "global_config"]
+            menu_options=["airfield", "hangar", "aircraft", "pilot", "briefing", "global_config"]
         )
 
     async def async_step_global_config(self, _user_input=None):
@@ -494,6 +494,175 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders={"name": self._safe_item(self._list_from(self._entry_data().get("airfields", [])), self._index).get("name", "Airfield")}
         )
 
+    async def async_step_hangar(self, user_input=None):
+        """Sub-menu for hangar management."""
+        hangars = self._list_from(self._entry_data().get("hangars", []))
+        
+        if hangars:
+            return self.async_show_menu(
+                step_id="hangar",
+                menu_options=["hangar_add", "hangar_manage"]
+            )
+        return await self.async_step_hangar_add()
+
+    async def async_step_hangar_add(self, user_input=None):
+        """Form to add a new hangar."""
+        if user_input is not None:
+            # Validate hangar name
+            name = user_input.get("name", "").strip()
+            if not name:
+                return self.async_show_form(
+                    step_id="hangar_add",
+                    errors={"name": "Hangar name is required"},
+                    data_schema=self._get_hangar_add_schema()
+                )
+            
+            # Check for duplicate hangar names within the same airfield
+            airfield_name = user_input.get("airfield_name", "")
+            existing_hangars = self._list_from(self._entry_data().get("hangars", []))
+            for hangar in existing_hangars:
+                if (hangar.get("name") == name and 
+                    hangar.get("airfield_name") == airfield_name):
+                    return self.async_show_form(
+                        step_id="hangar_add",
+                        errors={"name": f"A hangar named '{name}' already exists at {airfield_name}"},
+                        data_schema=self._get_hangar_add_schema()
+                    )
+            
+            new_data = self._entry_data()
+            hangars = self._list_from(new_data.get("hangars", []))
+            hangars.append(user_input)
+            new_data["hangars"] = hangars
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            
+            # Check if this is the first hangar - offer migration notification
+            if len(hangars) == 1:
+                _LOGGER.info("First hangar added. Users can optionally migrate aircraft to hangars.")
+            
+            return self.async_create_entry(data=self._entry_options())
+
+        return self.async_show_form(
+            step_id="hangar_add",
+            data_schema=self._get_hangar_add_schema()
+        )
+    
+    def _get_hangar_add_schema(self) -> vol.Schema:
+        """Return the schema for hangar add form."""
+        airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
+        airfield_options = [
+            selector.SelectOptionDict(value=a, label=a) for a in airfields
+        ] if airfields else [selector.SelectOptionDict(value="", label="No airfields configured")]
+        
+        return vol.Schema({
+            vol.Required("name"): str,
+            vol.Required("airfield_name"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=airfield_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("temp_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional("humidity_sensor"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+        })
+
+    async def async_step_hangar_manage(self, user_input=None):
+        """Menu to manage existing hangars."""
+        hangars = self._list_from(self._entry_data().get("hangars", []))
+        options = {
+            str(i): f"{h.get('name', 'Hangar')} ({h.get('airfield_name', 'Unknown')})" 
+            for i, h in enumerate(hangars)
+        }
+
+        if user_input is not None:
+            self._index = int(user_input["index"])
+            if user_input["action"] == "edit":
+                return await self.async_step_hangar_edit()
+            return await self.async_step_hangar_delete()
+
+        return self.async_show_form(
+            step_id="hangar_manage",
+            data_schema=vol.Schema({
+                vol.Required("index"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[selector.SelectOptionDict(value=k, label=v) for k, v in options.items()],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required("action"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=o["value"], label=o["label"]) 
+                            for o in get_action_options(self._lang())
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+            })
+        )
+
+    async def async_step_hangar_edit(self, user_input=None):
+        """Edit an existing hangar."""
+        index = self._index
+        hangars = self._list_from(self._entry_data().get("hangars", []))
+        hangar = self._safe_item(hangars, index)
+
+        if user_input is not None:
+            new_data = self._entry_data()
+            hangars = self._list_from(new_data.get("hangars", []))
+            hangars[index] = user_input
+            new_data["hangars"] = hangars
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
+
+        airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
+        airfield_options = [selector.SelectOptionDict(value=a, label=a) for a in airfields]
+
+        return self.async_show_form(
+            step_id="hangar_edit",
+            data_schema=vol.Schema({
+                vol.Required("name", default=hangar.get("name")): str,
+                vol.Required("airfield_name", default=hangar.get("airfield_name")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=airfield_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("temp_sensor", default=hangar.get("temp_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("humidity_sensor", default=hangar.get("humidity_sensor")): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+            })
+        )
+
+    async def async_step_hangar_delete(self, user_input=None):
+        """Delete a hangar."""
+        index = self._index
+        hangars = self._list_from(self._entry_data().get("hangars", []))
+        hangar = self._safe_item(hangars, index)
+
+        if user_input is not None:
+            if user_input.get("confirm"):
+                new_data = self._entry_data()
+                hangars = self._list_from(new_data.get("hangars", []))
+                del hangars[index]
+                new_data["hangars"] = hangars
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return self.async_create_entry(data=self._entry_options())
+
+        return self.async_show_form(
+            step_id="hangar_delete",
+            data_schema=vol.Schema({
+                vol.Required("confirm", default=False): selector.BooleanSelector(),
+            }),
+            description_placeholders={"name": hangar.get("name", "this hangar")}
+        )
+
 
     async def async_step_aircraft(self, user_input=None):
         """Sub-menu for aircraft management."""
@@ -561,6 +730,17 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
         airfield_options = [selector.SelectOptionDict(value=a, label=a) for a in airfields] if airfields else [selector.SelectOptionDict(value="", label="No airfields configured")]
         
+        # Get hangars for dropdown, grouped by airfield
+        hangars = self._list_from(self._entry_data().get("hangars", []))
+        hangar_options = [selector.SelectOptionDict(value="", label="None (Use Airfield)")]
+        for hangar in hangars:
+            hangar_options.append(
+                selector.SelectOptionDict(
+                    value=hangar.get("name", ""),
+                    label=f"{hangar.get('name', 'Hangar')} ({hangar.get('airfield_name', 'Unknown')})"
+                )
+            )
+        
         return vol.Schema({
             vol.Required("reg"): str,
             vol.Required("model"): str,
@@ -594,6 +774,12 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         selector.SelectOptionDict(value="m", label="Meters"),
                         selector.SelectOptionDict(value="ft", label="Feet"),
                     ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("hangar"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=hangar_options,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
             ),
@@ -667,6 +853,17 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         airfields = [a.get("name", "") for a in self._list_from(self._entry_data().get("airfields", []))]
         airfield_options = [selector.SelectOptionDict(value=a, label=a) for a in airfields] if airfields else [selector.SelectOptionDict(value="", label="No airfields configured")]
         
+        # Get hangars for dropdown
+        hangars = self._list_from(self._entry_data().get("hangars", []))
+        hangar_options = [selector.SelectOptionDict(value="", label="None (Use Airfield)")]
+        for hangar in hangars:
+            hangar_options.append(
+                selector.SelectOptionDict(
+                    value=hangar.get("name", ""),
+                    label=f"{hangar.get('name', 'Hangar')} ({hangar.get('airfield_name', 'Unknown')})"
+                )
+            )
+        
         return self.async_show_form(
             step_id="aircraft_edit",
             data_schema=vol.Schema({
@@ -702,6 +899,12 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                             selector.SelectOptionDict(value="m", label="Meters"),
                             selector.SelectOptionDict(value="ft", label="Feet"),
                         ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("hangar", default=ac.get("hangar", "")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=hangar_options,
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),

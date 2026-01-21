@@ -20,6 +20,7 @@
         "description": "Gérez votre hangar virtuel. Choisissez une action ci-dessous :",
         "menu_options": {
           "airfield": "Ajouter ou modifier un aérodrome",
+          "hangar": "Ajouter ou Modifier un Hangar",
           "aircraft": "Ajouter ou modifier un aéronef",
           "pilot": "Ajouter ou modifier un pilote",
           "briefing": "Ajouter ou modifier des briefings automatiques",
@@ -123,8 +124,49 @@
         "data": {
           "confirm": "Confirmer la suppression"
         }
+      },      "hangar": {
+        "title": "Gestion des Hangars",
+        "description": "Ajouter ou gérer vos hangars d'aéronefs.",
+        "menu_options": {
+          "hangar_add": "Ajouter un Nouveau Hangar",
+          "hangar_manage": "Gérer les Hangars Existants"
+        }
       },
-      "aircraft": {
+      "hangar_add": {
+        "title": "Ajouter un Hangar",
+        "description": "Créer un nouveau hangar sur l'un de vos aérodromes.",
+        "data": {
+          "name": "Nom du Hangar (ex., Hangar 3)",
+          "airfield_name": "Aérodrome",
+          "temp_sensor": "Capteur de Température du Hangar (facultatif)",
+          "humidity_sensor": "Capteur d'Humidité du Hangar (facultatif)"
+        }
+      },
+      "hangar_manage": {
+        "title": "Gérer les Hangars",
+        "description": "Sélectionnez un hangar à modifier ou supprimer.",
+        "data": {
+          "index": "Sélectionner un Hangar",
+          "action": "Action"
+        }
+      },
+      "hangar_edit": {
+        "title": "Modifier le Hangar",
+        "description": "Mettre à jour les détails du hangar.",
+        "data": {
+          "name": "Nom du Hangar",
+          "airfield_name": "Aérodrome",
+          "temp_sensor": "Capteur de Température",
+          "humidity_sensor": "Capteur d'Humidité"
+        }
+      },
+      "hangar_delete": {
+        "title": "Supprimer le Hangar",
+        "description": "Êtes-vous sûr de vouloir supprimer {name} ? Les aéronefs assignés à ce hangar reviendront uniquement à l'aérodrome.",
+        "data": {
+          "confirm": "Confirmer la Suppression"
+        }
+      },      "aircraft": {
         "title": "Gestion des aéronefs",
         "description": "Ajoutez ou gérez vos profils de performance d'aéronef.",
         "menu_options": {
@@ -143,7 +185,8 @@
           "max_xwind": "Vent travers démontré max (kt)",
           "baseline_roll": "Roulement de base SL (m)",
           "baseline_50ft": "Distance 50 ft SL de base (m)",
-          "linked_airfield": "Aérodrome lié"
+          "hangar": "Hangar (facultatif)",
+          "linked_airfield": "Aérodrome Lié (si pas de hangar)"
         }
       },
       "aircraft_manage": {
@@ -165,7 +208,8 @@
           "max_xwind": "Vent travers démontré max (kt)",
           "baseline_roll": "Roulement de base SL (m)",
           "baseline_50ft": "Distance 50 ft SL de base (m)",
-          "linked_airfield": "Aérodrome lié"
+          "hangar": "Hangar (facultatif)",
+          "linked_airfield": "Aérodrome Lié (si pas de hangar)"
         }
       },
       "aircraft_delete": {

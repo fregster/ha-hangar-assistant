@@ -75,17 +75,17 @@ def mock_entry_without_integrations():
 class TestIntegrationsMenu:
     """Test integrations menu in config flow."""
 
-    def test_global_config_includes_integrations(self, mock_entry_with_integrations):
+    @pytest.mark.asyncio
+    async def test_global_config_includes_integrations(self, mock_entry_with_integrations):
         """Test that global_config menu includes integrations option."""
         handler = HangarOptionsFlowHandler(mock_entry_with_integrations)
         handler.hass = MagicMock()
         
-        # Get menu options
-        result = handler.async_step_global_config()
+        # Get menu options (await the async method)
+        result = await handler.async_step_global_config()
         
-        # Should be async, so result is awaitable
-        # For this test, we just check the menu structure is correct
-        # In real usage, this would show_menu with integrations option
+        # Should show menu with integrations option
+        assert result is not None
 
     def test_integrations_submenu_options(self, mock_entry_with_integrations):
         """Test integrations submenu has OWM and NOTAM options."""

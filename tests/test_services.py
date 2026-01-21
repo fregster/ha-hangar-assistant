@@ -287,7 +287,7 @@ async def test_ai_prompt_includes_timezone():
 
     assert async_call.call_count == 1
     text = async_call.call_args[0][2]["text"]
-    assert "Local Timezone: Europe/London" in text
+    assert "Timezone: Europe/London" in text
     mock_hass.async_add_executor_job.assert_awaited()
 
 

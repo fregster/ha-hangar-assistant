@@ -50,7 +50,17 @@ Every airfield you add creates a **Master Safety Alert**. This sensor will turn 
 
 ---
 
-## 📊 Dashboard Integration
+## � Documentation
+
+- **[Complete Documentation](docs/README.md)** - Full documentation index
+- **[Changelog](CHANGELOG.md)** - Version history and release notes
+- **[Automation Examples](docs/HANGAR_AUTOMATION_EXAMPLES.md)** - Practical automation scenarios
+- **[Architecture Plans](docs/planning/)** - Design documents and technical plans
+- **[Development Guides](docs/development/)** - Code quality reviews and migration guides
+
+---
+
+## �📊 Dashboard Integration
 We recommend using the **Mushroom Card** pack or the **Pilot's Dashboard YAML** provided in our documentation to create a dedicated aviation tab in your Home Assistant.
 
 ---

@@ -31,7 +31,8 @@ class UnitPreference:
             ValueError: If preference is not a valid option.
         """
         if preference not in self.VALID_PREFERENCES:
-            raise ValueError(f"Invalid preference: {preference}. Must be one of {self.VALID_PREFERENCES}")
+            raise ValueError(
+                f"Invalid preference: {preference}. Must be one of {self.VALID_PREFERENCES}")
         self.preference = preference
 
     def is_aviation(self) -> bool:
@@ -52,7 +53,10 @@ POUNDS_TO_KG = 0.453592
 KG_TO_POUNDS = 1 / POUNDS_TO_KG
 
 
-def convert_altitude(value: Optional[float], from_feet: bool = True, to_preference: str = "aviation") -> Optional[float]:
+def convert_altitude(
+        value: Optional[float],
+        from_feet: bool = True,
+        to_preference: str = "aviation") -> Optional[float]:
     """Convert altitude between feet and meters.
 
     Args:
@@ -80,7 +84,10 @@ def convert_altitude(value: Optional[float], from_feet: bool = True, to_preferen
             return value  # Already in meters
 
 
-def convert_speed(value: Optional[float], from_knots: bool = True, to_preference: str = "aviation") -> Optional[float]:
+def convert_speed(
+        value: Optional[float],
+        from_knots: bool = True,
+        to_preference: str = "aviation") -> Optional[float]:
     """Convert speed between knots and kph.
 
     Args:
@@ -108,7 +115,10 @@ def convert_speed(value: Optional[float], from_knots: bool = True, to_preference
             return value  # Already in kph
 
 
-def convert_weight(value: Optional[float], from_pounds: bool = True, to_preference: str = "aviation") -> Optional[float]:
+def convert_weight(
+        value: Optional[float],
+        from_pounds: bool = True,
+        to_preference: str = "aviation") -> Optional[float]:
     """Convert weight between pounds and kilograms.
 
     Args:

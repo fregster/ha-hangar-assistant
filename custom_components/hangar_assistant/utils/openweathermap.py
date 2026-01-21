@@ -26,24 +26,24 @@ DEFAULT_TIMEOUT_SECONDS = 10
 
 class OpenWeatherMapClient:
     """Client for OpenWeatherMap One Call API 3.0.
-    
+
     Implements persistent caching to protect against API rate limit breaches,
     especially important during system restarts or configuration changes.
-    
+
     Inputs:
         - api_key: OWM API key
         - hass: Home Assistant instance (for config path)
         - cache_enabled: Enable/disable persistent caching (default: True)
         - cache_ttl_minutes: Cache time-to-live (default: 10 minutes)
-    
+
     Outputs:
         - Weather data dict with current conditions, forecasts, alerts
-    
+
     Used by:
         - Sensor entities for weather data
         - Binary sensors for alerts
         - AI briefing service
-    
+
     Example:
         client = OpenWeatherMapClient(api_key, hass, cache_enabled=True)
         data = await client.get_weather_data(51.2, -1.2)
@@ -57,7 +57,7 @@ class OpenWeatherMapClient:
         cache_ttl_minutes: int = DEFAULT_CACHE_TTL_MINUTES,
     ):
         """Initialize OWM client with caching configuration.
-        
+
         Args:
             api_key: OpenWeatherMap API key
             hass: Home Assistant instance
@@ -68,19 +68,19 @@ class OpenWeatherMapClient:
         self.hass = hass
         self.cache_enabled = cache_enabled
         self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
-        
+
         # Persistent cache directory (survives restarts)
         # Note: Directory creation is lazy - only created when needed
         self.cache_dir = Path(hass.config.path("hangar_assistant_cache"))
         self._cache_dir_initialized = False
-        
+
         # In-memory cache for current session
         self._memory_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
-        
+
         # API call tracking (resets daily)
         self._api_calls_today = 0
         self._api_calls_date = datetime.now().date()
-        
+
         _LOGGER.info(
             "OWM client initialized (cache: %s, TTL: %d min)",
             "enabled" if cache_enabled else "disabled",
@@ -100,11 +100,11 @@ class OpenWeatherMapClient:
 
     def _get_cache_file_path(self, latitude: float, longitude: float) -> Path:
         """Get cache file path for coordinates.
-        
+
         Args:
             latitude: Latitude coordinate
             longitude: Longitude coordinate
-            
+
         Returns:
             Path to cache file
         """
@@ -116,32 +116,32 @@ class OpenWeatherMapClient:
         self, latitude: float, longitude: float
     ) -> Optional[Dict[str, Any]]:
         """Read cached data from disk if valid.
-        
+
         Args:
             latitude: Latitude coordinate
             longitude: Longitude coordinate
-            
+
         Returns:
             Cached data dict if valid, None otherwise
         """
         if not self.cache_enabled:
             return None
-        
+
         self._ensure_cache_dir()
-        
+
         cache_file = self._get_cache_file_path(latitude, longitude)
-        
+
         if not cache_file.exists():
             return None
-        
+
         try:
             with open(cache_file, "r") as f:
                 cached = json.load(f)
-            
+
             # Check if cache is still valid
             cached_time = datetime.fromisoformat(cached["cached_at"])
             cache_age = datetime.now() - cached_time
-            
+
             if cache_age < self.cache_ttl:
                 _LOGGER.debug(
                     "Using persistent cache (age: %d seconds)",
@@ -154,7 +154,7 @@ class OpenWeatherMapClient:
                     cache_age.total_seconds()
                 )
                 return None
-                
+
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             _LOGGER.warning("Failed to read cache file: %s", e)
             return None
@@ -163,7 +163,7 @@ class OpenWeatherMapClient:
         self, latitude: float, longitude: float, data: Dict[str, Any]
     ) -> None:
         """Write data to persistent cache.
-        
+
         Args:
             latitude: Latitude coordinate
             longitude: Longitude coordinate
@@ -171,23 +171,23 @@ class OpenWeatherMapClient:
         """
         if not self.cache_enabled:
             return
-        
+
         self._ensure_cache_dir()
-        
+
         cache_file = self._get_cache_file_path(latitude, longitude)
-        
+
         try:
             cached = {
                 "cached_at": datetime.now().isoformat(),
                 "coordinates": {"lat": latitude, "lon": longitude},
                 "data": data,
             }
-            
+
             with open(cache_file, "w") as f:
                 json.dump(cached, f, indent=2)
-            
+
             _LOGGER.debug("Wrote persistent cache to %s", cache_file.name)
-            
+
         except (OSError, TypeError) as e:
             _LOGGER.error("Failed to write cache file: %s", e)
 
@@ -198,32 +198,32 @@ class OpenWeatherMapClient:
         units: str = "metric",
     ) -> Optional[Dict[str, Any]]:
         """Fetch current weather and forecast data with multi-level caching.
-        
+
         Caching strategy (in order of priority):
         1. In-memory cache (fastest, session only)
         2. Persistent file cache (survives restarts)
         3. API call (only if cache invalid)
-        
+
         This protects against rate limit breaches during:
         - Multiple system restarts
         - Configuration changes
         - Integration reloads
-        
+
         Args:
             latitude: Latitude coordinate
             longitude: Longitude coordinate
             units: Unit system (metric, imperial, standard)
-            
+
         Returns:
             Weather data dict or None if error
         """
         cache_key = f"{latitude}_{longitude}"
-        
+
         # 1. Check in-memory cache first (fastest)
         if cache_key in self._memory_cache:
             cached_data, cached_time = self._memory_cache[cache_key]
             cache_age = datetime.now() - cached_time
-            
+
             if cache_age < self.cache_ttl:
                 _LOGGER.debug(
                     "Using memory cache for %s (age: %d seconds)",
@@ -231,14 +231,16 @@ class OpenWeatherMapClient:
                     cache_age.total_seconds(),
                 )
                 return cached_data
-        
+
         # 2. Check persistent cache (survives restarts)
-        persistent_data = self._read_persistent_cache(latitude, longitude)
+        persistent_data = await self.hass.async_add_executor_job(
+            self._read_persistent_cache, latitude, longitude
+        )
         if persistent_data:
             # Update memory cache with persistent data
             self._memory_cache[cache_key] = (persistent_data, datetime.now())
             return persistent_data
-        
+
         # 3. Fetch from API (cache miss)
         return await self._fetch_from_api(latitude, longitude, units)
 
@@ -249,12 +251,12 @@ class OpenWeatherMapClient:
         units: str = "metric",
     ) -> Optional[Dict[str, Any]]:
         """Fetch data from OWM API.
-        
+
         Args:
             latitude: Latitude coordinate
             longitude: Longitude coordinate
             units: Unit system
-            
+
         Returns:
             Weather data dict or None if error
         """
@@ -263,16 +265,16 @@ class OpenWeatherMapClient:
         if today != self._api_calls_date:
             self._api_calls_today = 0
             self._api_calls_date = today
-        
+
         self._api_calls_today += 1
-        
+
         # Warn if approaching free tier limit
         if self._api_calls_today >= 950:
             _LOGGER.warning(
                 "OWM API calls approaching limit: %d/1000 today",
                 self._api_calls_today,
             )
-        
+
         url = (
             f"{OWM_API_BASE}"
             f"?lat={latitude}"
@@ -280,20 +282,22 @@ class OpenWeatherMapClient:
             f"&appid={self.api_key}"
             f"&units={units}"
         )
-        
+
         try:
             # Use Home Assistant's aiohttp session
             session = self.hass.helpers.aiohttp_client.async_get_clientsession()
-            
+
             async with session.get(url, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
+
                     # Update both caches
                     cache_key = f"{latitude}_{longitude}"
                     self._memory_cache[cache_key] = (data, datetime.now())
-                    self._write_persistent_cache(latitude, longitude, data)
-                    
+                    await self.hass.async_add_executor_job(
+                        self._write_persistent_cache, latitude, longitude, data
+                    )
+
                     _LOGGER.info(
                         "Fetched OWM data for %s,%s (call %d today)",
                         latitude,
@@ -301,18 +305,18 @@ class OpenWeatherMapClient:
                         self._api_calls_today,
                     )
                     return data
-                    
+
                 elif response.status == 401:
                     _LOGGER.error("OWM API key invalid or expired")
                     return None
-                    
+
                 elif response.status == 429:
                     _LOGGER.error(
                         "OWM API rate limit exceeded (%d calls today)",
                         self._api_calls_today,
                     )
                     return None
-                    
+
                 else:
                     _LOGGER.error(
                         "OWM API error: HTTP %d - %s",
@@ -320,27 +324,27 @@ class OpenWeatherMapClient:
                         await response.text(),
                     )
                     return None
-                    
+
         except asyncio.TimeoutError:
             _LOGGER.error("OWM API request timed out")
             return None
-            
+
         except Exception as e:
             _LOGGER.error("OWM API request failed: %s", e)
             return None
 
     def extract_current_weather(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract current weather from OWM response.
-        
+
         Args:
             data: Raw OWM API response
-            
+
         Returns:
             Dict with current weather fields
         """
         current = data.get("current", {})
         weather_list = current.get("weather", [{}])
-        
+
         return {
             "temperature": current.get("temp"),
             "dew_point": current.get("dew_point"),
@@ -359,10 +363,10 @@ class OpenWeatherMapClient:
 
     def extract_minutely_forecast(self, data: Dict[str, Any]) -> list:
         """Extract minutely precipitation forecast (60 minutes).
-        
+
         Args:
             data: Raw OWM API response
-            
+
         Returns:
             List of minutely forecast dicts
         """
@@ -370,10 +374,10 @@ class OpenWeatherMapClient:
 
     def extract_hourly_forecast(self, data: Dict[str, Any]) -> list:
         """Extract hourly forecast (48 hours).
-        
+
         Args:
             data: Raw OWM API response
-            
+
         Returns:
             List of hourly forecast dicts
         """
@@ -381,10 +385,10 @@ class OpenWeatherMapClient:
 
     def extract_daily_forecast(self, data: Dict[str, Any]) -> list:
         """Extract daily forecast (8 days).
-        
+
         Args:
             data: Raw OWM API response
-            
+
         Returns:
             List of daily forecast dicts
         """
@@ -392,18 +396,21 @@ class OpenWeatherMapClient:
 
     def extract_alerts(self, data: Dict[str, Any]) -> list:
         """Extract government weather alerts.
-        
+
         Args:
             data: Raw OWM API response
-            
+
         Returns:
             List of alert dicts with sender, event, description, etc.
         """
         return data.get("alerts", [])
 
-    def clear_cache(self, latitude: Optional[float] = None, longitude: Optional[float] = None) -> None:
+    def clear_cache(
+            self,
+            latitude: Optional[float] = None,
+            longitude: Optional[float] = None) -> None:
         """Clear cached data for specific coordinates or all data.
-        
+
         Args:
             latitude: Latitude coordinate (None = clear all)
             longitude: Longitude coordinate (None = clear all)
@@ -412,7 +419,7 @@ class OpenWeatherMapClient:
             # Clear specific coordinate cache
             cache_key = f"{latitude}_{longitude}"
             self._memory_cache.pop(cache_key, None)
-            
+
             cache_file = self._get_cache_file_path(latitude, longitude)
             if cache_file.exists():
                 cache_file.unlink()
@@ -420,20 +427,20 @@ class OpenWeatherMapClient:
         else:
             # Clear all caches
             self._memory_cache.clear()
-            
+
             for cache_file in self.cache_dir.glob("owm_*.json"):
                 cache_file.unlink()
-            
+
             _LOGGER.info("Cleared all OWM caches")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics for monitoring.
-        
+
         Returns:
             Dict with cache stats (entries, API calls, etc.)
         """
         persistent_files = list(self.cache_dir.glob("owm_*.json"))
-        
+
         return {
             "cache_enabled": self.cache_enabled,
             "cache_ttl_minutes": self.cache_ttl.total_seconds() / 60,

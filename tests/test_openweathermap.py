@@ -19,6 +19,13 @@ def mock_hass():
     hass.helpers.aiohttp_client.async_get_clientsession = MagicMock(
         return_value=AsyncMock()
     )
+    
+    # Make async_add_executor_job async for testing
+    async def mock_executor_job(func, *args):
+        """Mock async_add_executor_job that returns awaitable."""
+        return func(*args)
+    
+    hass.async_add_executor_job = mock_executor_job
     return hass
 
 

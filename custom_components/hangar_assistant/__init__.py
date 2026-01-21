@@ -7,6 +7,7 @@ import os
 import yaml  # type: ignore
 import voluptuous as vol
 import inspect
+from datetime import datetime
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -25,9 +26,10 @@ from .utils.forecast_analysis import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def _load_integration_version() -> str:
     """Load the integration version from manifest.json.
-    
+
     Returns the version string defined in the integration manifest. If the
     manifest cannot be read or the version is missing, a safe fallback of
     "0.0.0" is returned so callers can continue with conservative defaults.
@@ -47,7 +49,7 @@ def _load_integration_version() -> str:
 
 def _extract_major_version(version_value) -> int:
     """Extract the major version component from a Hangar Assistant version string.
-    
+
     Args:
         version_value: A version string in YYYYNN.V.H format or an int.
 
@@ -66,7 +68,7 @@ def _extract_major_version(version_value) -> int:
 
 def should_force_dashboard_rebuild(dashboard_info: dict) -> bool:
     """Determine whether the dashboard must be rebuilt.
-    
+
     A rebuild is required when we cannot determine the stored integration
     version (first install) or when the stored major version differs from the
     currently installed integration. This ensures users automatically receive
@@ -94,15 +96,42 @@ INTEGRATION_MAJOR_VERSION = _extract_major_version(INTEGRATION_VERSION)
 # This line resolves the [CONFIG_SCHEMA] error for Hassfest
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-def _resolve_airfield_slug(hass: HomeAssistant) -> str | None:
-    """Resolve the current airfield slug for briefing.
-    
-    First attempts to use the airfield selector entity if available.
-    Falls back to finding the first available AI briefing sensor.
-    
+
+def _get_briefing_text(hass: HomeAssistant) -> str | None:
+    """Get the current AI briefing text.
+
     Args:
         hass: Home Assistant instance
-    
+
+    Returns:
+        Briefing text or None if unavailable
+    """
+    slug = _resolve_airfield_slug(hass)
+    if not slug:
+        _LOGGER.warning(
+            "No airfield slug found for AI briefing; cannot speak")
+        return None
+
+    briefing_state = hass.states.get(
+        f"sensor.{slug}_ai_pre_flight_briefing")
+    briefing = (briefing_state.attributes.get(
+        "briefing") if briefing_state else None)
+    if not briefing:
+        _LOGGER.warning("AI briefing text not available; skipping TTS")
+        return None
+
+    return briefing
+
+
+def _resolve_airfield_slug(hass: HomeAssistant) -> str | None:
+    """Resolve the current airfield slug for briefing.
+
+    First attempts to use the airfield selector entity if available.
+    Falls back to finding the first available AI briefing sensor.
+
+    Args:
+        hass: Home Assistant instance
+
     Returns:
         The airfield slug string, or None if unresolvable
     """
@@ -114,29 +143,55 @@ def _resolve_airfield_slug(hass: HomeAssistant) -> str | None:
         # Find first AI briefing sensor
         for state in hass.states.async_all():
             eid = state.entity_id
-            if eid.startswith("sensor.") and eid.endswith("_ai_pre_flight_briefing"):
-                slug = eid.replace("sensor.", "").replace("_ai_pre_flight_briefing", "")
+            if eid.startswith("sensor.") and eid.endswith(
+                    "_ai_pre_flight_briefing"):
+                slug = eid.replace(
+                    "sensor.", "").replace(
+                    "_ai_pre_flight_briefing", "")
                 break
     return slug
 
 
-def _find_media_player(hass: HomeAssistant, override: str | None) -> str | None:
+def _find_media_player(
+        hass: HomeAssistant,
+        override: str | None) -> str | None:
     """Find the best available media player entity.
-    
+
     Prefers browser-based media players when available (indicates current device).
     Falls back to any available media player. Can be overridden via service parameter.
-    
+
     Args:
         hass: Home Assistant instance
         override: Explicitly provided media_player_entity_id from service call
-    
+
     Returns:
         Media player entity ID string, or None if none available
     """
     if override:
         return override
-    
+
     # Prefer browser-based media players
+    browser_candidates = _find_browser_media_players(hass)
+    if browser_candidates:
+        return browser_candidates[0]
+
+    # Fallback to first available media player
+    for state in hass.states.async_all():
+        if state.entity_id.startswith(
+                "media_player.") and state.state not in ("unknown", "unavailable"):
+            return state.entity_id
+    return None
+
+
+def _find_browser_media_players(hass: HomeAssistant) -> list[str]:
+    """Find browser-based media players.
+
+    Args:
+        hass: Home Assistant instance
+
+    Returns:
+        List of browser media player entity IDs
+    """
     browser_candidates: list[str] = []
     for state in hass.states.async_all():
         try:
@@ -154,33 +209,25 @@ def _find_media_player(hass: HomeAssistant, override: str | None) -> str | None:
                 browser_candidates.append(ent_id)
         except Exception:  # pragma: no cover - defensive per-entity
             continue
-
-    if browser_candidates:
-        return browser_candidates[0]
-    
-    # Fallback to first available media player
-    for state in hass.states.async_all():
-        if state.entity_id.startswith("media_player.") and state.state not in ("unknown", "unavailable"):
-            return state.entity_id
-    return None
+    return browser_candidates
 
 
 def _find_tts_entity(hass: HomeAssistant, override: str | None) -> str | None:
     """Find an available TTS entity.
-    
+
     Can be overridden via service parameter. Auto-discovers first available TTS
     entity if not specified.
-    
+
     Args:
         hass: Home Assistant instance
         override: Explicitly provided tts_entity_id from service call
-    
+
     Returns:
         TTS entity ID string, or None if none available
     """
     if override:
         return override
-    
+
     for state in hass.states.async_all():
         if state.entity_id.startswith("tts."):
             return state.entity_id
@@ -189,12 +236,13 @@ def _find_tts_entity(hass: HomeAssistant, override: str | None) -> str | None:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Hangar Assistant integration global services."""
-    
+
     async def handle_manual_cleanup(call: ServiceCall) -> None:
         """Service to manually purge legal records past their retention date."""
         # Get retention from service call, fallback to 7 months
-        retention_months = call.data.get("retention_months", DEFAULT_RETENTION_MONTHS)
-        
+        retention_months = call.data.get(
+            "retention_months", DEFAULT_RETENTION_MONTHS)
+
         await async_cleanup_records(hass, retention_months)
 
     async def handle_rebuild_dashboard(call: ServiceCall) -> None:
@@ -202,9 +250,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.info("Rebuild dashboard service called")
         entries = hass.config_entries.async_entries(DOMAIN)
         if not entries:
-            _LOGGER.warning("No Hangar Assistant config entry found for dashboard rebuild")
+            _LOGGER.warning(
+                "No Hangar Assistant config entry found for dashboard rebuild")
             return
-        
+
         entry = entries[0]  # Use the first (and typically only) entry
         _LOGGER.info("Starting dashboard rebuild with force_rebuild=True")
         result = await async_create_dashboard(
@@ -216,7 +265,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if result:
             _LOGGER.info("✅ Hangar Assistant dashboard rebuilt successfully")
         else:
-            _LOGGER.warning("⚠️ Dashboard rebuild completed but may not have created/updated the file")
+            _LOGGER.warning(
+                "⚠️ Dashboard rebuild completed but may not have created/updated the file")
 
     async def handle_refresh_ai_briefings(call: ServiceCall) -> None:
         """Service to manually refresh AI pre-flight briefings."""
@@ -238,22 +288,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             - tts_entity_id: TTS engine entity (e.g., tts.cloud)
             - media_player_entity_id: Target media player (e.g., media_player.living_room)
         """
-        # Resolve airfield slug
-        slug = _resolve_airfield_slug(hass)
-        if not slug:
-            _LOGGER.warning("No airfield slug found for AI briefing; cannot speak")
-            return
-
-        briefing_state = hass.states.get(f"sensor.{slug}_ai_pre_flight_briefing")
-        briefing = (
-            briefing_state.attributes.get("briefing") if briefing_state else None
-        )
+        # Get briefing text
+        briefing = _get_briefing_text(hass)
         if not briefing:
-            _LOGGER.warning("AI briefing text not available; skipping TTS")
             return
 
         # Resolve media player and TTS entity
-        media_player = _find_media_player(hass, call.data.get("media_player_entity_id"))
+        media_player = _find_media_player(
+            hass, call.data.get("media_player_entity_id"))
         tts_entity = _find_tts_entity(hass, call.data.get("tts_entity_id"))
 
         if not media_player or not tts_entity:
@@ -275,50 +317,65 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             blocking=False,
         )
 
-    # Register the manual cleanup service (await if mocked as coroutine)
-    _schema_cleanup = vol.Schema({vol.Optional("retention_months"): cv.positive_int})
-    _res_cleanup = hass.services.async_register(DOMAIN, "manual_cleanup", handle_manual_cleanup, schema=_schema_cleanup)
-    if inspect.isawaitable(_res_cleanup):
-        await _res_cleanup
-    
-    # Register the dashboard rebuild service
-    _schema_rebuild = vol.Schema({})
-    _res_rebuild = hass.services.async_register(DOMAIN, "rebuild_dashboard", handle_rebuild_dashboard, schema=_schema_rebuild)
-    if inspect.isawaitable(_res_rebuild):
-        await _res_rebuild
+    # Register all services
+    await _register_service(
+        hass, "manual_cleanup", handle_manual_cleanup,
+        vol.Schema({vol.Optional("retention_months"): cv.positive_int})
+    )
+    await _register_service(
+        hass, "rebuild_dashboard", handle_rebuild_dashboard, vol.Schema({})
+    )
+    await _register_service(
+        hass, "refresh_ai_briefings", handle_refresh_ai_briefings, vol.Schema({})
+    )
+    await _register_service(
+        hass, "speak_briefing", handle_speak_briefing,
+        vol.Schema({
+            vol.Optional("tts_entity_id"): cv.entity_id,
+            vol.Optional("media_player_entity_id"): cv.entity_id,
+        })
+    )
 
-    # Register the AI briefing refresh service
-    _schema_refresh = vol.Schema({})
-    _res_refresh = hass.services.async_register(DOMAIN, "refresh_ai_briefings", handle_refresh_ai_briefings, schema=_schema_refresh)
-    if inspect.isawaitable(_res_refresh):
-        await _res_refresh
-
-    # Register TTS speak briefing service
-    _schema_speak = vol.Schema({
-        vol.Optional("tts_entity_id"): cv.entity_id,
-        vol.Optional("media_player_entity_id"): cv.entity_id,
-    })
-    _res_speak = hass.services.async_register(DOMAIN, "speak_briefing", handle_speak_briefing, schema=_schema_speak)
-    if inspect.isawaitable(_res_speak):
-        await _res_speak
-    
     return True
 
 
-async def _migrate_to_integrations(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _register_service(
+    hass: HomeAssistant,
+    service_name: str,
+    handler,
+    schema: vol.Schema
+) -> None:
+    """Register a service and handle mock awaitable responses.
+
+    Args:
+        hass: Home Assistant instance
+        service_name: Name of the service
+        handler: Service handler function
+        schema: Service schema for validation
+    """
+    result = hass.services.async_register(
+        DOMAIN, service_name, handler, schema=schema
+    )
+    if inspect.isawaitable(result):
+        await result
+
+
+async def _migrate_to_integrations(
+        hass: HomeAssistant,
+        entry: ConfigEntry) -> None:
     """Migrate OWM settings to integrations namespace with backward compatibility.
-    
+
     This migration ensures existing installations continue working while moving
     configuration to the new centralized integrations structure. Settings are
     preserved in both locations during transition period.
-    
+
     Args:
         hass: Home Assistant instance
         entry: Config entry to migrate
     """
     if "integrations" not in entry.data:
         settings = entry.data.get("settings", {})
-        
+
         integrations = {
             "openweathermap": {
                 "enabled": settings.get("openweathermap_enabled", False),
@@ -340,10 +397,10 @@ async def _migrate_to_integrations(hass: HomeAssistant, entry: ConfigEntry) -> N
                 "stale_cache_allowed": True
             }
         }
-        
+
         new_data = {**entry.data, "integrations": integrations}
         hass.config_entries.async_update_entry(entry, data=new_data)
-        
+
         _LOGGER.info("Migrated OWM settings to integrations namespace")
 
 
@@ -351,11 +408,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""
     # Migrate OWM settings to integrations namespace if needed
     await _migrate_to_integrations(hass, entry)
-    
-    dashboard_info = entry.data.get("dashboard_info", {}) if isinstance(entry.data, dict) else {}
+
+    dashboard_info = entry.data.get(
+        "dashboard_info",
+        {}) if isinstance(
+        entry.data,
+        dict) else {}
     force_dashboard_rebuild = should_force_dashboard_rebuild(dashboard_info)
 
-    # Create or refresh the dashboard on first setup, major version upgrade, or template change
+    # Create or refresh the dashboard on first setup, major version upgrade,
+    # or template change
     await async_create_dashboard(
         hass,
         entry,
@@ -370,15 +432,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for briefing in entry.data.get("briefings", []):
         async def run_briefing(now, b=briefing, e=entry):
             await async_send_briefing(hass, b, e)
-        
+
         # Parse HH:MM:SS or HH:MM
         time_parts = briefing["briefing_time"].split(":")
         hour = int(time_parts[0])
         minute = int(time_parts[1])
-        
+
         entry.async_on_unload(
-            async_track_time_change(hass, run_briefing, hour=hour, minute=minute, second=0)
-        )
+            async_track_time_change(
+                hass,
+                run_briefing,
+                hour=hour,
+                minute=minute,
+                second=0))
 
     # Reload integration if options change in the UI
     entry.async_on_unload(entry.add_update_listener(update_listener))
@@ -388,15 +454,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if ai_config.get("ai_agent_entity"):
         async def run_hourly_ai_briefing(now):
             await async_generate_all_ai_briefings(hass, entry)
-        
+
         entry.async_on_unload(
-            async_track_time_change(hass, run_hourly_ai_briefing, minute=0, second=0)
-        )
-        
+            async_track_time_change(
+                hass,
+                run_hourly_ai_briefing,
+                minute=0,
+                second=0))
+
         # Also run once on startup after sensors are ready
         async def wait_for_sensors_and_brief():
             """Wait for airfield sensors to be available before generating briefings.
-            
+
             Polls for sensor readiness up to 30 seconds with 1-second intervals.
             Proceeds once all airfield density altitude sensors are available or
             timeout expires.
@@ -407,7 +476,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for af in entry.data.get("airfields", [])
                 if isinstance(af, dict) and af.get("name")
             ]
-            
+
             # Wait up to 30 seconds for sensors to become available
             max_wait = 30
             for attempt in range(max_wait):
@@ -419,66 +488,217 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if not state or state.state in ("unknown", "unavailable"):
                         all_ready = False
                         break
-                
+
                 if all_ready:
-                    _LOGGER.debug("Sensors ready after %d seconds, generating AI briefings", attempt + 1)
+                    _LOGGER.debug(
+                        "Sensors ready after %d seconds, generating AI briefings",
+                        attempt + 1)
                     await async_generate_all_ai_briefings(hass, entry)
                     return
-                
+
                 await asyncio.sleep(1)
-            
+
             # Timeout - proceed anyway but log warning
             _LOGGER.warning(
                 "Sensor readiness timeout after %d seconds, generating AI briefings anyway",
-                max_wait
-            )
+                max_wait)
             await async_generate_all_ai_briefings(hass, entry)
-        
+
         hass.async_create_task(wait_for_sensors_and_brief())
 
     # Set up scheduled NOTAM updates if enabled
     integrations = entry.data.get("integrations", {})
     notam_config = integrations.get("notams", {})
-    
+
     if notam_config.get("enabled"):
         from .utils.notam import NOTAMClient
-        
+
         update_time = notam_config.get("update_time", "02:00")
         hour, minute = map(int, update_time.split(":"))
-        
+
         async def update_notams(now):
             """Scheduled NOTAM update."""
-            notam_client = NOTAMClient(hass, notam_config.get("cache_days", 7), entry)
+            notam_client = NOTAMClient(
+                hass, notam_config.get(
+                    "cache_days", 7), entry)
             try:
                 notams, is_stale = await notam_client.fetch_notams()
-                _LOGGER.info("Updated %d NOTAMs at scheduled time (stale: %s)", len(notams), is_stale)
-                
+                _LOGGER.info(
+                    "Updated %d NOTAMs at scheduled time (stale: %s)",
+                    len(notams),
+                    is_stale)
+
             except Exception as e:
                 _LOGGER.error("NOTAM scheduled update failed: %s", e)
-        
+
         # Schedule daily update
         entry.async_on_unload(
-            async_track_time_change(hass, update_notams, hour=hour, minute=minute, second=0)
-        )
-        
+            async_track_time_change(
+                hass,
+                update_notams,
+                hour=hour,
+                minute=minute,
+                second=0))
+
         # Also run once on startup (after a brief delay for network)
         async def initial_notam_update():
             import asyncio
             await asyncio.sleep(10)  # Wait 10 seconds for network to be ready
-            notam_client = NOTAMClient(hass, notam_config.get("cache_days", 7), entry)
+            notam_client = NOTAMClient(
+                hass, notam_config.get(
+                    "cache_days", 7), entry)
             try:
                 notams, is_stale = await notam_client.fetch_notams()
-                _LOGGER.info("Initial NOTAM fetch: %d NOTAMs (stale: %s)", len(notams), is_stale)
+                _LOGGER.info(
+                    "Initial NOTAM fetch: %d NOTAMs (stale: %s)",
+                    len(notams),
+                    is_stale)
             except Exception as e:
-                _LOGGER.debug("Initial NOTAM fetch failed (will retry at scheduled time): %s", e)
-        
+                _LOGGER.debug(
+                    "Initial NOTAM fetch failed (will retry at scheduled time): %s", e)
+
         hass.async_create_task(initial_notam_update())
-    
+
     return True
+
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the integration."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _get_template_path() -> str:
+    """Get the dashboard template file path.
+
+    Returns:
+        Absolute path to glass_cockpit.yaml template
+    """
+    return os.path.join(
+        os.path.dirname(__file__),
+        "dashboard_templates",
+        "glass_cockpit.yaml"
+    )
+
+
+def _validate_template(template_path: str) -> bool:
+    """Validate dashboard template exists and is within size limits.
+
+    Args:
+        template_path: Path to template file
+
+    Returns:
+        True if template is valid, False otherwise
+    """
+    MAX_DASHBOARD_SIZE = 5 * 1024 * 1024  # 5MB
+
+    if not os.path.exists(template_path):
+        _LOGGER.error("Dashboard template not found at: %s", template_path)
+        return False
+
+    template_size = os.path.getsize(template_path)
+    if template_size > MAX_DASHBOARD_SIZE:
+        _LOGGER.error(
+            "Dashboard template exceeds maximum size limit: %d bytes (max: %d bytes)",
+            template_size,
+            MAX_DASHBOARD_SIZE)
+        return False
+
+    return True
+
+
+def _get_dashboard_path(hass: HomeAssistant) -> str:
+    """Get the dashboard output file path.
+
+    Args:
+        hass: Home Assistant instance
+
+    Returns:
+        Absolute path to hangar_assistant.yaml dashboard
+    """
+    dashboards_path = hass.config.path("dashboards")
+    return os.path.join(dashboards_path, "hangar_assistant.yaml")
+
+
+def _should_rebuild_dashboard(
+    dashboard_path: str,
+    entry: ConfigEntry | None,
+    force_rebuild: bool
+) -> bool:
+    """Check if dashboard needs to be rebuilt.
+
+    Args:
+        dashboard_path: Path to dashboard file
+        entry: Config entry (optional)
+        force_rebuild: Force rebuild flag
+
+    Returns:
+        True if rebuild needed, False otherwise
+    """
+    dashboard_exists = os.path.exists(dashboard_path)
+
+    # Always rebuild if forced or dashboard doesn't exist
+    if force_rebuild or not dashboard_exists:
+        return True
+
+    # Check version mismatch
+    if entry:
+        dashboard_info = entry.data.get("dashboard_info", {})
+        try:
+            stored_version = int(dashboard_info.get("version", 0))
+            if stored_version < DEFAULT_DASHBOARD_VERSION:
+                return True
+        except (TypeError, ValueError):
+            return True
+
+    return False
+
+
+def _load_dashboard_template(template_path: str) -> dict | None:
+    """Load dashboard template from YAML file.
+
+    Args:
+        template_path: Path to template file
+
+    Returns:
+        Dashboard config dict or None on error
+    """
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        _LOGGER.error("YAML parsing error in dashboard template: %s", e)
+        return None
+    except OSError as e:
+        _LOGGER.error("Error reading dashboard template: %s", e)
+        return None
+
+
+def _write_dashboard(dashboard_path: str, dashboard_config: dict) -> bool:
+    """Write dashboard config to file.
+
+    Args:
+        dashboard_path: Path to output file
+        dashboard_config: Dashboard configuration dict
+
+    Returns:
+        True on success, False on error
+    """
+    try:
+        # Create directory if needed
+        os.makedirs(os.path.dirname(dashboard_path), exist_ok=True)
+
+        # Write dashboard
+        with open(dashboard_path, "w", encoding="utf-8") as f:
+            yaml.dump(
+                dashboard_config,
+                f,
+                default_flow_style=False,
+                allow_unicode=True)
+        return True
+    except OSError as e:
+        _LOGGER.error("File system error during dashboard creation: %s", e)
+        return False
+
 
 async def async_create_dashboard(
     hass: HomeAssistant,
@@ -487,7 +707,7 @@ async def async_create_dashboard(
     reason: str | None = None,
 ) -> bool:
     """Create or rebuild the Hangar Assistant dashboard from the template.
-    
+
     Args:
         hass: Home Assistant instance.
         entry: Config entry for this integration (optional for service-triggered rebuilds).
@@ -497,75 +717,32 @@ async def async_create_dashboard(
     Returns:
         True when the dashboard was created or refreshed successfully, False on failure.
     """
-    
+
     def _generate_dashboard():
         """Sync function to perform blocking I/O."""
-        # Maximum dashboard template size (5MB) to prevent memory exhaustion
-        MAX_DASHBOARD_SIZE = 5 * 1024 * 1024
-        
         try:
-            # Get the template file path
-            template_path = os.path.join(
-                os.path.dirname(__file__),
-                "dashboard_templates",
-                "glass_cockpit.yaml"
-            )
-            
-            # Verify template exists
-            if not os.path.exists(template_path):
-                _LOGGER.error("Dashboard template not found at: %s", template_path)
+            # Validate template
+            template_path = _get_template_path()
+            if not _validate_template(template_path):
                 return False
-            
-            # Validate template size before loading
-            template_size = os.path.getsize(template_path)
-            if template_size > MAX_DASHBOARD_SIZE:
-                _LOGGER.error(
-                    "Dashboard template exceeds maximum size limit: %d bytes (max: %d bytes)",
-                    template_size,
-                    MAX_DASHBOARD_SIZE
-                )
+
+            # Check if rebuild needed
+            dashboard_yaml_path = _get_dashboard_path(hass)
+            if not _should_rebuild_dashboard(
+                dashboard_yaml_path, entry, force_rebuild
+            ):
                 return False
-            
-            # Check if dashboard file exists
-            dashboards_path = hass.config.path("dashboards")
-            dashboard_yaml_path = os.path.join(dashboards_path, "hangar_assistant.yaml")
-            
-            # Get current dashboard version from config entry
-            stored_version = 0
-            if entry:
-                dashboard_info = entry.data.get("dashboard_info", {})
-                try:
-                    stored_version = int(dashboard_info.get("version", 0))
-                except (TypeError, ValueError):
-                    stored_version = 0
-            
-            # Check if we need to rebuild
-            dashboard_exists = os.path.exists(dashboard_yaml_path)
-            version_mismatch = stored_version < DEFAULT_DASHBOARD_VERSION
-            
-            if dashboard_exists and not force_rebuild and not version_mismatch:
+
+            # Load and write dashboard
+            dashboard_config = _load_dashboard_template(template_path)
+            if dashboard_config is None:
                 return False
-            
-            # Read the template file
-            with open(template_path, "r", encoding="utf-8") as f:
-                dashboard_config = yaml.safe_load(f)
-            
-            # Create dashboards directory if it doesn't exist
-            os.makedirs(dashboards_path, exist_ok=True)
-            
-            # Write the dashboard to the dashboards directory
-            with open(dashboard_yaml_path, "w", encoding="utf-8") as f:
-                yaml.dump(dashboard_config, f, default_flow_style=False, allow_unicode=True)
-            
-            return True
-        except OSError as e:
-            _LOGGER.error("File system error during dashboard creation: %s", e)
-            return False
-        except yaml.YAMLError as e:
-            _LOGGER.error("YAML parsing error in dashboard template: %s", e)
-            return False
+
+            return _write_dashboard(dashboard_yaml_path, dashboard_config)
+
         except Exception as e:
-            _LOGGER.error("Unexpected error in dashboard file operations: %s", e)
+            _LOGGER.error(
+                "Unexpected error in dashboard file operations: %s", e)
             return False
 
     # Run the blocking I/O in the executor
@@ -575,76 +752,101 @@ async def async_create_dashboard(
         force_rebuild,
     )
     result = await hass.async_add_executor_job(_generate_dashboard)
-    
+
     if not result:
         return False
 
-    try:
-        # Update config entry with new dashboard version ONLY if changed
-        if entry:
-            dashboard_info = entry.data.get("dashboard_info", {})
-            try:
-                current_stored_version = int(dashboard_info.get("version", 0))
-            except (TypeError, ValueError):
-                current_stored_version = 0
-            stored_major = _extract_major_version(
-                dashboard_info.get("integration_version")
-                or dashboard_info.get("integration_major")
-            )
+    # Update metadata and reload dashboards
+    _update_dashboard_metadata(hass, entry, force_rebuild, reason)
+    await _reload_dashboards(hass)
 
-            if (
-                force_rebuild
-                or current_stored_version < DEFAULT_DASHBOARD_VERSION
-                or stored_major != INTEGRATION_MAJOR_VERSION
-            ):
-                _LOGGER.debug(
-                    "Updating dashboard metadata (reason=%s, stored_version=%s, stored_major=%s)",
-                    reason or "auto",
-                    current_stored_version,
-                    stored_major,
-                )
-                new_data = dict(entry.data)
-                updated_dashboard_info = dict(dashboard_info)
-                updated_dashboard_info.update(
-                    {
-                        "version": DEFAULT_DASHBOARD_VERSION,
-                        "last_updated": dt_util.now().isoformat(),
-                        "integration_version": INTEGRATION_VERSION,
-                        "integration_major": INTEGRATION_MAJOR_VERSION,
-                    }
-                )
-                new_data["dashboard_info"] = updated_dashboard_info
-                hass.config_entries.async_update_entry(entry, data=new_data)
-        
-        # Trigger dashboard reload via service if available
-        if hass.services.has_service("frontend", "reload_themes"):
-            await hass.services.async_call("frontend", "reload_themes")
-        
-        if hass.services.has_service("lovelace", "reload_dashboards"):
-            try:
-                await hass.services.async_call("lovelace", "reload_dashboards")
-            except Exception as e:
-                _LOGGER.debug("Could not reload dashboards via lovelace service: %s", e)
-        
-        _LOGGER.info("Dashboard creation completed for Hangar Assistant")
-        return True
-        
-    except Exception as e:
-        _LOGGER.error("Error updating Hangar Assistant dashboard state: %s", e)
-        return False
+    _LOGGER.info("Dashboard creation completed for Hangar Assistant")
+    return True
+
+
+def _update_dashboard_metadata(
+    hass: HomeAssistant,
+    entry: ConfigEntry | None,
+    force_rebuild: bool,
+    reason: str | None
+) -> None:
+    """Update dashboard metadata in config entry.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry (optional)
+        force_rebuild: Whether this was a forced rebuild
+        reason: Rebuild reason for logging
+    """
+    if not entry:
+        return
+
+    dashboard_info = entry.data.get("dashboard_info", {})
+    try:
+        current_stored_version = int(dashboard_info.get("version", 0))
+    except (TypeError, ValueError):
+        current_stored_version = 0
+
+    stored_major = _extract_major_version(
+        dashboard_info.get("integration_version")
+        or dashboard_info.get("integration_major")
+    )
+
+    # Only update if version changed
+    if (
+        force_rebuild
+        or current_stored_version < DEFAULT_DASHBOARD_VERSION
+        or stored_major != INTEGRATION_MAJOR_VERSION
+    ):
+        _LOGGER.debug(
+            "Updating dashboard metadata (reason=%s, stored_version=%s, stored_major=%s)",
+            reason or "auto",
+            current_stored_version,
+            stored_major,
+        )
+        new_data = dict(entry.data)
+        updated_dashboard_info = dict(dashboard_info)
+        updated_dashboard_info.update(
+            {
+                "version": DEFAULT_DASHBOARD_VERSION,
+                "last_updated": dt_util.now().isoformat(),
+                "integration_version": INTEGRATION_VERSION,
+                "integration_major": INTEGRATION_MAJOR_VERSION,
+            }
+        )
+        new_data["dashboard_info"] = updated_dashboard_info
+        hass.config_entries.async_update_entry(entry, data=new_data)
+
+
+async def _reload_dashboards(hass: HomeAssistant) -> None:
+    """Trigger dashboard reload via Home Assistant services.
+
+    Args:
+        hass: Home Assistant instance
+    """
+    if hass.services.has_service("frontend", "reload_themes"):
+        await hass.services.async_call("frontend", "reload_themes")
+
+    if hass.services.has_service("lovelace", "reload_dashboards"):
+        try:
+            await hass.services.async_call("lovelace", "reload_dashboards")
+        except Exception as e:
+            _LOGGER.debug(
+                "Could not reload dashboards via lovelace service: %s", e)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
+
 async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
     """Logic to delete old PDF declarations from local storage.
-    
+
     Uses os.scandir() for efficient directory traversal with lower memory footprint
     compared to os.listdir(). This is particularly beneficial for large archives
     with hundreds or thousands of PDF files.
-    
+
     Args:
         hass: Home Assistant instance
         months: Retention period in months (files older than this are deleted)
@@ -656,7 +858,8 @@ async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
 
     def _cleanup():
         if os.path.exists(path):
-            # Use scandir() for iterator-based processing (lower memory footprint)
+            # Use scandir() for iterator-based processing (lower memory
+            # footprint)
             with os.scandir(path) as entries:
                 for entry in entries:
                     if entry.is_file():
@@ -664,39 +867,46 @@ async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
                             file_mtime = entry.stat().st_mtime
                             if (now - file_mtime) > cutoff_seconds:
                                 os.remove(entry.path)
-                                _LOGGER.info("Deleted expired aviation record: %s", entry.name)
+                                _LOGGER.info(
+                                    "Deleted expired aviation record: %s", entry.name)
                         except OSError as e:
-                            _LOGGER.error("Error managing record %s: %s", entry.name, e)
+                            _LOGGER.error(
+                                "Error managing record %s: %s", entry.name, e)
 
     await hass.async_add_executor_job(_cleanup)
+
 
 async def _request_ai_briefing_with_retry(
     hass: HomeAssistant, agent_id: str, airfield_name: str, user_prompt: str
 ) -> bool:
     """Request AI briefing for an airfield with exponential backoff retry.
-    
+
     Attempts to call the conversation.process service up to 3 times with
     exponential backoff on failure. Fires hangar_assistant_ai_briefing event
     on success.
-    
+
     Args:
         hass: Home Assistant instance
         agent_id: The AI agent entity ID to use
         airfield_name: The airfield name (for logging and event data)
         user_prompt: The complete prompt to send to the AI agent
-    
+
     Returns:
         True if briefing generated successfully, False otherwise
     """
     import asyncio
-    
+
     MAX_RETRIES = 3
     BACKOFF_SECONDS = 60
-    
+
     for retry in range(MAX_RETRIES):
         try:
-            _LOGGER.debug("Requesting AI briefing for %s from %s (attempt %d/%d)",
-                        airfield_name, agent_id, retry + 1, MAX_RETRIES)
+            _LOGGER.debug(
+                "Requesting AI briefing for %s from %s (attempt %d/%d)",
+                airfield_name,
+                agent_id,
+                retry + 1,
+                MAX_RETRIES)
             result = await hass.services.async_call(
                 "conversation",
                 "process",
@@ -707,7 +917,7 @@ async def _request_ai_briefing_with_retry(
                 blocking=True,
                 return_response=True
             )
-            
+
             if result and "response" in result:
                 try:
                     response_text = result["response"]["speech"]["plain"]["speech"]
@@ -716,38 +926,388 @@ async def _request_ai_briefing_with_retry(
                         "airfield_name": airfield_name,
                         "text": response_text
                     })
-                    _LOGGER.info("Successfully generated AI briefing for %s", airfield_name)
+                    _LOGGER.info(
+                        "Successfully generated AI briefing for %s",
+                        airfield_name)
                     return True
                 except (KeyError, TypeError) as e:
-                    _LOGGER.error("AI Agent returned an unexpected response format for %s: %s",
-                                airfield_name, result)
+                    _LOGGER.error(
+                        "AI Agent returned an unexpected response format for %s: %s",
+                        airfield_name,
+                        result)
                     return False  # Don't retry format errors
             else:
-                _LOGGER.warning("AI Agent %s returned no response for %s", agent_id, airfield_name)
+                _LOGGER.warning(
+                    "AI Agent %s returned no response for %s",
+                    agent_id,
+                    airfield_name)
                 if retry < MAX_RETRIES - 1:
                     # Wait before retry (exponential backoff)
                     wait_time = BACKOFF_SECONDS * (2 ** retry)
-                    _LOGGER.info("Retrying AI briefing for %s in %d seconds", airfield_name, wait_time)
+                    _LOGGER.info(
+                        "Retrying AI briefing for %s in %d seconds",
+                        airfield_name,
+                        wait_time)
                     await asyncio.sleep(wait_time)
                 else:
-                    _LOGGER.error("AI briefing failed for %s after %d attempts", airfield_name, MAX_RETRIES)
+                    _LOGGER.error(
+                        "AI briefing failed for %s after %d attempts",
+                        airfield_name,
+                        MAX_RETRIES)
                     return False
         except Exception as e:
-            _LOGGER.error("Error generating AI briefing for %s (attempt %d/%d): %s",
-                        airfield_name, retry + 1, MAX_RETRIES, e)
+            _LOGGER.error(
+                "Error generating AI briefing for %s (attempt %d/%d): %s",
+                airfield_name,
+                retry + 1,
+                MAX_RETRIES,
+                e)
             if retry < MAX_RETRIES - 1:
                 # Wait before retry (exponential backoff)
                 wait_time = BACKOFF_SECONDS * (2 ** retry)
-                _LOGGER.info("Retrying AI briefing for %s in %d seconds", airfield_name, wait_time)
+                _LOGGER.info(
+                    "Retrying AI briefing for %s in %d seconds",
+                    airfield_name,
+                    wait_time)
                 await asyncio.sleep(wait_time)
             else:
-                _LOGGER.error("AI briefing failed for %s after %d attempts", airfield_name, MAX_RETRIES)
+                _LOGGER.error(
+                    "AI briefing failed for %s after %d attempts",
+                    airfield_name,
+                    MAX_RETRIES)
                 return False
-    
+
     return False
 
 
-async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntry) -> None:
+def _gather_airfield_sensor_data(
+    hass: HomeAssistant,
+    slug: str,
+    airfield: dict
+) -> dict:
+    """Gather all sensor data for an airfield.
+
+    Args:
+        hass: Home Assistant instance
+        slug: Airfield slug
+        airfield: Airfield config dict
+
+    Returns:
+        Dictionary with all sensor values
+    """
+    best_rwy = hass.states.get(f"sensor.{slug}_best_runway")
+
+    return {
+        "da": hass.states.get(f"sensor.{slug}_density_altitude"),
+        "carb": hass.states.get(f"sensor.{slug}_carb_risk"),
+        "wind_speed": hass.states.get(f"sensor.{slug}_weather_wind_speed"),
+        "wind_dir": hass.states.get(f"sensor.{slug}_weather_wind_direction"),
+        "cloud_base": hass.states.get(f"sensor.{slug}_est_cloud_base"),
+        "best_rwy": best_rwy,
+        "temp": hass.states.get(f"sensor.{slug}_weather_temperature"),
+        "dp": hass.states.get(f"sensor.{slug}_weather_dew_point"),
+        "pressure": hass.states.get(f"sensor.{slug}_weather_pressure"),
+        "weather_age": hass.states.get(f"sensor.{slug}_weather_data_age"),
+        "safety_alert": hass.states.get(f"binary_sensor.{slug}_master_safety_alert"),
+        "crosswind": best_rwy.attributes.get("crosswind_component") if best_rwy and best_rwy.attributes else None,
+        "headwind": best_rwy.attributes.get("headwind_component") if best_rwy and best_rwy.attributes else None,
+        "runway_number": best_rwy.state if best_rwy else "unknown",
+        "runway_length": airfield.get("runway_length", "unknown"),
+    }
+
+
+def _get_timezone_and_solar_info(
+    hass: HomeAssistant,
+    slug: str,
+    lat: float | None,
+    lon: float | None
+) -> tuple[str, str, str]:
+    """Get timezone and solar information for an airfield.
+
+    Args:
+        hass: Home Assistant instance
+        slug: Airfield slug
+        lat: Latitude (optional)
+        lon: Longitude (optional)
+
+    Returns:
+        Tuple of (timezone, sunrise_time, sunset_time)
+    """
+    tz_sensor = hass.states.get(f"sensor.{slug}_airfield_timezone")
+    tz_value = tz_sensor.state if tz_sensor else None
+    if not tz_value:
+        tz_value = getattr(hass.config, "time_zone", None) or "UTC"
+
+    sunrise_time = "unknown"
+    sunset_time = "unknown"
+    if lat is not None and lon is not None:
+        try:
+            now = dt_util.now()
+            sunrise, sunset = calculate_sunset_sunrise(
+                float(lat), float(lon), now)
+            sunrise_time = sunrise.strftime("%H:%M %Z")
+            sunset_time = sunset.strftime("%H:%M %Z")
+        except Exception:
+            pass
+
+    return tz_value, sunrise_time, sunset_time
+
+
+def _process_notams_for_briefing(
+    hass: HomeAssistant,
+    slug: str,
+    notam_radius: int
+) -> str:
+    """Process NOTAMs for AI briefing.
+
+    Args:
+        hass: Home Assistant instance
+        slug: Airfield slug
+        notam_radius: NOTAM radius in nm
+
+    Returns:
+        Formatted NOTAM text for prompt
+    """
+    notam_sensor = hass.states.get(f"sensor.{slug}_notams")
+    if not notam_sensor or not notam_sensor.attributes:
+        return f"No NOTAMs available within {notam_radius}nm (or NOTAM data not configured)"
+
+    raw_notams = notam_sensor.attributes.get("notams", [])
+    if not raw_notams:
+        return f"No NOTAMs available within {notam_radius}nm (or NOTAM data not configured)"
+
+    # Parse Q-codes and sort by criticality
+    notams_data = []
+    for notam in raw_notams:
+        q_code = notam.get("q_code")
+        parsed = parse_qcode(q_code)
+        notam["parsed_qcode"] = parsed
+        notams_data.append(notam)
+    notams_data = sort_notams_by_criticality(notams_data)
+
+    # Format NOTAMs
+    notam_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    notam_details = []
+
+    for notam in notams_data:
+        parsed = notam.get("parsed_qcode", {})
+        crit = parsed.get("criticality", NOTAMCriticality.LOW).name
+        notam_counts[crit] += 1
+
+        emoji = get_criticality_emoji(parsed.get(
+            "criticality", NOTAMCriticality.LOW))
+        category = parsed.get("category", "UNKNOWN")
+        description = parsed.get("description", "")
+
+        notam_id = notam.get("id", "Unknown")
+        location = notam.get("location", "Unknown")
+        text = notam.get("text", "No details")
+        start = notam.get("start_time", "Unknown")
+        end = notam.get("end_time", "Unknown")
+
+        notam_details.append(
+            f"\n{emoji} {crit} - {notam_id} ({location}) - {category}"
+            f"\n  Q-code: {notam.get('q_code', 'N/A')} - {description}"
+            f"\n  Valid: {start} to {end}"
+            f"\n  Details: {text[:200]}..."
+            f"\n"
+        )
+
+    notam_summary = f"{len(notams_data)} NOTAMs within {notam_radius}nm:"
+    notam_summary += f" {notam_counts['CRITICAL']}🔴 CRITICAL, {notam_counts['HIGH']}🟠 HIGH, {notam_counts['MEDIUM']}🟡 MEDIUM, {notam_counts['LOW']}⚪ LOW"
+    return notam_summary + "".join(notam_details)
+
+
+def _process_forecast_for_briefing(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    slug: str,
+    lat: float | None,
+    lon: float | None,
+    now: datetime,
+    airfield_name: str
+) -> str:
+    """Process forecast data for AI briefing.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry
+        slug: Airfield slug
+        lat: Latitude (optional)
+        lon: Longitude (optional)
+        now: Current datetime
+        airfield_name: Airfield name for logging
+
+    Returns:
+        Formatted forecast text for prompt
+    """
+    if lat is None or lon is None:
+        return "\nCoordinates not available for forecast\n"
+
+    owm_enabled = entry.data.get(
+        "integrations", {}).get(
+        "openweathermap", {}).get("enabled", False)
+
+    if not owm_enabled:
+        return "\nOpenWeatherMap forecast not enabled\n"
+
+    try:
+        window_start, window_end, is_overnight = get_forecast_window(
+            float(lat), float(lon), now)
+
+        forecast_hourly_sensor = hass.states.get(
+            f"sensor.{slug}_weather_forecast_hourly")
+
+        if not forecast_hourly_sensor or not forecast_hourly_sensor.attributes:
+            return "\nOWM forecast sensor not available\n"
+
+        forecast_raw = forecast_hourly_sensor.attributes.get("forecast", [])
+        if not forecast_raw:
+            return "\nForecast data empty\n"
+
+        # Filter forecast to window
+        forecast_data = [
+            item for item in forecast_raw
+            if (item_time := dt_util.parse_datetime(item.get("datetime")))
+            and window_start <= item_time <= window_end
+        ]
+
+        if not forecast_data:
+            return "\nNo forecast data in window\n"
+
+        return _format_forecast_text(
+            forecast_data, window_end, is_overnight, window_start
+        )
+
+    except Exception as e:
+        _LOGGER.warning(
+            "Error processing forecast for %s: %s", airfield_name, e)
+        return f"\nError processing forecast: {e}\n"
+
+
+def _format_forecast_text(
+    forecast_data: list,
+    window_end: datetime,
+    is_overnight: bool,
+    window_start: datetime
+) -> str:
+    """Format forecast data into text for AI prompt.
+
+    Args:
+        forecast_data: List of forecast items
+        window_end: End of forecast window
+        is_overnight: Whether forecast extends overnight
+        window_start: Start of forecast window
+
+    Returns:
+        Formatted forecast text
+    """
+    # Analyze trends
+    trends = analyze_forecast_trends(forecast_data)
+
+    forecast_text = f"\n### FORECAST TO {window_end.strftime('%H:%M %Z')}:\n"
+    forecast_text += f"Overall Trend: {trends['overall'].upper()}\n"
+    forecast_text += f"Summary: {trends['summary']}\n\n"
+    forecast_text += "Key Forecast Points:\n"
+
+    # Show forecast every 2-3 hours
+    step = max(1, len(forecast_data) // 4)
+    for item in forecast_data[::step]:
+        time_str = dt_util.parse_datetime(
+            item.get("datetime")).strftime("%H:%M")
+        temp_f = item.get("temperature", "?")
+        wind_speed_f = item.get("wind_speed", "?")
+        wind_dir_f = item.get("wind_bearing", "?")
+        clouds_f = item.get("cloud_coverage", "?")
+        precip_f = item.get("precipitation", 0)
+
+        forecast_text += (
+            f"  {time_str}: {temp_f}°C, Wind {wind_speed_f}kt @ {wind_dir_f}°, "
+            f"Clouds {clouds_f}%, Precip {precip_f}mm\n")
+
+    # Check overnight conditions
+    if is_overnight:
+        overnight_warnings = check_overnight_conditions(
+            forecast_data, window_start, window_end)
+
+        if overnight_warnings["has_warnings"]:
+            forecast_text += f"\n⚠️ OVERNIGHT WARNINGS:\n{overnight_warnings['summary']}\n"
+            for detail in overnight_warnings["details"]:
+                forecast_text += f"  - {detail}\n"
+    else:
+        forecast_text += "\n(No overnight period in forecast window)\n"
+
+    return forecast_text
+
+
+def _build_briefing_prompt(
+    system_instructions: str,
+    airfield_name: str,
+    icao: str,
+    airfield: dict,
+    sensor_data: dict,
+    tz_value: str,
+    sunrise_time: str,
+    sunset_time: str,
+    now: datetime,
+    notam_text: str,
+    notam_radius: int,
+    forecast_text: str
+) -> str:
+    """Build the complete AI briefing prompt.
+
+    Args:
+        system_instructions: System prompt text
+        airfield_name: Name of airfield
+        icao: ICAO code
+        airfield: Airfield config dict
+        sensor_data: Dictionary of all sensor values
+        tz_value: Timezone string
+        sunrise_time: Formatted sunrise time
+        sunset_time: Formatted sunset time
+        now: Current datetime
+        notam_text: Formatted NOTAM text
+        notam_radius: NOTAM radius in nm
+        forecast_text: Formatted forecast text
+
+    Returns:
+        Complete prompt string
+    """
+    lat = airfield.get("latitude")
+    lon = airfield.get("longitude")
+
+    return (
+        f"{system_instructions}\n\n"
+        f"### LIVE DATA FOR {airfield_name} ({icao}):\n"
+        f"**Airfield Information:**\n"
+        f"- ICAO: {icao}\n"
+        f"- Coordinates: {lat}, {lon}\n"
+        f"- Elevation: {airfield.get('elevation', 'unknown')} m\n"
+        f"- Runway: {sensor_data['runway_number']} - {sensor_data['runway_length']}m\n"
+        f"- Timezone: {tz_value}\n"
+        f"- Current Time: {now.strftime('%H:%M %Z')}\n"
+        f"- Sunrise: {sunrise_time} | Sunset: {sunset_time}\n\n"
+        f"**Current Weather:**\n"
+        f"- Wind: {sensor_data['wind_speed'].state if sensor_data['wind_speed'] else 'unknown'}kt at {sensor_data['wind_dir'].state if sensor_data['wind_dir'] else 'unknown'}°\n"
+        f"- Crosswind: {sensor_data['crosswind'] if sensor_data['crosswind'] else 'unknown'}kt | Headwind: {sensor_data['headwind'] if sensor_data['headwind'] else 'unknown'}kt\n"
+        f"- Temperature: {sensor_data['temp'].state if sensor_data['temp'] else 'unknown'}°C | Dew Point: {sensor_data['dp'].state if sensor_data['dp'] else 'unknown'}°C\n"
+        f"- Pressure: {sensor_data['pressure'].state if sensor_data['pressure'] else 'unknown'} hPa\n"
+        f"- Cloud Base (Est): {sensor_data['cloud_base'].state if sensor_data['cloud_base'] else 'unknown'} ft AGL\n"
+        f"- Density Altitude: {sensor_data['da'].state if sensor_data['da'] else 'unknown'} ft\n"
+        f"- Carburettor Icing Risk: {sensor_data['carb'].state if sensor_data['carb'] else 'unknown'}\n"
+        f"- Recommended Runway: {sensor_data['runway_number']}\n"
+        f"- Weather Data Age: {sensor_data['weather_age'].state if sensor_data['weather_age'] else 'unknown'} minutes\n"
+        f"- Master Safety Alert: {'ACTIVE ⚠️' if sensor_data['safety_alert'] and sensor_data['safety_alert'].state == 'on' else 'OK ✓'}\n\n"
+        f"**NOTAMs ({notam_radius}nm radius):**\n"
+        f"{notam_text}\n\n"
+        f"**FORECAST:**\n"
+        f"{forecast_text}\n\n"
+        f"Please provide the briefing based on this data following the CFI morning brief format specified.")
+
+
+async def async_generate_all_ai_briefings(
+        hass: HomeAssistant,
+        entry: ConfigEntry) -> None:
     """Trigger AI briefing generation for all airfields."""
     ai_config = entry.data.get("ai_assistant", {})
     agent_id = ai_config.get("ai_agent_entity")
@@ -755,7 +1315,10 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
         return
 
     # Load system prompt from file without blocking the event loop
-    prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "preflight_brief.txt")
+    prompt_path = os.path.join(
+        os.path.dirname(__file__),
+        "prompts",
+        "preflight_brief.txt")
 
     def _read_prompt_file() -> str:
         if not os.path.exists(prompt_path):
@@ -767,15 +1330,18 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
             _LOGGER.error("Error reading preflight_brief.txt: %s", e)
             return ""
         except Exception as e:
-            _LOGGER.error("Unexpected error reading preflight_brief.txt: %s", e)
+            _LOGGER.error(
+                "Unexpected error reading preflight_brief.txt: %s", e)
             return ""
 
     system_instructions = await hass.async_add_executor_job(_read_prompt_file)
-    
+
     # Get global settings for NOTAM radius
     settings = entry.data.get("settings", {})
-    default_notam_radius = settings.get("notam_default_radius_nm", DEFAULT_NOTAM_RADIUS_NM)
-    
+    default_notam_radius = settings.get(
+        "notam_default_radius_nm",
+        DEFAULT_NOTAM_RADIUS_NM)
+
     # Generate briefings for each airfield
     for airfield in entry.data.get("airfields", []):
         airfield_name = airfield["name"]
@@ -783,230 +1349,68 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
         icao = airfield.get("icao_code", "unknown")
         lat = airfield.get("latitude")
         lon = airfield.get("longitude")
-        
-        # Get NOTAM radius (airfield override or global default)
-        notam_radius = airfield.get("notam_radius_override") or default_notam_radius
-        
-        # Get current data from our sensors
-        da = hass.states.get(f"sensor.{slug}_density_altitude")
-        carb = hass.states.get(f"sensor.{slug}_carb_risk")
-        wind_speed = hass.states.get(f"sensor.{slug}_weather_wind_speed")
-        wind_dir = hass.states.get(f"sensor.{slug}_weather_wind_direction")
-        cloud_base = hass.states.get(f"sensor.{slug}_est_cloud_base")
-        best_rwy = hass.states.get(f"sensor.{slug}_best_runway")
-        temp = hass.states.get(f"sensor.{slug}_weather_temperature")
-        dp = hass.states.get(f"sensor.{slug}_weather_dew_point")
-        pressure = hass.states.get(f"sensor.{slug}_weather_pressure")
-        weather_age = hass.states.get(f"sensor.{slug}_weather_data_age")
-        safety_alert = hass.states.get(f"binary_sensor.{slug}_master_safety_alert")
-        tz = hass.states.get(f"sensor.{slug}_airfield_timezone")
-        
-        # Get crosswind from best runway sensor attributes
-        crosswind = None
-        headwind = None
-        if best_rwy and best_rwy.attributes:
-            crosswind = best_rwy.attributes.get("crosswind_component")
-            headwind = best_rwy.attributes.get("headwind_component")
-        
-        # Get runway info if available
-        runway_number = best_rwy.state if best_rwy else "unknown"
-        runway_length = airfield.get("runway_length", "unknown")
-        
-        # Get timezone
-        tz_value = None
-        if tz:
-            tz_value = tz.state
-        if not tz_value:
-            tz_value = getattr(hass.config, "time_zone", None) or "UTC"
-        
-        # Get current time and solar information
-        now = dt_util.now()
-        sun = hass.states.get("sun.sun")
-        next_event = "unknown"
-        if sun:
-            next_rising = sun.attributes.get("next_rising")
-            next_setting = sun.attributes.get("next_setting")
-            next_event = f"Next Sunrise: {next_rising}, Next Sunset: {next_setting}"
-        
-        # Calculate sunset/sunrise if coordinates available
-        sunrise_time = "unknown"
-        sunset_time = "unknown"
-        if lat is not None and lon is not None:
-            try:
-                sunrise, sunset = calculate_sunset_sunrise(float(lat), float(lon), now)
-                sunrise_time = sunrise.strftime("%H:%M %Z")
-                sunset_time = sunset.strftime("%H:%M %Z")
-            except Exception as e:
-                _LOGGER.debug("Could not calculate sunrise/sunset for %s: %s", airfield_name, e)
-        
-        # Fetch NOTAMs from NOTAM sensor
-        notam_sensor = hass.states.get(f"sensor.{slug}_notams")
-        notams_data = []
-        if notam_sensor and notam_sensor.attributes:
-            raw_notams = notam_sensor.attributes.get("notams", [])
-            
-            # Parse Q-codes and add criticality to each NOTAM
-            for notam in raw_notams:
-                q_code = notam.get("q_code")
-                parsed = parse_qcode(q_code)
-                notam["parsed_qcode"] = parsed
-                notams_data.append(notam)
-            
-            # Sort by criticality (most critical first)
-            notams_data = sort_notams_by_criticality(notams_data)
-        
-        # Format NOTAMs for AI prompt
-        notam_text = ""
-        if notams_data:
-            notam_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
-            
-            for notam in notams_data:
-                parsed = notam.get("parsed_qcode", {})
-                crit = parsed.get("criticality", NOTAMCriticality.LOW).name
-                notam_counts[crit] += 1
-                
-                emoji = get_criticality_emoji(parsed.get("criticality", NOTAMCriticality.LOW))
-                category = parsed.get("category", "UNKNOWN")
-                description = parsed.get("description", "")
-                
-                notam_id = notam.get("id", "Unknown")
-                location = notam.get("location", "Unknown")
-                text = notam.get("text", "No details")
-                start = notam.get("start_time", "Unknown")
-                end = notam.get("end_time", "Unknown")
-                
-                notam_text += (
-                    f"\n{emoji} {crit} - {notam_id} ({location}) - {category}"
-                    f"\n  Q-code: {notam.get('q_code', 'N/A')} - {description}"
-                    f"\n  Valid: {start} to {end}"
-                    f"\n  Details: {text[:200]}..."  # Truncate long text
-                    f"\n"
-                )
-            
-            notam_summary = f"{len(notams_data)} NOTAMs within {notam_radius}nm:"
-            notam_summary += f" {notam_counts['CRITICAL']}🔴 CRITICAL, {notam_counts['HIGH']}🟠 HIGH, {notam_counts['MEDIUM']}🟡 MEDIUM, {notam_counts['LOW']}⚪ LOW"
-            notam_text = notam_summary + notam_text
-        else:
-            notam_text = f"No NOTAMs available within {notam_radius}nm (or NOTAM data not configured)"
-        
-        # Fetch OWM forecast data if enabled
-        forecast_text = ""
-        if lat is not None and lon is not None:
-            owm_enabled = entry.data.get("integrations", {}).get("openweathermap", {}).get("enabled", False)
-            
-            if owm_enabled:
-                # Get forecast window (current to sunset, or sunrise to sunset tomorrow)
-                try:
-                    window_start, window_end, is_overnight = get_forecast_window(float(lat), float(lon), now)
-                    
-                    # Fetch forecast data from OWM forecast sensor
-                    forecast_hourly_sensor = hass.states.get(f"sensor.{slug}_weather_forecast_hourly")
-                    
-                    if forecast_hourly_sensor and forecast_hourly_sensor.attributes:
-                        forecast_raw = forecast_hourly_sensor.attributes.get("forecast", [])
-                        
-                        if forecast_raw:
-                            # Filter forecast to window
-                            forecast_data = []
-                            for item in forecast_raw:
-                                item_time = dt_util.parse_datetime(item.get("datetime"))
-                                if item_time and window_start <= item_time <= window_end:
-                                    forecast_data.append(item)
-                            
-                            if forecast_data:
-                                # Analyze forecast trends
-                                trends = analyze_forecast_trends(forecast_data)
-                                
-                                forecast_text = f"\n### FORECAST TO {window_end.strftime('%H:%M %Z')}:\n"
-                                forecast_text += f"Overall Trend: {trends['overall'].upper()}\n"
-                                forecast_text += f"Summary: {trends['summary']}\n\n"
-                                forecast_text += "Key Forecast Points:\n"
-                                
-                                # Show forecast every 2-3 hours
-                                step = max(1, len(forecast_data) // 4)
-                                for item in forecast_data[::step]:
-                                    time_str = dt_util.parse_datetime(item.get("datetime")).strftime("%H:%M")
-                                    temp_f = item.get("temperature", "?")
-                                    wind_speed_f = item.get("wind_speed", "?")
-                                    wind_dir_f = item.get("wind_bearing", "?")
-                                    clouds_f = item.get("cloud_coverage", "?")
-                                    precip_f = item.get("precipitation", 0)
-                                    
-                                    forecast_text += (
-                                        f"  {time_str}: {temp_f}°C, Wind {wind_speed_f}kt @ {wind_dir_f}°, "
-                                        f"Clouds {clouds_f}%, Precip {precip_f}mm\n"
-                                    )
-                                
-                                # Check overnight conditions if forecast extends overnight
-                                if is_overnight:
-                                    overnight_warnings = check_overnight_conditions(forecast_data, window_start, window_end)
-                                    
-                                    if overnight_warnings["has_warnings"]:
-                                        forecast_text += f"\n⚠️ OVERNIGHT WARNINGS:\n{overnight_warnings['summary']}\n"
-                                        for detail in overnight_warnings["details"]:
-                                            forecast_text += f"  - {detail}\n"
-                                else:
-                                    forecast_text += "\n(No overnight period in forecast window)\n"
-                        else:
-                            forecast_text = "\nForecast data empty\n"
-                    else:
-                        forecast_text = "\nOWM forecast sensor not available\n"
-                        
-                except Exception as e:
-                    _LOGGER.warning("Error processing forecast for %s: %s", airfield_name, e)
-                    forecast_text = f"\nError processing forecast: {e}\n"
-            else:
-                forecast_text = "\nOpenWeatherMap forecast not enabled\n"
-        else:
-            forecast_text = "\nCoordinates not available for forecast\n"
 
-        user_prompt = (
-            f"{system_instructions}\n\n"
-            f"### LIVE DATA FOR {airfield_name} ({icao}):\n"
-            f"**Airfield Information:**\n"
-            f"- ICAO: {icao}\n"
-            f"- Coordinates: {lat}, {lon}\n"
-            f"- Elevation: {airfield.get('elevation', 'unknown')} m\n"
-            f"- Runway: {runway_number} - {runway_length}m\n"
-            f"- Timezone: {tz_value}\n"
-            f"- Current Time: {now.strftime('%H:%M %Z')}\n"
-            f"- Sunrise: {sunrise_time} | Sunset: {sunset_time}\n\n"
-            f"**Current Weather:**\n"
-            f"- Wind: {wind_speed.state if wind_speed else 'unknown'}kt at {wind_dir.state if wind_dir else 'unknown'}°\n"
-            f"- Crosswind: {crosswind if crosswind else 'unknown'}kt | Headwind: {headwind if headwind else 'unknown'}kt\n"
-            f"- Temperature: {temp.state if temp else 'unknown'}°C | Dew Point: {dp.state if dp else 'unknown'}°C\n"
-            f"- Pressure: {pressure.state if pressure else 'unknown'} hPa\n"
-            f"- Cloud Base (Est): {cloud_base.state if cloud_base else 'unknown'} ft AGL\n"
-            f"- Density Altitude: {da.state if da else 'unknown'} ft\n"
-            f"- Carburettor Icing Risk: {carb.state if carb else 'unknown'}\n"
-            f"- Recommended Runway: {runway_number}\n"
-            f"- Weather Data Age: {weather_age.state if weather_age else 'unknown'} minutes\n"
-            f"- Master Safety Alert: {'ACTIVE ⚠️' if safety_alert and safety_alert.state == 'on' else 'OK ✓'}\n\n"
-            f"**NOTAMs ({notam_radius}nm radius):**\n"
-            f"{notam_text}\n\n"
-            f"**FORECAST:**\n"
-            f"{forecast_text}\n\n"
-            f"Please provide the briefing based on this data following the CFI morning brief format specified."
+        # Get NOTAM radius (airfield override or global default)
+        notam_radius = airfield.get(
+            "notam_radius_override") or default_notam_radius
+
+        # Gather all sensor data
+        sensor_data = _gather_airfield_sensor_data(hass, slug, airfield)
+
+        # Get timezone and solar info
+        tz_value, sunrise_time, sunset_time = _get_timezone_and_solar_info(
+            hass, slug, lat, lon
+        )
+
+        # Process NOTAMs
+        notam_text = _process_notams_for_briefing(
+            hass, slug, notam_radius
+        )
+
+        # Process forecast data
+        now = dt_util.now()
+        forecast_text = _process_forecast_for_briefing(
+            hass, entry, slug, lat, lon, now, airfield_name
+        )
+
+        user_prompt = _build_briefing_prompt(
+            system_instructions,
+            airfield_name,
+            icao,
+            airfield,
+            sensor_data,
+            tz_value,
+            sunrise_time,
+            sunset_time,
+            now,
+            notam_text,
+            notam_radius,
+            forecast_text
         )
 
         # Request AI briefing with automatic retry on failure
         await _request_ai_briefing_with_retry(hass, agent_id, airfield_name, user_prompt)
 
-async def async_send_briefing(hass: HomeAssistant, briefing: dict, entry: ConfigEntry) -> None:
+
+async def async_send_briefing(
+        hass: HomeAssistant,
+        briefing: dict,
+        entry: ConfigEntry) -> None:
     """Compose and send the briefing email."""
     airfield_slug = briefing["airfield_name"].lower().replace(" ", "_")
     aircraft_slug = briefing["aircraft_reg"].lower().replace(" ", "_")
-    
+
     # Fetch current states
     da = hass.states.get(f"sensor.{airfield_slug}_density_altitude")
     carb = hass.states.get(f"sensor.{airfield_slug}_carb_risk")
     roll = hass.states.get(f"sensor.{aircraft_slug}_calculated_ground_roll")
-    
+
     # Get recipient emails from pilot names
     pilot_names = briefing.get("pilots", [])
     all_pilots = entry.data.get("pilots", [])
-    recipient_emails = [p["email"] for p in all_pilots if p["name"] in pilot_names]
-    
+    recipient_emails = [p["email"]
+                        for p in all_pilots if p["name"] in pilot_names]
+
     subject = f"✈️ Hangar Briefing: {briefing['airfield_name']} / {briefing['aircraft_reg']}"
     body = (
         f"Good morning Captain.\n\n"
@@ -1014,21 +1418,20 @@ async def async_send_briefing(hass: HomeAssistant, briefing: dict, entry: Config
         f"- Density Altitude: {da.state if da else 'N/A'} ft\n"
         f"- Carb Icing Risk: {carb.state if carb else 'N/A'}\n"
         f"- Predicted Ground Roll ({briefing['aircraft_reg']}): {roll.state if roll else 'N/A'} m\n\n"
-        f"Fly safe!"
-    )
+        f"Fly safe!")
 
     try:
         await hass.services.async_call(
-            "notify", 
-            "persistent_notification", # Fallback for demo, usually 'email' or 'mobile_app'
+            "notify",
+            "persistent_notification",  # Fallback for demo, usually 'email' or 'mobile_app'
             {
                 "title": subject,
                 "message": body
             }
         )
-        _LOGGER.info("Briefing for %s sent to %s pilots: %s", 
-                    briefing["airfield_name"], 
-                    len(recipient_emails), 
-                    ", ".join(recipient_emails))
+        _LOGGER.info("Briefing for %s sent to %s pilots: %s",
+                     briefing["airfield_name"],
+                     len(recipient_emails),
+                     ", ".join(recipient_emails))
     except Exception as e:
         _LOGGER.error("Failed to send briefing: %s", e)

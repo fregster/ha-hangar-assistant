@@ -5,7 +5,8 @@ from homeassistant.const import Platform
 DOMAIN = "hangar_assistant"
 
 # The list of platforms supported by this integration
-# In this version, we use 'sensor' for weather/performance and 'binary_sensor' for alerts.
+# In this version, we use 'sensor' for weather/performance and
+# 'binary_sensor' for alerts.
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,

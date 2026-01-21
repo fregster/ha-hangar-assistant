@@ -100,8 +100,7 @@ class NOTAMClient:
                 cache_age = self._get_cache_age_hours()
                 _LOGGER.warning(
                     "Using stale NOTAM cache (%d hours old) due to fetch failure",
-                    cache_age
-                )
+                    cache_age)
                 return stale_notams, True
 
             # No cache available
@@ -126,10 +125,14 @@ class NOTAMClient:
                 xml_content = await response.text()
                 notams = self._parse_pib_xml(xml_content)
                 self._write_cache(notams)
-                _LOGGER.info("Fetched %d NOTAMs from NATS PIB feed", len(notams))
+                _LOGGER.info(
+                    "Fetched %d NOTAMs from NATS PIB feed",
+                    len(notams))
                 return notams
             else:
-                _LOGGER.error("NATS PIB fetch failed: HTTP %d", response.status)
+                _LOGGER.error(
+                    "NATS PIB fetch failed: HTTP %d",
+                    response.status)
                 raise Exception(f"HTTP {response.status}")
 
     def _parse_pib_xml(self, xml_content: str) -> List[Dict[str, Any]]:
@@ -159,8 +162,8 @@ class NOTAMClient:
             # - UK NATS production feed uses <Notam> elements
             # - Test fixtures may use <PIB> or <NOTAM> elements
             notam_elements = (
-                root.findall(".//Notam") or 
-                root.findall(".//PIB") or 
+                root.findall(".//Notam") or
+                root.findall(".//PIB") or
                 root.findall(".//NOTAM")
             )
 
@@ -179,46 +182,54 @@ class NOTAMClient:
                     notam = {
                         "id": notam_id,
                         "location": (
-                            self._get_text(notam_elem, "ItemA") or  # UK NATS format
-                            self._get_text(notam_elem, "Location") or 
-                            self._get_text(notam_elem, "LOCATION") or 
+                            # UK NATS format
+                            self._get_text(notam_elem, "ItemA") or
+                            self._get_text(notam_elem, "Location") or
+                            self._get_text(notam_elem, "LOCATION") or
                             self._get_text(notam_elem, "ICAO")
                         ),
                         "category": (
-                            self._get_text(notam_elem, "Type") or  # UK NATS has Type field
-                            self._get_text(notam_elem, "Category") or 
-                            self._get_text(notam_elem, "CATEGORY") or 
+                            # UK NATS has Type field
+                            self._get_text(notam_elem, "Type") or
+                            self._get_text(notam_elem, "Category") or
+                            self._get_text(notam_elem, "CATEGORY") or
                             "UNKNOWN"
                         ),
                         "start_time": self._parse_datetime(
-                            self._get_text(notam_elem, "StartValidity") or  # UK NATS format
-                            self._get_text(notam_elem, "StartDate") or 
+                            # UK NATS format
+                            self._get_text(notam_elem, "StartValidity") or
+                            self._get_text(notam_elem, "StartDate") or
                             self._get_text(notam_elem, "START")
                         ),
                         "end_time": self._parse_datetime(
-                            self._get_text(notam_elem, "EndValidity") or  # UK NATS format
-                            self._get_text(notam_elem, "EndDate") or 
+                            # UK NATS format
+                            self._get_text(notam_elem, "EndValidity") or
+                            self._get_text(notam_elem, "EndDate") or
                             self._get_text(notam_elem, "END")
                         ),
                         "text": (
-                            self._get_text(notam_elem, "ItemE") or  # UK NATS format
-                            self._get_text(notam_elem, "Text") or 
-                            self._get_text(notam_elem, "TEXT") or 
+                            # UK NATS format
+                            self._get_text(notam_elem, "ItemE") or
+                            self._get_text(notam_elem, "Text") or
+                            self._get_text(notam_elem, "TEXT") or
                             ""
                         ),
                         "q_code": (
-                            self._get_text(notam_elem, "QLine") or  # UK NATS format
-                            self._get_text(notam_elem, "Q_Code") or 
+                            # UK NATS format
+                            self._get_text(notam_elem, "QLine") or
+                            self._get_text(notam_elem, "Q_Code") or
                             self._get_text(notam_elem, "Q")
                         ),
                         "latitude": (
-                            self._parse_coordinates(self._get_text(notam_elem, "Coordinates"), "lat") or  # UK NATS format
-                            self._get_float(notam_elem, "Latitude") or 
+                            # UK NATS format
+                            self._parse_coordinates(self._get_text(notam_elem, "Coordinates"), "lat") or
+                            self._get_float(notam_elem, "Latitude") or
                             self._get_float(notam_elem, "LAT")
                         ),
                         "longitude": (
-                            self._parse_coordinates(self._get_text(notam_elem, "Coordinates"), "lon") or  # UK NATS format
-                            self._get_float(notam_elem, "Longitude") or 
+                            # UK NATS format
+                            self._parse_coordinates(self._get_text(notam_elem, "Coordinates"), "lon") or
+                            self._get_float(notam_elem, "Longitude") or
                             self._get_float(notam_elem, "LON")
                         ),
                     }
@@ -302,7 +313,10 @@ class NOTAMClient:
         except Exception:
             return None
 
-    def _parse_coordinates(self, coord_str: Optional[str], component: str) -> Optional[float]:
+    def _parse_coordinates(
+            self,
+            coord_str: Optional[str],
+            component: str) -> Optional[float]:
         """Parse UK NATS coordinate format (e.g., '5408N00316W') to decimal degrees.
 
         Args:
@@ -319,7 +333,7 @@ class NOTAMClient:
             # UK NATS format: 5408N00316W = 54°08'N 003°16'W
             # Latitude: DDMM[N/S] (4-5 chars)
             # Longitude: DDDMM[E/W] (5-6 chars)
-            
+
             if component == "lat":
                 # Find N or S
                 if 'N' in coord_str:
@@ -337,24 +351,41 @@ class NOTAMClient:
                     return sign * (degrees + minutes / 60.0)
 
             elif component == "lon":
-                # Find E or W
-                if 'E' in coord_str:
-                    lon_part = coord_str.split('E')[0]
-                    if 'N' in lon_part or 'S' in lon_part:
-                        lon_part = lon_part.split('N')[-1].split('S')[-1]
-                    sign = 1
-                elif 'W' in coord_str:
-                    lon_part = coord_str.split('W')[0]
-                    if 'N' in lon_part or 'S' in lon_part:
-                        lon_part = lon_part.split('N')[-1].split('S')[-1]
-                    sign = -1
-                else:
-                    return None
+                return self._parse_longitude(coord_str)
 
-                if len(lon_part) >= 5:
-                    degrees = int(lon_part[:3])
-                    minutes = int(lon_part[3:5])
-                    return sign * (degrees + minutes / 60.0)
+        except (ValueError, IndexError):
+            return None
+
+        return None
+
+    def _parse_longitude(self, coord_str: str) -> Optional[float]:
+        """Parse longitude component from coordinate string.
+
+        Args:
+            coord_str: Coordinate string (e.g., '00530W')
+
+        Returns:
+            Longitude in decimal degrees or None if parsing fails
+        """
+        try:
+            # Find E or W
+            if 'E' in coord_str:
+                lon_part = coord_str.split('E')[0]
+                if 'N' in lon_part or 'S' in lon_part:
+                    lon_part = lon_part.split('N')[-1].split('S')[-1]
+                sign = 1
+            elif 'W' in coord_str:
+                lon_part = coord_str.split('W')[0]
+                if 'N' in lon_part or 'S' in lon_part:
+                    lon_part = lon_part.split('N')[-1].split('S')[-1]
+                sign = -1
+            else:
+                return None
+
+            if len(lon_part) >= 5:
+                degrees = int(lon_part[:3])
+                minutes = int(lon_part[3:5])
+                return sign * (degrees + minutes / 60.0)
 
         except (ValueError, IndexError):
             return None
@@ -376,10 +407,14 @@ class NOTAMClient:
 
             cache_time = datetime.fromisoformat(cached["cached_at"])
             if datetime.now() - cache_time < timedelta(days=self.cache_days):
-                _LOGGER.debug("NOTAM cache hit (age: %d hours)", self._get_cache_age_hours())
+                _LOGGER.debug(
+                    "NOTAM cache hit (age: %d hours)",
+                    self._get_cache_age_hours())
                 return cached["notams"]
 
-            _LOGGER.debug("NOTAM cache expired (age: %d hours)", self._get_cache_age_hours())
+            _LOGGER.debug(
+                "NOTAM cache expired (age: %d hours)",
+                self._get_cache_age_hours())
 
         except (OSError, json.JSONDecodeError, KeyError) as e:
             _LOGGER.debug("Failed to read NOTAM cache: %s", e)
@@ -527,7 +562,8 @@ class NOTAMClient:
         dlat = lat2_rad - lat1_rad
         dlon = lon2_rad - lon1_rad
 
-        a = sin(dlat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon / 2) ** 2
+        a = sin(dlat / 2) ** 2 + cos(lat1_rad) * \
+            cos(lat2_rad) * sin(dlon / 2) ** 2
         c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
         return R * c
@@ -595,7 +631,8 @@ class NOTAMClient:
             notam_config["last_error"] = error_msg
 
             new_data = {**self.entry.data, "integrations": integrations}
-            self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+            self.hass.config_entries.async_update_entry(
+                self.entry, data=new_data)
 
             _LOGGER.debug("NOTAM failure counter: %d", failures)
 
@@ -616,7 +653,8 @@ class NOTAMClient:
             notam_config["last_update"] = datetime.now().isoformat()
 
             new_data = {**self.entry.data, "integrations": integrations}
-            self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+            self.hass.config_entries.async_update_entry(
+                self.entry, data=new_data)
 
             _LOGGER.debug("NOTAM failure counter reset")
 

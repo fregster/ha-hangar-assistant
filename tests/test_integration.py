@@ -90,6 +90,9 @@ def test_da_calculation_updates():
 
     mock_hass.states.get.side_effect = get_state_updated
 
+    # Clear cache to force re-read of updated values
+    sensor._sensor_cache.clear()
+
     # Get updated DA value - should be higher with higher temperature
     updated_da = sensor.native_value
     assert updated_da is not None

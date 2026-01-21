@@ -341,12 +341,28 @@ These commonly cause runtime errors if not properly typed/used:
 4. **Async functions**: All `async_*` methods must be awaited in async context
 5. **Event listeners**: Remember to call `async_on_remove()` to prevent memory leaks
 
-## Localization & Translations Guidance
+### Code Quality & SonarLint Standards
+
+To maintain a high-quality codebase and pass automated analysis, follow these rules:
+
+- **Refactor for Complexity**: Keep functions focused. If a function's cognitive complexity exceeds 15 (e.g., deeply nested logic, many branches), refactor it into smaller, descriptive private methods.
+- **Clean Async Usage**:
+    - Only use the `async` keyword if the function contains an `await` statement.
+    - Never perform blocking I/O (like `open()`, `os.*`, or `yaml.load()`) directly in an `async` function. Always wrap them in `hass.async_add_executor_job`.
+- **Unused Parameters**: If a required callback parameter (like `now` in `async_track_time_change` or `call` in service handlers) is not used, prefix it with an underscore (e.g., `_now`, `_call`) or omit it if the API allows.
+- **Exception Handling**:
+    - Avoid catching redundant exceptions (e.g., don't catch `OSError` and `FileNotFoundError` in the same block, as `FileNotFoundError` is a subclass of `OSError`).
+    - Use specific exceptions rather than a broad `Exception` where possible.
+- **Clean Imports**: Remove any unused imports. If an import is only needed for type checking, use `if TYPE_CHECKING:`.
+
+### Localization & Translations Guidance
 
 To ensure a consistent, high-quality multilingual UI, follow these rules:
 
 - **English is the source of truth**: Add or change UI strings first in `custom_components/hangar_assistant/strings.json` and `translations/en.json`. Treat English as the default pack.
-- **Translate to available packs**: Mirror all English keys to the available language packs `translations/de.json`, `translations/es.json`, and `translations/fr.json`. If a precise translation isn’t available, temporarily copy the English string so the UI remains complete.
+- **Complete translations in all packs**: Mirror every English key to `translations/de.json`, `translations/es.json`, and `translations/fr.json` with fully translated values. Do **not** leave English placeholders in non-English packs once translations exist.
+- **No duplicate or concatenated JSON**: Each translation file must contain a single JSON object only. Do not paste the English file beneath or alongside a translation; validate with `pytest tests/test_json_validation.py -q` after edits.
+- **Fallback only when necessary**: If a precise translation truly isn’t available, you may temporarily copy the English string—but track and replace it with a proper translation as soon as possible. Document any temporary English entries in the PR description.
 - **No hardcoded text**: Do not hardcode user-facing strings in Python or YAML. Use the HA translation framework (strings.json + translations/*.json) for config flows and entity names.
 - **Deep key completeness**: Ensure each non-English pack contains all keys present in the English pack (including nested `options.step.*.*.data` and `menu_options`). A unit test must verify deep key parity across all packs.
 - **When generating new content with AI**: Default to English phrasing, then translate into the available language packs where possible. Keep aviation terminology clear and consistent across languages.

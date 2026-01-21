@@ -165,7 +165,7 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         """Register callbacks for sibling sensors."""
         
         @callback
-        def _update_state(event):
+        def _update_state(_event):
             """Update the sensor state when a source entity changes."""
             self.async_write_ha_state()
 
@@ -180,9 +180,18 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         """Return the name of the sensor."""
         return "Master Safety Alert"
 
-    @property
-    def is_on(self) -> bool:
-        """Return True if an alert condition exists for THIS airfield."""
+    def _is_unsafe(self) -> bool:
+        """Determine if current conditions represent an unsafe alert state.
+        
+        Evaluates 4 independent alert conditions:
+        1. Stale weather data (beyond threshold)
+        2. Serious carburettor icing risk
+        3. Below VFR cloud clearance (< 1000 ft)
+        4. Moderate icing risk with uncertain data (> 15 min old)
+        
+        Returns:
+            True if ANY condition triggers an alert, False if all clear
+        """
         freshness_state = self.hass.states.get(self._freshness_id)
         freshness_minutes = self._parse_freshness_minutes(freshness_state)
         freshness_threshold = self._resolve_stale_threshold(freshness_state)
@@ -216,6 +225,11 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
                 return True  # ALERT: Moderate icing risk with uncertain data
 
         return False
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if an alert condition exists for THIS airfield."""
+        return self._is_unsafe()
 
     @property
     def extra_state_attributes(self):
@@ -324,7 +338,7 @@ class AircraftCrosswindAlert(BinarySensorEntity):
             return
 
         @callback
-        def _update_state(event):
+        def _update_state(_event):
             self.async_write_ha_state()
 
         self.async_on_remove(

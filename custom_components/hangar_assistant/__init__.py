@@ -31,8 +31,10 @@ def _load_integration_version() -> str:
             manifest = json.load(manifest_file)
         version = manifest.get("version", "0.0.0")
         return str(version)
-    except Exception as error:  # pragma: no cover - defensive fallback
+    except (OSError, json.JSONDecodeError) as error:
         _LOGGER.debug("Unable to read manifest version: %s", error)
+    except Exception as error:  # pragma: no cover - unexpected errors
+        _LOGGER.error("Unexpected error reading manifest version: %s", error)
     return "0.0.0"
 
 
@@ -84,6 +86,99 @@ INTEGRATION_MAJOR_VERSION = _extract_major_version(INTEGRATION_VERSION)
 
 # This line resolves the [CONFIG_SCHEMA] error for Hassfest
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+def _resolve_airfield_slug(hass: HomeAssistant) -> str | None:
+    """Resolve the current airfield slug for briefing.
+    
+    First attempts to use the airfield selector entity if available.
+    Falls back to finding the first available AI briefing sensor.
+    
+    Args:
+        hass: Home Assistant instance
+    
+    Returns:
+        The airfield slug string, or None if unresolvable
+    """
+    slug: str | None = None
+    sel = hass.states.get("select.hangar_assistant_airfield_selector")
+    if sel and sel.state not in ("unknown", "unavailable", None):
+        slug = str(sel.state)
+    if not slug:
+        # Find first AI briefing sensor
+        for state in hass.states.async_all():
+            eid = state.entity_id
+            if eid.startswith("sensor.") and eid.endswith("_ai_pre_flight_briefing"):
+                slug = eid.replace("sensor.", "").replace("_ai_pre_flight_briefing", "")
+                break
+    return slug
+
+
+def _find_media_player(hass: HomeAssistant, override: str | None) -> str | None:
+    """Find the best available media player entity.
+    
+    Prefers browser-based media players when available (indicates current device).
+    Falls back to any available media player. Can be overridden via service parameter.
+    
+    Args:
+        hass: Home Assistant instance
+        override: Explicitly provided media_player_entity_id from service call
+    
+    Returns:
+        Media player entity ID string, or None if none available
+    """
+    if override:
+        return override
+    
+    # Prefer browser-based media players
+    browser_candidates: list[str] = []
+    for state in hass.states.async_all():
+        try:
+            ent_id = state.entity_id
+            if not ent_id.startswith("media_player."):
+                continue
+            attrs = getattr(state, "attributes", {}) or {}
+            name = str(attrs.get("friendly_name", "")).lower()
+            app_name = str(attrs.get("app_name", "")).lower()
+            if (
+                "browser" in ent_id
+                or "browser" in name
+                or app_name == "home assistant"
+            ) and state.state not in ("unknown", "unavailable"):
+                browser_candidates.append(ent_id)
+        except Exception:  # pragma: no cover - defensive per-entity
+            continue
+
+    if browser_candidates:
+        return browser_candidates[0]
+    
+    # Fallback to first available media player
+    for state in hass.states.async_all():
+        if state.entity_id.startswith("media_player.") and state.state not in ("unknown", "unavailable"):
+            return state.entity_id
+    return None
+
+
+def _find_tts_entity(hass: HomeAssistant, override: str | None) -> str | None:
+    """Find an available TTS entity.
+    
+    Can be overridden via service parameter. Auto-discovers first available TTS
+    entity if not specified.
+    
+    Args:
+        hass: Home Assistant instance
+        override: Explicitly provided tts_entity_id from service call
+    
+    Returns:
+        TTS entity ID string, or None if none available
+    """
+    if override:
+        return override
+    
+    for state in hass.states.async_all():
+        if state.entity_id.startswith("tts."):
+            return state.entity_id
+    return None
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Hangar Assistant integration global services."""
@@ -137,18 +232,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             - media_player_entity_id: Target media player (e.g., media_player.living_room)
         """
         # Resolve airfield slug
-        slug: str | None = None
-        sel = hass.states.get("select.hangar_assistant_airfield_selector")
-        if sel and sel.state not in ("unknown", "unavailable", None):
-            slug = str(sel.state)
-        if not slug:
-            # Find first AI briefing sensor
-            for state in hass.states.async_all():
-                eid = state.entity_id
-                if eid.startswith("sensor.") and eid.endswith("_ai_pre_flight_briefing"):
-                    slug = eid.replace("sensor.", "").replace("_ai_pre_flight_briefing", "")
-                    break
-
+        slug = _resolve_airfield_slug(hass)
         if not slug:
             _LOGGER.warning("No airfield slug found for AI briefing; cannot speak")
             return
@@ -161,44 +245,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             _LOGGER.warning("AI briefing text not available; skipping TTS")
             return
 
-        # Resolve media player target
-        media_player = call.data.get("media_player_entity_id")
-        if not media_player:
-            # Prefer browser-based media players (current device) when available
-            browser_candidates: list[str] = []
-            for state in hass.states.async_all():
-                try:
-                    ent_id = state.entity_id
-                    if not ent_id.startswith("media_player."):
-                        continue
-                    attrs = getattr(state, "attributes", {}) or {}
-                    name = str(attrs.get("friendly_name", "")).lower()
-                    app_name = str(attrs.get("app_name", "")).lower()
-                    if (
-                        "browser" in ent_id
-                        or "browser" in name
-                        or app_name == "home assistant"
-                    ) and state.state not in ("unknown", "unavailable"):
-                        browser_candidates.append(ent_id)
-                except Exception:  # pragma: no cover - defensive per-entity
-                    continue
-
-            if browser_candidates:
-                media_player = browser_candidates[0]
-            else:
-                # Fallback to first available media player
-                for state in hass.states.async_all():
-                    if state.entity_id.startswith("media_player.") and state.state not in ("unknown", "unavailable"):
-                        media_player = state.entity_id
-                        break
-
-        # Resolve TTS engine
-        tts_entity = call.data.get("tts_entity_id")
-        if not tts_entity:
-            for state in hass.states.async_all():
-                if state.entity_id.startswith("tts."):
-                    tts_entity = state.entity_id
-                    break
+        # Resolve media player and TTS entity
+        media_player = _find_media_player(hass, call.data.get("media_player_entity_id"))
+        tts_entity = _find_tts_entity(hass, call.data.get("tts_entity_id"))
 
         if not media_player or not tts_entity:
             _LOGGER.warning(
@@ -290,13 +339,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.async_on_unload(
             async_track_time_change(hass, run_hourly_ai_briefing, minute=0, second=0)
         )
-        # Also run once on startup (after a short delay to ensure sensors are ready)
-        async def delayed_startup_briefing():
+        
+        # Also run once on startup after sensors are ready
+        async def wait_for_sensors_and_brief():
+            """Wait for airfield sensors to be available before generating briefings.
+            
+            Polls for sensor readiness up to 30 seconds with 1-second intervals.
+            Proceeds once all airfield density altitude sensors are available or
+            timeout expires.
+            """
             import asyncio
-            await asyncio.sleep(10)
+            airfield_slugs = [
+                (af.get("name") or "").lower().replace(" ", "_")
+                for af in entry.data.get("airfields", [])
+                if isinstance(af, dict) and af.get("name")
+            ]
+            
+            # Wait up to 30 seconds for sensors to become available
+            max_wait = 30
+            for attempt in range(max_wait):
+                # Check if all required sensors are available
+                all_ready = True
+                for slug in airfield_slugs:
+                    sensor_id = f"sensor.{slug}_density_altitude"
+                    state = hass.states.get(sensor_id)
+                    if not state or state.state in ("unknown", "unavailable"):
+                        all_ready = False
+                        break
+                
+                if all_ready:
+                    _LOGGER.debug("Sensors ready after %d seconds, generating AI briefings", attempt + 1)
+                    await async_generate_all_ai_briefings(hass, entry)
+                    return
+                
+                await asyncio.sleep(1)
+            
+            # Timeout - proceed anyway but log warning
+            _LOGGER.warning(
+                "Sensor readiness timeout after %d seconds, generating AI briefings anyway",
+                max_wait
+            )
             await async_generate_all_ai_briefings(hass, entry)
         
-        hass.async_create_task(delayed_startup_briefing())
+        hass.async_create_task(wait_for_sensors_and_brief())
 
     return True
 
@@ -324,6 +409,9 @@ async def async_create_dashboard(
     
     def _generate_dashboard():
         """Sync function to perform blocking I/O."""
+        # Maximum dashboard template size (5MB) to prevent memory exhaustion
+        MAX_DASHBOARD_SIZE = 5 * 1024 * 1024
+        
         try:
             # Get the template file path
             template_path = os.path.join(
@@ -335,6 +423,16 @@ async def async_create_dashboard(
             # Verify template exists
             if not os.path.exists(template_path):
                 _LOGGER.error("Dashboard template not found at: %s", template_path)
+                return False
+            
+            # Validate template size before loading
+            template_size = os.path.getsize(template_path)
+            if template_size > MAX_DASHBOARD_SIZE:
+                _LOGGER.error(
+                    "Dashboard template exceeds maximum size limit: %d bytes (max: %d bytes)",
+                    template_size,
+                    MAX_DASHBOARD_SIZE
+                )
                 return False
             
             # Check if dashboard file exists
@@ -369,8 +467,14 @@ async def async_create_dashboard(
                 yaml.dump(dashboard_config, f, default_flow_style=False, allow_unicode=True)
             
             return True
+        except OSError as e:
+            _LOGGER.error("File system error during dashboard creation: %s", e)
+            return False
+        except yaml.YAMLError as e:
+            _LOGGER.error("YAML parsing error in dashboard template: %s", e)
+            return False
         except Exception as e:
-            _LOGGER.error("Error in dashboard file operations: %s", e)
+            _LOGGER.error("Unexpected error in dashboard file operations: %s", e)
             return False
 
     # Run the blocking I/O in the executor
@@ -444,7 +548,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
-    """Logic to delete old PDF declarations from local storage."""
+    """Logic to delete old PDF declarations from local storage.
+    
+    Uses os.scandir() for efficient directory traversal with lower memory footprint
+    compared to os.listdir(). This is particularly beneficial for large archives
+    with hundreds or thousands of PDF files.
+    
+    Args:
+        hass: Home Assistant instance
+        months: Retention period in months (files older than this are deleted)
+    """
     # Use hass.config.path to ensure cross-platform compatibility
     path = hass.config.path("www/hangar/")
     cutoff_seconds = months * 30.44 * 24 * 60 * 60
@@ -452,18 +565,96 @@ async def async_cleanup_records(hass: HomeAssistant, months: int) -> None:
 
     def _cleanup():
         if os.path.exists(path):
-            for filename in os.listdir(path):
-                file_path = os.path.join(path, filename)
-                if os.path.isfile(file_path):
-                    try:
-                        file_mtime = os.path.getmtime(file_path)
-                        if (now - file_mtime) > cutoff_seconds:
-                            os.remove(file_path)
-                            _LOGGER.info("Deleted expired aviation record: %s", filename)
-                    except (OSError, FileNotFoundError) as e:
-                        _LOGGER.error("Error managing record %s: %s", filename, e)
+            # Use scandir() for iterator-based processing (lower memory footprint)
+            with os.scandir(path) as entries:
+                for entry in entries:
+                    if entry.is_file():
+                        try:
+                            file_mtime = entry.stat().st_mtime
+                            if (now - file_mtime) > cutoff_seconds:
+                                os.remove(entry.path)
+                                _LOGGER.info("Deleted expired aviation record: %s", entry.name)
+                        except OSError as e:
+                            _LOGGER.error("Error managing record %s: %s", entry.name, e)
 
     await hass.async_add_executor_job(_cleanup)
+
+async def _request_ai_briefing_with_retry(
+    hass: HomeAssistant, agent_id: str, airfield_name: str, user_prompt: str
+) -> bool:
+    """Request AI briefing for an airfield with exponential backoff retry.
+    
+    Attempts to call the conversation.process service up to 3 times with
+    exponential backoff on failure. Fires hangar_assistant_ai_briefing event
+    on success.
+    
+    Args:
+        hass: Home Assistant instance
+        agent_id: The AI agent entity ID to use
+        airfield_name: The airfield name (for logging and event data)
+        user_prompt: The complete prompt to send to the AI agent
+    
+    Returns:
+        True if briefing generated successfully, False otherwise
+    """
+    import asyncio
+    
+    MAX_RETRIES = 3
+    BACKOFF_SECONDS = 60
+    
+    for retry in range(MAX_RETRIES):
+        try:
+            _LOGGER.debug("Requesting AI briefing for %s from %s (attempt %d/%d)",
+                        airfield_name, agent_id, retry + 1, MAX_RETRIES)
+            result = await hass.services.async_call(
+                "conversation",
+                "process",
+                {
+                    "agent_id": agent_id,
+                    "text": user_prompt,
+                },
+                blocking=True,
+                return_response=True
+            )
+            
+            if result and "response" in result:
+                try:
+                    response_text = result["response"]["speech"]["plain"]["speech"]
+                    # Fire event that the sensors are listening for
+                    hass.bus.async_fire("hangar_assistant_ai_briefing", {
+                        "airfield_name": airfield_name,
+                        "text": response_text
+                    })
+                    _LOGGER.info("Successfully generated AI briefing for %s", airfield_name)
+                    return True
+                except (KeyError, TypeError) as e:
+                    _LOGGER.error("AI Agent returned an unexpected response format for %s: %s",
+                                airfield_name, result)
+                    return False  # Don't retry format errors
+            else:
+                _LOGGER.warning("AI Agent %s returned no response for %s", agent_id, airfield_name)
+                if retry < MAX_RETRIES - 1:
+                    # Wait before retry (exponential backoff)
+                    wait_time = BACKOFF_SECONDS * (2 ** retry)
+                    _LOGGER.info("Retrying AI briefing for %s in %d seconds", airfield_name, wait_time)
+                    await asyncio.sleep(wait_time)
+                else:
+                    _LOGGER.error("AI briefing failed for %s after %d attempts", airfield_name, MAX_RETRIES)
+                    return False
+        except Exception as e:
+            _LOGGER.error("Error generating AI briefing for %s (attempt %d/%d): %s",
+                        airfield_name, retry + 1, MAX_RETRIES, e)
+            if retry < MAX_RETRIES - 1:
+                # Wait before retry (exponential backoff)
+                wait_time = BACKOFF_SECONDS * (2 ** retry)
+                _LOGGER.info("Retrying AI briefing for %s in %d seconds", airfield_name, wait_time)
+                await asyncio.sleep(wait_time)
+            else:
+                _LOGGER.error("AI briefing failed for %s after %d attempts", airfield_name, MAX_RETRIES)
+                return False
+    
+    return False
+
 
 async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Trigger AI briefing generation for all airfields."""
@@ -481,8 +672,11 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
                 return f.read()
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             _LOGGER.error("Error reading preflight_brief.txt: %s", e)
+            return ""
+        except Exception as e:
+            _LOGGER.error("Unexpected error reading preflight_brief.txt: %s", e)
             return ""
 
     system_instructions = await hass.async_add_executor_job(_read_prompt_file)
@@ -529,34 +723,8 @@ async def async_generate_all_ai_briefings(hass: HomeAssistant, entry: ConfigEntr
             f"Please provide the briefing based on this data and your general aviation knowledge."
         )
 
-        try:
-            _LOGGER.debug("Requesting AI briefing for %s from %s", airfield_name, agent_id)
-            result = await hass.services.async_call(
-                "conversation",
-                "process",
-                {
-                    "agent_id": agent_id,
-                    "text": user_prompt,
-                },
-                blocking=True,
-                return_response=True
-            )
-            
-            if result and "response" in result:
-                try:
-                    response_text = result["response"]["speech"]["plain"]["speech"]
-                    # Fire event that the sensors are listening for
-                    hass.bus.async_fire("hangar_assistant_ai_briefing", {
-                        "airfield_name": airfield_name,
-                        "text": response_text
-                    })
-                    _LOGGER.info("Successfully generated AI briefing for %s", airfield_name)
-                except (KeyError, TypeError) as e:
-                    _LOGGER.error("AI Agent returned an unexpected response format for %s: %s", airfield_name, result)
-            else:
-                _LOGGER.warning("AI Agent %s returned no response for %s", agent_id, airfield_name)
-        except Exception as e:
-            _LOGGER.error("Error generating AI briefing for %s: %s", airfield_name, e)
+        # Request AI briefing with automatic retry on failure
+        await _request_ai_briefing_with_retry(hass, agent_id, airfield_name, user_prompt)
 
 async def async_send_briefing(hass: HomeAssistant, briefing: dict, entry: ConfigEntry) -> None:
     """Compose and send the briefing email."""

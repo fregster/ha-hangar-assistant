@@ -3,6 +3,7 @@ from __future__ import annotations
 """Sensor platform for Hangar Assistant."""
 import logging
 import math
+import time
 from datetime import datetime, timedelta, timezone
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -32,6 +33,7 @@ from .const import (
     DEFAULT_AIRFRAME_ICING_MIN_C,
     DEFAULT_AIRFRAME_ICING_MAX_C,
     DEFAULT_SATURATION_SPREAD_C,
+    DEFAULT_SENSOR_CACHE_TTL_SECONDS,
 )
 from .utils.units import convert_altitude, convert_speed, get_altitude_unit, get_speed_unit
 
@@ -151,6 +153,9 @@ class HangarSensorBase(SensorEntity):
             model="Hangar Assistant v2601.1",
         )
         self._source_entities: list[str] = []
+        
+        # Initialize cache for sensor value lookups
+        self._sensor_cache: dict[str, tuple[float, float]] = {}  # {entity_id: (value, timestamp)}
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -192,7 +197,7 @@ class HangarSensorBase(SensorEntity):
             return
 
         @callback
-        def _update_state(event):
+        def _update_state(_event):
             """Update the sensor state when a source entity changes."""
             self.async_write_ha_state()
 
@@ -203,11 +208,42 @@ class HangarSensorBase(SensorEntity):
         )
 
     def _get_sensor_value(self, entity_id: str) -> float | None:
-        """Safely fetch and convert a sensor state to float."""
+        """Safely fetch and convert a sensor state to float with TTL-based caching.
+        
+        Implements a simple time-based cache to reduce redundant state lookups.
+        Cache entries expire after cache_ttl_seconds (default 60s).
+        
+        Args:
+            entity_id: The entity ID to fetch the value for
+            
+        Returns:
+            Float value of the sensor state, or None if unavailable/invalid
+        """
+        # Get cache TTL from global settings
+        cache_ttl = self._global_settings.get("cache_ttl_seconds", DEFAULT_SENSOR_CACHE_TTL_SECONDS)
+        current_time = time.time()
+        
+        # Check cache first
+        if entity_id in self._sensor_cache:
+            cached_value, cached_time = self._sensor_cache[entity_id]
+            if current_time - cached_time < cache_ttl:
+                return cached_value
+        
+        # Cache miss or expired - fetch fresh value
         state = self.hass.states.get(entity_id)
         if state and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             try:
-                return float(state.state)
+                value = float(state.state)
+                # Store in cache with current timestamp
+                self._sensor_cache[entity_id] = (value, current_time)
+                
+                # Cleanup: prevent unbounded growth (keep max 50 entries)
+                if len(self._sensor_cache) > 50:
+                    # Remove oldest entry
+                    oldest_key = min(self._sensor_cache.items(), key=lambda x: x[1][1])[0]
+                    del self._sensor_cache[oldest_key]
+                
+                return value
             except ValueError:
                 _LOGGER.warning("Could not convert %s state to float: %s", entity_id, state.state)
                 return None
@@ -1242,19 +1278,34 @@ class AirfieldTimezoneSensor(HangarSensorBase):
 
     @property
     def native_value(self) -> str | None:
-        """Return the best-available timezone string for this airfield."""
+        """Return the best-available timezone string for this airfield.
+        
+        Priority:
+            1. Coordinate-based lookup using TimezoneFinder (if available)
+            2. Home Assistant configured timezone
+            3. UTC as final fallback
+        """
         lat = self._config.get("latitude")
         lon = self._config.get("longitude")
 
-        # Attempt coordinate-based lookup when possible
-        if lat is not None and lon is not None and _TZ_FINDER:
+        # Check if TimezoneFinder is available and we have coordinates
+        if _TZ_FINDER is None:
+            _LOGGER.debug("TimezoneFinder not available, using Home Assistant timezone")
+        elif lat is not None and lon is not None:
+            # Attempt coordinate-based lookup
             try:
                 tz_name = _TZ_FINDER.timezone_at(lat=float(lat), lng=float(lon))
                 if tz_name:
                     self._tz_source = "airfield_coords"
                     return tz_name
+                else:
+                    _LOGGER.debug("No timezone found for coordinates %s/%s", lat, lon)
+            except (ValueError, TypeError) as exc:
+                _LOGGER.warning("Invalid coordinates for timezone lookup: lat=%s, lon=%s: %s", lat, lon, exc)
             except Exception as exc:  # pragma: no cover - defensive guard
                 _LOGGER.debug("Timezone lookup failed for %s/%s: %s", lat, lon, exc)
+        else:
+            _LOGGER.debug("Coordinates not provided for airfield, using fallback timezone")
 
         # Fall back to Home Assistant configured timezone
         ha_tz = getattr(self.hass.config, "time_zone", None)
@@ -1263,6 +1314,7 @@ class AirfieldTimezoneSensor(HangarSensorBase):
             return ha_tz
 
         # Final fallback to UTC
+        _LOGGER.info("No timezone available, using UTC fallback for airfield")
         self._tz_source = "utc_fallback"
         return "UTC"
 

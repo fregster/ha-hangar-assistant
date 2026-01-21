@@ -14,8 +14,17 @@ from typing import Optional, Dict, Any
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# Optional import for notifications (may not be available in test env)
+try:
+    from homeassistant.components.persistent_notification import async_create as _async_create_notification
+    HAS_NOTIFICATIONS = True
+except (ImportError, ModuleNotFoundError):
+    HAS_NOTIFICATIONS = False
+    _async_create_notification = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,9 +103,27 @@ class OpenWeatherMapClient:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
                 self._cache_dir_initialized = True
             except (OSError, PermissionError) as e:
-                _LOGGER.warning("Failed to create cache directory: %s", e)
+                _LOGGER.error(
+                    "Failed to create OWM cache directory: %s. "
+                    "Caching will be disabled. Check permissions for: %s",
+                    e, self.cache_dir
+                )
                 # Disable caching if we can't create directory
                 self.cache_enabled = False
+                
+                # Notify user about permission issue (if available)
+                if HAS_NOTIFICATIONS and _async_create_notification:
+                    self.hass.async_create_task(
+                        _async_create_notification(
+                            self.hass,
+                            message=(
+                                f"Hangar Assistant cannot create weather cache directory. "
+                                f"Caching will be disabled. Please check permissions for: {self.cache_dir}"
+                            ),
+                            title="Hangar Assistant: Cache Permission Error",
+                            notification_id="hangar_owm_cache_permission_error"
+                        )
+                    )
 
     def _get_cache_file_path(self, latitude: float, longitude: float) -> Path:
         """Get cache file path for coordinates.
@@ -108,8 +135,11 @@ class OpenWeatherMapClient:
         Returns:
             Path to cache file
         """
-        # Sanitize coordinates for filename
-        cache_key = f"owm_{latitude:.4f}_{longitude:.4f}.json"
+        # Sanitize coordinates for filename (remove any non-numeric characters except decimal and minus)
+        lat_str = re.sub(r'[^0-9.-]', '', f"{latitude:.4f}")
+        lon_str = re.sub(r'[^0-9.-]', '', f"{longitude:.4f}")
+        
+        cache_key = f"owm_{lat_str}_{lon_str}.json"
         return self.cache_dir / cache_key
 
     def _read_persistent_cache(

@@ -7,6 +7,7 @@
 - [External Integrations Architecture](#external-integrations-architecture)
 - [OpenWeatherMap Integration (Optional Feature)](#openweathermap-integration-optional-feature)
 - [Key Patterns](#key-patterns)
+- [Security Best Practices](#security-best-practices)
 - [Code Documentation Standards](#code-documentation-standards)
 - [Entity Implementation Patterns](#entity-implementation-patterns)
 - [Services Development](#services-development)
@@ -288,6 +289,220 @@ When OWM enabled, AI briefings include:
   - DA: `4000 + (120 * (temp - 15))` ft
   - Cloud Base: `((t - dp) / 2.5) * 1000` ft
   - Carb Risk: "Serious" if `T < 25` and `Spread < 5`.
+
+## Security Best Practices
+
+**CRITICAL PRINCIPLE**: Security must be considered at every level of development. This integration handles user data, external API credentials, and file system operations that require careful security considerations.
+
+### Sensitive Data Protection
+
+**Never log or expose sensitive data:**
+- API keys, passwords, tokens, secrets must NEVER appear in logs
+- Implement sanitization helpers to scrub sensitive fields before logging
+- Use `selector.TextSelectorType.PASSWORD` for all credential inputs in config flow
+- Store credentials in `entry.data` with clear naming (`*_api_key`, `*_password`, `*_token`)
+
+**Example - Log Sanitization:**
+```python
+def _sanitize_config_for_logging(config: dict) -> dict:
+    """Remove sensitive data before logging config."""
+    sanitized = config.copy()
+    sensitive_keys = ["api_key", "password", "token", "secret"]
+    for key in sensitive_keys:
+        if key in sanitized:
+            sanitized[key] = "***REDACTED***"
+    return sanitized
+
+_LOGGER.debug("Config loaded: %s", _sanitize_config_for_logging(config))
+```
+
+### Input Sanitization
+
+**ALL user input used in file paths MUST be sanitized:**
+- Whitelist pattern: `^[a-zA-Z0-9_-]+$` for identifiers
+- Never trust user input for file operations
+- Validate against path traversal attacks (`..`, `/`, `\`, absolute paths)
+- Use `pathlib.Path` for safe path construction
+
+**Example - Path Sanitization:**
+```python
+import re
+from pathlib import Path
+
+def sanitize_filename(user_input: str) -> str:
+    """Sanitize user input for safe file naming.
+    
+    Args:
+        user_input: Raw user input (airfield name, aircraft reg, etc.)
+    
+    Returns:
+        Sanitized string safe for file paths
+    
+    Raises:
+        ValueError: If input contains no valid characters
+    """
+    # Remove all characters except alphanumeric, underscore, hyphen
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', user_input)
+    
+    if not sanitized:
+        raise ValueError(f"Invalid input for filename: {user_input}")
+    
+    # Limit length to prevent filesystem issues
+    return sanitized[:255]
+
+# Usage in cache file naming
+cache_key = sanitize_filename(airfield_name)
+cache_file = cache_dir / f"{cache_key}.json"
+```
+
+### Async File Operations
+
+**ALL file I/O in async functions MUST use executor jobs:**
+- Never use blocking `open()`, `json.load()`, `json.dump()`, `yaml.load()`, `yaml.dump()` directly
+- Always wrap file operations in `hass.async_add_executor_job()`
+- This applies to: reading config files, writing cache files, loading templates, PDF generation
+
+**Example - Async File Operations:**
+```python
+# ❌ WRONG - Blocks event loop
+async def load_config_wrong():
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+# ✅ CORRECT - Non-blocking
+async def load_config_correct(hass: HomeAssistant, config_path: str):
+    def _read_file():
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    return await hass.async_add_executor_job(_read_file)
+```
+
+### Exception Handling
+
+**Use specific exception types, never broad catches:**
+- Catch specific exceptions: `OSError`, `json.JSONDecodeError`, `ValueError`, etc.
+- Use `except Exception` ONLY when truly necessary with explicit justification
+- Always log unexpected exceptions with full context
+- Never silence exceptions without logging
+
+**Example - Proper Exception Handling:**
+```python
+# ❌ WRONG - Masks all errors
+try:
+    data = process_data()
+except Exception:
+    pass
+
+# ✅ CORRECT - Specific and informative
+try:
+    data = process_data()
+except json.JSONDecodeError as e:
+    _LOGGER.error("Invalid JSON in data file: %s", e)
+    return None
+except OSError as e:
+    _LOGGER.error("File system error: %s", e)
+    return None
+except ValueError as e:
+    _LOGGER.warning("Invalid data format: %s", e)
+    return default_data
+```
+
+### External Data Security
+
+**Validate and sanitize all external data:**
+- XML parsing must use `defusedxml` library or secure ElementTree configuration
+- Validate API responses before processing (check status, content-type, structure)
+- Implement rate limiting for external service calls
+- Use timeouts on all HTTP requests (default: 30 seconds)
+
+**Example - Secure XML Parsing:**
+```python
+# ❌ WRONG - Vulnerable to XXE attacks
+import xml.etree.ElementTree as ET
+tree = ET.fromstring(xml_content)
+
+# ✅ CORRECT - Protected against XXE
+try:
+    from defusedxml import ElementTree as DefusedET
+    tree = DefusedET.fromstring(xml_content)
+except ImportError:
+    import xml.etree.ElementTree as ET
+    # Disable external entity expansion
+    parser = ET.XMLParser()
+    parser.entity = {}  # Disable entities
+    tree = ET.fromstring(xml_content, parser=parser)
+```
+
+### Error Transparency
+
+**Never fail silently on security boundaries:**
+- Permission failures must notify users via persistent notifications
+- Cache directory creation failures require user notification
+- API key validation failures must be surfaced to user
+- Log all security-relevant events at WARNING or ERROR level
+
+**Example - User Notifications:**
+```python
+from homeassistant.components.persistent_notification import create
+
+async def handle_cache_permission_error(hass: HomeAssistant):
+    """Notify user of cache permission failure."""
+    _LOGGER.error(
+        "Cannot create cache directory - check permissions: %s",
+        cache_dir
+    )
+    
+    await create(
+        hass,
+        message=(
+            "Hangar Assistant cannot create cache directory. "
+            f"Please check permissions for: {cache_dir}"
+        ),
+        title="Hangar Assistant: Cache Error",
+        notification_id="hangar_cache_permission_error"
+    )
+```
+
+### Security Testing Requirements
+
+**All security-sensitive code must have unit tests:**
+- Test input sanitization with malicious inputs (`../etc/passwd`, `../../`, absolute paths)
+- Test exception handling with corrupted/malicious data
+- Test API key sanitization in log output
+- Test XML parsing with XXE attack vectors
+- Test file operations fail gracefully without permissions
+
+**Example - Security Test:**
+```python
+def test_sanitize_filename_blocks_path_traversal():
+    """Test filename sanitization blocks path traversal attacks."""
+    malicious_inputs = [
+        "../../../etc/passwd",
+        "../../config",
+        "/absolute/path",
+        "contains/slash",
+        "has\\backslash",
+    ]
+    
+    for malicious in malicious_inputs:
+        result = sanitize_filename(malicious)
+        assert ".." not in result
+        assert "/" not in result
+        assert "\\" not in result
+        assert not result.startswith("/")
+```
+
+### Security Checklist for Code Reviews
+
+Before merging any PR, verify:
+- [ ] No API keys/passwords/tokens in logs
+- [ ] All user input sanitized before file operations
+- [ ] All file I/O wrapped in executor jobs
+- [ ] Specific exception types used (not broad catches)
+- [ ] External data validated and sanitized
+- [ ] Permission failures notify users
+- [ ] Security tests added for new features
 
 ## Code Documentation Standards
 

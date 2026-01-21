@@ -37,11 +37,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generic, Optional, Tuple, TypeVar
 
 from homeassistant.core import HomeAssistant
+
+# Optional import for notifications (may not be available in test env)
+try:
+    from homeassistant.components.persistent_notification import async_create as _async_create_notification
+    HAS_NOTIFICATIONS = True
+except (ImportError, ModuleNotFoundError):
+    HAS_NOTIFICATIONS = False
+    _async_create_notification = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -235,12 +244,27 @@ class CacheManager:
                 self._cache_dir_initialized = True
                 return True
             except (OSError, PermissionError) as e:
-                _LOGGER.warning(
-                    "Failed to create cache directory for %s: %s",
-                    self.namespace,
-                    e
+                _LOGGER.error(
+                    "Failed to create cache directory for %s: %s. "
+                    "Persistent caching will be disabled. Check permissions for: %s",
+                    self.namespace, e, self.cache_dir
                 )
                 self.persistent_enabled = False
+                
+                # Notify user about permission issue (if available)
+                if HAS_NOTIFICATIONS and _async_create_notification:
+                    self.hass.async_create_task(
+                        _async_create_notification(
+                            self.hass,
+                            message=(
+                                f"Hangar Assistant cannot create cache directory for {self.namespace}. "
+                                f"Persistent caching will be disabled. "
+                                f"Please check permissions for: {self.cache_dir}"
+                            ),
+                            title="Hangar Assistant: Cache Permission Error",
+                            notification_id=f"hangar_cache_{self.namespace}_permission_error"
+                        )
+                    )
                 return False
 
         return self._cache_dir_initialized
@@ -254,8 +278,17 @@ class CacheManager:
         Returns:
             Path to cache file
         """
-        # Sanitize key for filename (replace problematic characters)
-        safe_key = key.replace("/", "_").replace("\\", "_").replace(":", "_")
+        # Comprehensive sanitization for safe filename
+        # Remove all characters except alphanumeric, underscore, hyphen, and period
+        safe_key = re.sub(r'[^a-zA-Z0-9_.-]', '_', key)
+        
+        # Prevent path traversal attacks
+        safe_key = safe_key.replace("..", "_")
+        
+        # Limit length to prevent filesystem issues
+        if len(safe_key) > 200:
+            safe_key = safe_key[:200]
+        
         return self.cache_dir / f"{safe_key}.json"
 
     async def get(

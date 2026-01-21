@@ -1,4 +1,12 @@
 import sys
+import os
+
+# Prefer local test compatibility shims so tests don't require native build deps.
+# Insert `tests/compat` at the front of sys.path so our pure-Python shim is picked
+# up before any installed `lru` C-extension package that may fail to build.
+_compat_dir = os.path.join(os.path.dirname(__file__), "compat")
+if os.path.isdir(_compat_dir) and _compat_dir not in sys.path:
+    sys.path.insert(0, _compat_dir)
 from types import SimpleNamespace
 from datetime import datetime, timezone
 from unittest.mock import MagicMock

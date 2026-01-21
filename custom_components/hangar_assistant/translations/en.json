@@ -43,7 +43,15 @@
           "language": "Primary Language",
           "unit_preference": "Unit Preference",
           "global_pressure_sensor": "Global Altimeter (QNH) Sensor",
-          "default_pressure": "Default Sea Level Pressure (hPa)"
+          "default_pressure": "Default Sea Level Pressure (hPa)",
+          "cache_ttl_seconds": "Sensor Cache TTL (seconds)",
+          "default_dashboard_airfield": "Default Dashboard Airfield",
+          "default_dashboard_aircraft": "Default Dashboard Aircraft",
+          "openweathermap_api_key": "OpenWeatherMap API Key (optional)",
+          "openweathermap_enabled": "Enable OpenWeatherMap Integration",
+          "openweathermap_cache_enabled": "Enable OWM Data Caching (Protects against rate limits)",
+          "openweathermap_update_interval": "OWM Update Interval (minutes)",
+          "openweathermap_cache_ttl": "OWM Cache Lifetime (minutes)"
         }
       },
       "airfield": {

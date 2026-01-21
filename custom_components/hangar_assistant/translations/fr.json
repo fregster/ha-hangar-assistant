@@ -43,7 +43,15 @@
           "language": "Langue principale",
           "unit_preference": "Préférence d'unités",
           "global_pressure_sensor": "Capteur altimètre global (QNH)",
-          "default_pressure": "Pression par défaut au niveau de la mer (hPa)"
+          "default_pressure": "Pression par défaut au niveau de la mer (hPa)",
+          "default_dashboard_airfield": "Aérodrome par défaut du tableau de bord",
+          "default_dashboard_aircraft": "Aéronef par défaut du tableau de bord",
+          "cache_ttl_seconds": "TTL du cache des capteurs (secondes)",
+          "openweathermap_api_key": "Clé API OpenWeatherMap (facultatif)",
+          "openweathermap_enabled": "Activer l'intégration OpenWeatherMap",
+          "openweathermap_cache_enabled": "Activer la mise en cache des données OWM (Protection contre les limites de débit)",
+          "openweathermap_update_interval": "Intervalle de mise à jour OWM (minutes)",
+          "openweathermap_cache_ttl": "Durée de vie du cache OWM (minutes)"
         }
       },
       "airfield": {
@@ -73,7 +81,10 @@
           "wind_sensor": "Capteur vitesse du vent",
           "wind_dir_sensor": "Capteur direction du vent",
           "radio_frequency": "Fréquence radio",
-          "ppl_required": "PPR requis"
+          "ppl_required": "PPR requis",
+          "weather_data_source": "Source de données météorologiques",
+          "use_owm_forecast": "Inclure les données de prévision OWM",
+          "use_owm_alerts": "Inclure les alertes météorologiques gouvernementales"
         }
       },
       "airfield_manage": {

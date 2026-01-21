@@ -1,3 +1,25 @@
+# Hangar Assistant Glass Cockpit Dashboard
+#
+# STATE MANAGEMENT:
+# This dashboard supports per-device airfield/aircraft selection using a priority system:
+# 1. URL parameters (highest) - For fixed wall displays: ?airfield=popham&aircraft=g_abcd
+# 2. localStorage (medium) - Browser stores last user selection
+# 3. Config defaults (low) - Set in integration settings
+# 4. Auto-detection (fallback) - First available entity
+#
+# FIXED DISPLAY SETUP:
+# For wall-mounted displays that should always show specific aircraft:
+#   - Hangar 1: http://homeassistant:8123/hangar-glass-cockpit?aircraft=g_abcd
+#   - Hangar 2: http://homeassistant:8123/hangar-glass-cockpit?aircraft=g_efgh
+#
+# INTERACTIVE USERS:
+# Mobile/desktop users: Selection persists in browser via localStorage
+#
+# BACKWARD COMPATIBILITY:
+# Select entities (select.hangar_assistant_airfield_selector) remain functional
+# for automations and existing dashboards. Cards will read from these entities
+# but each device/browser maintains independent view state.
+
 title: Hangar Assistant
 views:
   - title: Hangar Overview

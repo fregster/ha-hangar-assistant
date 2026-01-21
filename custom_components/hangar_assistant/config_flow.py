@@ -153,6 +153,28 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             for code, label in get_available_languages()
         ]
 
+        # Build airfield/aircraft options for default dashboard selection
+        airfields = self._list_from(self._entry_data().get("airfields", []))
+        aircraft = self._list_from(self._entry_data().get("aircraft", []))
+        
+        airfield_options = [
+            selector.SelectOptionDict(value="", label="None (Auto-detect)")
+        ] + [
+            selector.SelectOptionDict(
+                value=(af.get("name") or "").lower().replace(" ", "_"),
+                label=af.get("name", "Unknown")
+            ) for af in airfields
+        ]
+        
+        aircraft_options = [
+            selector.SelectOptionDict(value="", label="None (Auto-detect)")
+        ] + [
+            selector.SelectOptionDict(
+                value=(ac.get("reg") or "").lower().replace(" ", "_"),
+                label=f"{ac.get('type', 'Unknown')} ({ac.get('reg', 'Unknown')})"
+            ) for ac in aircraft
+        ]
+
         return self.async_show_form(
             step_id="settings",
             data_schema=vol.Schema({
@@ -179,6 +201,29 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 vol.Optional("cache_ttl_seconds", default=settings.get("cache_ttl_seconds", DEFAULT_SENSOR_CACHE_TTL_SECONDS)): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=1, max=300, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="s")
+                ),
+                vol.Optional("default_dashboard_airfield", default=settings.get("default_dashboard_airfield", "")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=airfield_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("default_dashboard_aircraft", default=settings.get("default_dashboard_aircraft", "")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=aircraft_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("openweathermap_api_key", default=settings.get("openweathermap_api_key", "")): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional("openweathermap_enabled", default=settings.get("openweathermap_enabled", False)): selector.BooleanSelector(),
+                vol.Optional("openweathermap_cache_enabled", default=settings.get("openweathermap_cache_enabled", True)): selector.BooleanSelector(),
+                vol.Optional("openweathermap_update_interval", default=settings.get("openweathermap_update_interval", 10)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=5, max=60, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min")
+                ),
+                vol.Optional("openweathermap_cache_ttl", default=settings.get("openweathermap_cache_ttl", 10)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=5, max=60, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min")
                 ),
             })
         )
@@ -296,6 +341,19 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             ),
             vol.Optional("radio_frequency"): str,
             vol.Optional("ppl_required", default=False): selector.BooleanSelector(),
+            vol.Optional("weather_data_source", default="sensors"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="sensors", label="Home Assistant Sensors"),
+                        selector.SelectOptionDict(value="openweathermap", label="OpenWeatherMap (OWM) Only"),
+                        selector.SelectOptionDict(value="hybrid", label="OWM Primary, Sensors Fallback"),
+                        selector.SelectOptionDict(value="sensors_backup_owm", label="Sensors Primary, OWM Fallback"),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional("use_owm_forecast", default=True): selector.BooleanSelector(),
+            vol.Optional("use_owm_alerts", default=True): selector.BooleanSelector(),
         })
 
     async def async_step_airfield_manage(self, user_input=None):
@@ -400,6 +458,19 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 vol.Optional("radio_frequency", default=airfield.get("radio_frequency", "")): str,
                 vol.Optional("ppl_required", default=airfield.get("ppl_required", False)): selector.BooleanSelector(),
+                vol.Optional("weather_data_source", default=airfield.get("weather_data_source", "sensors")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="sensors", label="Home Assistant Sensors"),
+                            selector.SelectOptionDict(value="openweathermap", label="OpenWeatherMap (OWM) Only"),
+                            selector.SelectOptionDict(value="hybrid", label="OWM Primary, Sensors Fallback"),
+                            selector.SelectOptionDict(value="sensors_backup_owm", label="Sensors Primary, OWM Fallback"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("use_owm_forecast", default=airfield.get("use_owm_forecast", True)): selector.BooleanSelector(),
+                vol.Optional("use_owm_alerts", default=airfield.get("use_owm_alerts", True)): selector.BooleanSelector(),
             })
         )
 

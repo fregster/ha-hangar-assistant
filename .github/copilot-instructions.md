@@ -97,6 +97,118 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 ✗ Creating sensors/entities that fail if new features not configured  
 ✗ Changing default behavior without version-specific handling
 
+## OpenWeatherMap Integration (Optional Feature)
+
+The integration includes optional OpenWeatherMap (OWM) One Call API 3.0 support for professional weather data.
+
+### Configuration Architecture
+
+**Global Settings** (entry.data["settings"]):
+- `openweathermap_api_key`: Optional API key (password field, empty string if not configured)
+- `openweathermap_enabled`: Boolean (default: False) - master toggle
+- `openweathermap_cache_enabled`: Boolean (default: True) - enable persistent caching
+- `openweathermap_update_interval`: Integer (default: 10) - minutes between API calls
+- `openweathermap_cache_ttl`: Integer (default: 10) - minutes cache remains valid
+
+**Per-Airfield Settings** (airfield config):
+- `weather_data_source`: String (default: "sensors") - options: "sensors", "openweathermap", "hybrid", "sensors_backup_owm"
+- `use_owm_forecast`: Boolean (default: True) - create forecast sensors
+- `use_owm_alerts`: Boolean (default: True) - create alert binary sensors
+
+### Data Source Modes
+
+| Mode | Behavior |
+|------|----------|
+| `"sensors"` | Use only HA sensors (default, current behavior) |
+| `"openweathermap"` | Use only OWM API, ignore sensors |
+| `"hybrid"` | OWM primary, fallback to sensors if OWM fails |
+| `"sensors_backup_owm"` | Sensors primary, fallback to OWM if sensors unavailable |
+
+### Caching Strategy
+
+**Critical for rate limit protection:**
+- **Two-level cache**: In-memory (session) + persistent file (survives restarts)
+- **Persistent cache location**: `hass.config.path("hangar_assistant_cache/")`
+- **Cache lookup order**: Memory cache → Persistent file → API call
+- **Rate limit tracking**: Warns at 950/1000 daily calls
+- **Restart protection**: Persistent cache prevents API calls during HA restarts/reloads
+
+### OWM Data Points
+
+**Current Weather** (replaces/augments sensor data):
+- Temperature, dew point, pressure, wind (speed/direction/gust)
+- Visibility, cloud coverage, humidity, UV index
+- Weather description and icon
+
+**Forecast Data** (new sensors):
+- `sensor.{airfield}_weather_forecast_hourly`: 48-hour hourly forecast (JSON)
+- `sensor.{airfield}_weather_forecast_daily`: 8-day daily forecast (JSON)
+- `sensor.{airfield}_precipitation_forecast`: Minutes until next rain
+- `sensor.{airfield}_uv_index`: Current UV index
+
+**Alerts** (new binary sensors):
+- `binary_sensor.{airfield}_government_weather_alert`: Active government weather warnings
+- Attributes include sender, event type, severity, start/end times, description
+
+### Implementation Patterns
+
+**Sensor with OWM fallback:**
+```python
+def _get_temperature(self):
+    """Get temperature with OWM fallback."""
+    data_source = self.config.get("weather_data_source", "sensors")
+    
+    if data_source == "openweathermap":
+        return self._get_owm_temperature()
+    elif data_source == "sensors":
+        return self._get_sensor_temperature()
+    elif data_source == "hybrid":
+        owm_temp = self._get_owm_temperature()
+        return owm_temp if owm_temp is not None else self._get_sensor_temperature()
+    elif data_source == "sensors_backup_owm":
+        sensor_temp = self._get_sensor_temperature()
+        return sensor_temp if sensor_temp is not None else self._get_owm_temperature()
+```
+
+**Backward Compatibility:**
+- If no API key configured, OWM features completely hidden in UI
+- All existing sensors work unchanged
+- Per-airfield `weather_data_source` defaults to `"sensors"`
+- No breaking changes for existing installations
+
+### AI Briefing Enhancement
+
+When OWM enabled, AI briefings include:
+- 6-hour forecast trends
+- 3-day daily forecast
+- Government weather alerts
+- Precipitation timing ("Rain in 42 minutes")
+- Enhanced GO/NO-GO recommendations based on forecast
+
+### Testing Requirements
+
+**OWM-specific tests:**
+- `test_openweathermap.py`: Client initialization, caching, API interactions, data extraction
+- Mock API responses for all test scenarios
+- Test cache hit/miss scenarios
+- Test rate limit protection
+- Test backward compatibility (sensors work without OWM)
+
+**Integration tests:**
+- Test sensor creation with different `weather_data_source` modes
+- Test fallback behavior
+- Test forecast sensor attributes
+- Test alert sensor state transitions
+
+✓ Global settings: Stored in settings dict with defaults for any missing keys  
+
+### Examples of INCORRECT Approaches  
+✗ Forcing a config format change without automatic migration  
+✗ Removing fields from config without providing fallback values  
+✗ Making a previously optional parameter required  
+✗ Creating sensors/entities that fail if new features not configured  
+✗ Changing default behavior without version-specific handling
+
 ## Key Patterns
 - **Slugification**: Consistent ID generation: `_id_slug = (config.get("name") or config.get("reg")).lower().replace(" ", "_")`.
 - **Sibling Entity Reference**: Sensors reference each other using constructed entity IDs (e.g., `HangarMasterSafetyAlert` monitors `sensor.{_id_slug}_weather_data_age`).
@@ -162,7 +274,7 @@ def my_function(param1: str, param2: int) -> bool:
 - **Examples**: Include usage examples for complex functions/classes
 - **Comments**: Use inline comments for non-obvious logic or calculations (especially aviation formulas)
 
-## Key Patterns
+## Entity Implementation Patterns
 - **Safety Alerts**: `HangarMasterSafetyAlert` (Binary Sensor, class `SAFETY`) triggers if weather data > 30 mins old or Carb Risk is "Serious Risk".
 - **File Management**: PDFs stored in `hass.config.path("www/hangar/")`. `manual_cleanup` service handles deletion.
 - **AI Prompts**: All AI-related prompts (system prompts, briefing templates) must be stored as `.txt` files in the `custom_components/hangar_assistant/prompts/` directory. Do not hardcode complex prompts in Python code.
@@ -181,10 +293,133 @@ def my_function(param1: str, param2: int) -> bool:
 - **Best Runway Logic**: Uses `BestRunwaySensor` to calculate optimal runway based on wind and provides `crosswind_component` as an attribute.
 - **Map Integration**: Sensors for airfields should include `latitude` and `longitude` attributes to enable automatic plotting on map cards.
 
+### Select Entity Implementation
+- Derive from `SelectEntity` (imported from `homeassistant.components.select`)
+- Provides built-in dropdowns for airfield, aircraft, and pilot selection without requiring user-created input_select helpers
+- Options derived from config entry data: `entry.data.get("airfields")`, `entry.data.get("aircraft")`, etc.
+- Uses `_slugify()` helper for consistent ID generation from names/registrations
+- Pattern: `f"select.{entity_type}_selector"` (e.g., `select.airfield_selector`)
+- Stores selected value in state; updates when user changes selection via UI
+- Device grouping: All selectors share a common device info for dashboard organization
+- Used by: Dashboard cards for dynamic filtering and context switching
+
 ### Dashboard & UI
 - Template located in `dashboard_templates/glass_cockpit.yaml`.
 - Uses Mushroom cards and ApexCharts (suggest these to users).
 - Performance sliders: Uses `input_number` helpers (user-defined) to drive dynamic ground roll adjustments.
+
+**Dashboard State Management (Per-Device Selection):**
+- Each device/browser maintains independent airfield/aircraft view using `hangar_state_manager.js`
+- Priority system: URL params → localStorage → config defaults → auto-detection
+- **Fixed displays**: Use URL parameters for permanent selection
+  - Example: `http://homeassistant:8123/hangar-glass-cockpit?airfield=popham&aircraft=g_abcd`
+- **Interactive users**: Browser localStorage preserves last selection
+- **Config defaults**: Set in Settings → General Settings → Default Dashboard Airfield/Aircraft
+- **Backward compatibility**: Select entities remain functional for automations
+- Implementation file: `dashboard_templates/hangar_state_manager.js`
+
+## Services Development
+
+Services are defined in `services.yaml` and registered in `__init__.py`. All services must follow Home Assistant service patterns:
+
+### Service Registration Pattern
+```python
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up integration and register services."""
+    
+    async def handle_service(call: ServiceCall) -> None:
+        """Handle service call."""
+        # Extract parameters
+        param = call.data.get("param_name", default_value)
+        # Perform action
+        await async_do_something(param)
+    
+    hass.services.async_register(DOMAIN, "service_name", handle_service)
+```
+
+### Available Services
+
+**manual_cleanup**: Purges aviation records (PDFs) older than specified retention period
+- Parameters: `retention_months` (1-24, default: 7)
+- Implementation: Scans `www/hangar/` directory, deletes files older than threshold
+- Usage: Automation or manual maintenance
+
+**rebuild_dashboard**: Forces fresh generation of dashboard from template
+- Parameters: None
+- Implementation: Regenerates dashboard YAML from `dashboard_templates/glass_cockpit.yaml`
+- Usage: After config changes or template updates
+
+**refresh_ai_briefings**: Manually triggers AI briefing generation
+- Parameters: None
+- Implementation: Calls AI API with current weather/NOTAM data for all airfields
+- Usage: On-demand briefing updates outside scheduled times
+
+**speak_briefing**: Speaks current AI briefing via TTS
+- Parameters: `tts_entity_id` (required), `media_player_entity_id` (optional)
+- Implementation: Retrieves briefing text, calls TTS service, plays on media player
+- Usage: Voice briefing delivery; defaults to browser player if available
+
+### Service Best Practices
+- Always use `async def` for service handlers
+- Validate parameters with `.get()` and defaults
+- Log service calls at debug level: `_LOGGER.debug(f"Service called: {call.data}")`
+- Raise `ServiceValidationError` for invalid parameters (from `homeassistant.exceptions`)
+- Use `hass.async_add_executor_job()` for blocking I/O operations
+- Update related entities after service completion: `async_write_ha_state()`
+
+## Utility Modules
+
+Common functionality is organized in `utils/` directory:
+
+### units.py - Unit Conversion
+Provides conversion between aviation and SI units:
+- **UnitPreference class**: Manages global unit preference (aviation/SI)
+- **Conversion constants**: `FEET_TO_METERS`, `KNOTS_TO_KPH`, `POUNDS_TO_KG`
+- **Conversion functions**: Bidirectional conversion with preference awareness
+- Used by: All sensors for consistent unit display based on user preference
+- Pattern: `convert_distance(value, from_unit, to_unit, preference)`
+
+### i18n.py - Internationalization
+Handles translation and localization:
+- **SUPPORTED_LANGS**: `["en", "de", "es", "fr"]`
+- **COMMON_LABELS**: Dictionary of reusable translated strings for UI elements
+- **get_available_languages()**: Returns list of available language packs
+- **validate_translations()**: Ensures deep key parity across all language files
+- Used by: Config flow for localized labels, validation tests
+- Pattern: `label = COMMON_LABELS["key"][lang]`
+
+### pdf_generator.py - PDF Generation
+Generates aviation compliance documents:
+- **CAP1590BGenerator**: UK CAA cost-sharing declaration PDF
+- Uses `fpdf2` library for PDF creation
+- Stores output in `hass.config.path("www/hangar/")`
+- Pattern: `generator.generate(output_path, pilot, aircraft, passengers, flight_details)`
+- File naming: `{date}_{flight_type}_{airfield}.pdf`
+- Cleanup: Managed by `manual_cleanup` service
+
+### openweathermap.py - Weather API Integration
+Provides professional weather data with robust caching:
+- **OpenWeatherMapClient**: Client for OpenWeatherMap One Call API 3.0
+- **Multi-level caching**: In-memory + persistent file-based caching
+- **Rate limit protection**: Tracks API calls per day, warns at 950/1000 limit
+- **Persistent cache directory**: `hass.config.path("hangar_assistant_cache/")`
+- **Cache TTL**: Configurable (default: 10 minutes, matches OWM update frequency)
+- **Data extraction methods**: `extract_current_weather()`, `extract_hourly_forecast()`, `extract_daily_forecast()`, `extract_minutely_forecast()`, `extract_alerts()`
+- **Cache management**: `clear_cache()`, `get_cache_stats()`
+- **Survives restarts**: Persistent cache protects against API limit breaches during system restarts
+- Used by: Weather sensors, forecast sensors, alert sensors, AI briefing enrichment
+- Pattern: 
+  ```python
+  client = OpenWeatherMapClient(api_key, hass, cache_enabled=True)
+  data = await client.get_weather_data(latitude, longitude)
+  current = client.extract_current_weather(data)
+  ```
+
+### Brand Directory
+Contains branding assets:
+- Integration logo and icons for HACS/HA UI
+- Used by Home Assistant for integration marketplace display
+- Files: `icon.png`, `logo.png` (if present)
 
 ## Developer Workflow & Testing
 
@@ -207,12 +442,39 @@ def my_function(param1: str, param2: int) -> bool:
 - **Development Environment**: Solutions are developed locally on the developer's machine.
 - **Remote Testing**: Code is tested on a remote Home Assistant server before release to ensure real-world integration with actual HA instances.
 - **Testing**: Local unit tests in `tests/` directory. Run with `pytest`.
-  - `test_formulas.py`: Pure python unit tests for aviation math.
-  - `test_binary_sensor.py`: Binary sensor logic tests (mocked state retrieval).
-  - `test_enhanced_logic.py`: Integration tests for complex logic (mocked HA system).
-  - `test_integration.py`: End-to-end integration tests (mocked entity setup).
-  - `test_sensor_coverage.py`, `test_config_flow_coverage.py`, `test_sensor_setup_coverage.py`: Additional coverage tests (all mock-based).
   - Run all tests: `.venv/bin/pytest tests/`
+  - Run with coverage: `.venv/bin/pytest tests/ --cov=custom_components/hangar_assistant`
+
+### Test File Reference
+
+| Test File | Purpose | Coverage |
+|-----------|---------|----------|
+| `test_formulas.py` | Pure Python aviation math (DA, cloud base, carb risk) | Formula accuracy, edge cases |
+| `test_binary_sensor.py` | Binary sensor logic (safety alerts, warnings) | State determination, mocked dependencies |
+| `test_sensor_coverage.py` | Sensor entity creation and attributes | All sensor types, device info, unique IDs |
+| `test_sensor_setup_coverage.py` | Sensor platform setup flow | `async_setup_entry()`, entity registration |
+| `test_sensor_unit_preference.py` | Unit conversion in sensors | Aviation vs SI units, preference handling |
+| `test_sensor_caching.py` | Sensor state caching behavior | Performance optimization, cache invalidation |
+| `test_config_flow.py` | Config flow user interactions | Form validation, data storage |
+| `test_config_flow_coverage.py` | Config flow edge cases | Error handling, partial configs |
+| `test_config_flow_init.py` | Options flow initialization | Flow handler setup without errors |
+| `test_enhanced_logic.py` | Complex integration logic | Multi-sensor interactions, mocked HA system |
+| `test_integration.py` | End-to-end integration tests | Full setup flow, entity coordination |
+| `test_select_entities.py` | Select entity implementation | Dropdown options, state updates |
+| `test_services.py` | Service handlers and registration | Service calls, parameter validation |
+| `test_pdf_generator.py` | PDF generation functionality | CAP1590B output, file creation |
+| `test_pdf_edge_cases.py` | PDF generation edge cases | Missing data, special characters |
+| `test_unit_conversion.py` | Unit conversion utilities | `units.py` functions, preference system |
+| `test_i18n_labels.py` | Translation label availability | COMMON_LABELS completeness |
+| `test_languages.py` | Language pack validation | Deep key parity across all languages |
+| `test_json_validation.py` | JSON file structure | Valid JSON, no duplicates/concatenation |
+| `test_config_validation.py` | Config entry validation | Schema compliance, required fields |
+| `test_input_validation.py` | User input sanitization | XSS prevention, type coercion |
+| `test_error_handling.py` | Exception handling | Graceful degradation, error messages |
+| `test_scenarios.py` | Real-world usage scenarios | Complete workflows, integration tests |
+| `test_performance_margin.py` | Aircraft performance calculations | Margin of safety, ground roll adjustments |
+| `test_runway_suitability.py` | Runway selection logic | Wind component calculations, suitability |
+| `test_code_quality_validation.py` | Code quality checks | Complexity, async usage, clean imports |
 
 ### GitHub & Continuous Integration
 - **Repository**: All code changes are pushed to GitHub repository.

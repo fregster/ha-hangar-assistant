@@ -44,7 +44,15 @@
           "language": "System Language",
           "unit_preference": "Unit Preference",
           "global_pressure_sensor": "Global Sea Level Pressure Sensor",
-          "default_pressure": "Fallback Sea Level Pressure (hPa)"
+          "default_pressure": "Fallback Sea Level Pressure (hPa)",
+          "cache_ttl_seconds": "Sensor Cache TTL (seconds)",
+          "default_dashboard_airfield": "Default Dashboard Airfield",
+          "default_dashboard_aircraft": "Default Dashboard Aircraft",
+          "openweathermap_api_key": "OpenWeatherMap API Key (optional)",
+          "openweathermap_enabled": "Enable OpenWeatherMap Integration",
+          "openweathermap_cache_enabled": "Enable OWM Data Caching",
+          "openweathermap_update_interval": "OWM Update Interval (minutes)",
+          "openweathermap_cache_ttl": "OWM Cache Lifetime (minutes)"
         }
       },
       "airfield": {
@@ -74,7 +82,10 @@
           "wind_sensor": "Wind Speed Sensor",
           "wind_dir_sensor": "Wind Direction Sensor",
           "radio_frequency": "Radio Frequency",
-          "ppl_required": "Prior Permission Required"
+          "ppl_required": "Prior Permission Required",
+          "weather_data_source": "Weather Data Source",
+          "use_owm_forecast": "Include OWM Forecast Data",
+          "use_owm_alerts": "Include Government Weather Alerts"
         }
       },
       "airfield_manage": {

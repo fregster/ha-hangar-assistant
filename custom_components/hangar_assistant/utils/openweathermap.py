@@ -70,8 +70,9 @@ class OpenWeatherMapClient:
         self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
         
         # Persistent cache directory (survives restarts)
+        # Note: Directory creation is lazy - only created when needed
         self.cache_dir = Path(hass.config.path("hangar_assistant_cache"))
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_dir_initialized = False
         
         # In-memory cache for current session
         self._memory_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
@@ -85,6 +86,17 @@ class OpenWeatherMapClient:
             "enabled" if cache_enabled else "disabled",
             cache_ttl_minutes,
         )
+
+    def _ensure_cache_dir(self) -> None:
+        """Ensure cache directory exists (lazy initialization)."""
+        if not self._cache_dir_initialized and self.cache_enabled:
+            try:
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                self._cache_dir_initialized = True
+            except (OSError, PermissionError) as e:
+                _LOGGER.warning("Failed to create cache directory: %s", e)
+                # Disable caching if we can't create directory
+                self.cache_enabled = False
 
     def _get_cache_file_path(self, latitude: float, longitude: float) -> Path:
         """Get cache file path for coordinates.
@@ -114,6 +126,8 @@ class OpenWeatherMapClient:
         """
         if not self.cache_enabled:
             return None
+        
+        self._ensure_cache_dir()
         
         cache_file = self._get_cache_file_path(latitude, longitude)
         
@@ -157,6 +171,8 @@ class OpenWeatherMapClient:
         """
         if not self.cache_enabled:
             return
+        
+        self._ensure_cache_dir()
         
         cache_file = self._get_cache_file_path(latitude, longitude)
         

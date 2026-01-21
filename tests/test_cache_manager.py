@@ -1,4 +1,28 @@
-"""Test suite for unified cache manager."""
+"""Tests for unified cache manager with LRU eviction.
+
+This module tests the centralized caching system used across the integration
+for OpenWeatherMap API responses, NOTAM data, and other external sources.
+
+Test Strategy:
+    - Test CacheEntry data class (serialization, expiration, age calculation)
+    - Test CacheManager two-level cache (memory + persistent file)
+    - Validate LRU eviction prevents unbounded memory growth
+    - Test TTL-based expiration
+    - Verify persistent cache survives process restarts
+
+Coverage:
+    - CacheEntry: Creation, expiration checks, serialization, deserialization
+    - CacheManager: get/set operations, memory cache, file cache
+    - LRU eviction: OrderedDict-based eviction at max_entries limit
+    - TTL enforcement: Expired entries not returned from get()
+    - Persistence: File read/write with JSON serialization
+    - Cache statistics: hit/miss tracking, size reporting
+
+Performance:
+    - Memory cache eliminates file I/O for repeated requests
+    - LRU eviction caps memory at 1000 entries (configurable)
+    - Persistent cache prevents API calls during HA restarts
+"""
 
 import asyncio
 import json
@@ -15,10 +39,45 @@ from custom_components.hangar_assistant.utils.cache_manager import (
 
 
 class TestCacheEntry:
-    """Test CacheEntry class."""
+    """Test suite for CacheEntry data class.
+    
+    Tests the immutable cache entry structure that wraps cached data
+    with metadata for expiration tracking and serialization.
+    
+    Test Approach:
+        - Direct instantiation and attribute validation
+        - Test expiration logic with past/future timestamps
+        - Validate serialization round-trip (to_dict/from_dict)
+    
+    Scenarios Covered:
+        - Entry creation with full metadata
+        - Entries without expiration (ttl=None)
+        - Expiration detection (is_expired)
+        - Age calculation (age_seconds)
+        - Serialization/deserialization for persistent storage
+    """
 
     def test_cache_entry_creation(self):
-        """Test creating a cache entry."""
+        """Test creating cache entry with all fields including metadata.
+        
+        This test validates the basic CacheEntry initialization with
+        complete parameters including optional metadata.
+        
+        Setup:
+            - data: Simple dict {"test": "value"}
+            - cached_at: current timestamp
+            - ttl: 10 minutes
+            - metadata: {"source": "test"}
+        
+        Validation:
+            - data stored correctly
+            - cached_at preserved
+            - expires_at calculated as cached_at + ttl
+            - metadata stored
+        
+        Expected Result:
+            CacheEntry holds all data with correct expiration timestamp.
+        """
         data = {"test": "value"}
         cached_at = datetime.now()
         ttl = timedelta(minutes=10)
@@ -32,7 +91,21 @@ class TestCacheEntry:
         assert entry.metadata == metadata
 
     def test_cache_entry_no_expiration(self):
-        """Test cache entry without expiration."""
+        """Test cache entry without TTL never expires.
+        
+        This test validates that entries can be cached indefinitely
+        when no TTL is specified (useful for static data).
+        
+        Setup:
+            - Create entry with ttl=None
+        
+        Validation:
+            - expires_at is None
+            - is_expired() returns False (never expires)
+        
+        Expected Result:
+            Entry remains valid indefinitely until manually cleared.
+        """
         data = {"test": "value"}
         cached_at = datetime.now()
 
@@ -42,7 +115,27 @@ class TestCacheEntry:
         assert not entry.is_expired()
 
     def test_cache_entry_is_expired(self):
-        """Test expiration check."""
+        """Test expiration detection for entries past their TTL.
+        
+        This test validates that expired entries are correctly identified
+        to prevent serving stale data.
+        
+        Scenario:
+            - Entry cached 15 minutes ago
+            - TTL is 10 minutes
+            - Current time is now (15 > 10, expired)
+        
+        Setup:
+            - cached_at = now - 15 minutes
+            - ttl = 10 minutes
+        
+        Validation:
+            - is_expired() returns True
+        
+        Expected Result:
+            Entry correctly identified as expired and should not be
+            returned by cache manager's get() method.
+        """
         data = {"test": "value"}
         cached_at = datetime.now() - timedelta(minutes=15)
         ttl = timedelta(minutes=10)
@@ -52,7 +145,26 @@ class TestCacheEntry:
         assert entry.is_expired()
 
     def test_cache_entry_not_expired(self):
-        """Test non-expired entry."""
+        """Test non-expired entry correctly identified as valid.
+        
+        This test validates that fresh entries within their TTL are
+        correctly identified as still valid.
+        
+        Scenario:
+            - Entry cached just now
+            - TTL is 10 minutes
+            - Current time within TTL window
+        
+        Setup:
+            - cached_at = now
+            - ttl = 10 minutes
+        
+        Validation:
+            - is_expired() returns False
+        
+        Expected Result:
+            Entry identified as fresh and returned by cache manager.
+        """
         data = {"test": "value"}
         cached_at = datetime.now()
         ttl = timedelta(minutes=10)

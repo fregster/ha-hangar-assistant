@@ -1041,6 +1041,231 @@ Contains branding assets:
 - **Property Patching**: Cannot patch class properties directly. Instead, create mock instances with properties set via `MagicMock` attributes (e.g., `mock_entry.data = {"key": "value"}`).
 - **Timezone Awareness**: Use `homeassistant.util.dt.utcnow()` for timezone-aware datetimes in tests (not `datetime.utcnow()`).
 
+### Test Documentation Standards
+
+**CRITICAL PRINCIPLE**: Test code is read more often than written. Every test must clearly communicate its purpose, methodology, and validation criteria to future maintainers.
+
+**All test modules, classes, functions, and fixtures must include comprehensive docstrings** following this format:
+
+#### Test Module Docstrings
+```python
+"""Tests for <feature/component name>.
+
+This module tests <high-level description of what's being tested> including:
+- <Key test category 1>
+- <Key test category 2>
+- <Key test category 3>
+
+Test Strategy:
+    - <Approach taken (mocking, integration, etc.)>
+    - <Key dependencies and how they're handled>
+    - <Any special considerations>
+
+Coverage:
+    - <What aspects are covered>
+    - <Edge cases tested>
+    - <Known limitations if any>
+"""
+```
+
+#### Test Class Docstrings
+```python
+class TestFeatureName:
+    """Test suite for <specific feature or component>.
+    
+    Tests <detailed description of what this test suite validates>,
+    including <key behaviors> and <edge cases>.
+    
+    Test Approach:
+        - <Mocking strategy>
+        - <Setup/teardown requirements>
+        - <Shared fixtures used>
+    
+    Scenarios Covered:
+        - <Scenario 1>
+        - <Scenario 2>
+        - <Scenario 3>
+    """
+```
+
+#### Test Function Docstrings
+```python
+def test_specific_behavior():
+    """Test that <specific behavior> works correctly when <conditions>.
+    
+    This test validates:
+        - <What is being validated>
+        - <Expected behavior>
+        - <Edge case handling if applicable>
+    
+    Setup:
+        - <Mock configuration>
+        - <Test data created>
+    
+    Validation:
+        - <What assertions verify>
+        - <Why this matters>
+    
+    Expected Result:
+        - <Clear statement of expected outcome>
+    """
+```
+
+#### Test Fixture Docstrings
+```python
+@pytest.fixture
+def mock_component():
+    """Create a mock <component> for testing <feature>.
+    
+    Provides:
+        - <What the fixture returns>
+        - <Default configuration>
+        - <Behavior characteristics>
+    
+    Used By:
+        - <Test functions that use this fixture>
+    
+    Example:
+        ```python
+        def test_something(mock_component):
+            result = mock_component.method()
+            assert result == expected
+        ```
+    
+    Returns:
+        <Type and description of returned object>
+    """
+```
+
+#### Key Test Documentation Principles
+
+**Purpose Over Implementation:**
+- Explain WHAT is being tested and WHY, not just HOW
+- State expected behavior in human terms
+- Describe the scenario being validated
+
+**Clarity for Maintainers:**
+- Assume reader is unfamiliar with the code
+- Explain setup/mocking strategy explicitly
+- Document why specific test data values are used
+
+**Validation Documentation:**
+- State what each assertion verifies
+- Explain the significance of test outcomes
+- Document edge cases and boundary conditions
+
+**Examples:**
+
+✓ **CORRECT - Comprehensive Test Documentation:**
+```python
+def test_density_altitude_calculation_high_temp():
+    """Test density altitude calculation with high temperature conditions.
+    
+    This test validates the aviation density altitude formula:
+    DA = 4000 + (120 * (T - 15)) feet
+    
+    Scenario:
+        - Temperature: 30°C (significantly above ISA standard 15°C)
+        - Expected high density altitude due to warm air
+    
+    Validation:
+        - Asserts DA = 5800 feet (4000 + 120*(30-15))
+        - Confirms formula accuracy for hot weather conditions
+        - Verifies pilot will see degraded aircraft performance warning
+    
+    Expected Result:
+        Density altitude of 5800 feet, indicating aircraft performance
+        degradation of approximately 1800 feet above field elevation.
+    """
+    temp_celsius = 30
+    expected_da = 5800
+    
+    result = calculate_density_altitude(temp_celsius)
+    
+    assert result == expected_da, \
+        f"Expected DA {expected_da} for temp {temp_celsius}°C"
+```
+
+✗ **INCORRECT - Minimal Documentation:**
+```python
+def test_density_altitude():
+    """Test density altitude."""
+    result = calculate_density_altitude(30)
+    assert result == 5800
+```
+
+✓ **CORRECT - Well-Documented Fixture:**
+```python
+@pytest.fixture
+def mock_hass_with_weather_sensors():
+    """Create a mock Home Assistant instance with weather sensor data.
+    
+    Provides:
+        - Mock hass instance with state machine configured
+        - Temperature sensor: 15°C (ISA standard)
+        - Dew point sensor: 10°C (moderate humidity)
+        - Pressure sensor: 1013.25 hPa (standard pressure)
+    
+    Used By:
+        - test_weather_calculations
+        - test_carb_icing_risk
+        - test_density_altitude_sensor
+    
+    The temperature/dew point spread of 5°C represents moderate
+    carburetor icing risk conditions, useful for testing safety alerts.
+    
+    Returns:
+        MagicMock: Configured Home Assistant instance with weather sensors
+    """
+    mock_hass = MagicMock()
+    mock_hass.states = MagicMock()
+    
+    # Configure temperature sensor
+    temp_state = MagicMock()
+    temp_state.state = "15"
+    mock_hass.states.get.return_value = temp_state
+    
+    return mock_hass
+```
+
+✗ **INCORRECT - Minimal Fixture Documentation:**
+```python
+@pytest.fixture
+def mock_hass():
+    """Mock hass."""
+    mock = MagicMock()
+    return mock
+```
+
+#### Test Naming Conventions
+
+Test function names must be descriptive and follow this pattern:
+- `test_<feature>_<condition>_<expected_result>`
+- Example: `test_carb_risk_cold_temp_high_humidity_returns_serious_risk`
+
+**Examples:**
+
+✓ **CORRECT - Descriptive Names:**
+- `test_runway_selection_strong_crosswind_returns_most_aligned_runway`
+- `test_cache_expired_data_triggers_api_refresh`
+- `test_missing_sensor_data_falls_back_to_global_setting`
+
+✗ **INCORRECT - Vague Names:**
+- `test_runway`
+- `test_cache_works`
+- `test_sensor`
+
+#### Documentation Completeness Checklist
+
+Before committing test code, verify:
+- [ ] Module docstring explains what component is tested and strategy used
+- [ ] Test class docstrings describe scope and scenarios covered
+- [ ] Test functions have docstrings explaining what, why, and expected outcome
+- [ ] Fixtures document what they provide and why setup is configured that way
+- [ ] Test names are descriptive and self-explanatory
+- [ ] Complex assertions include comments explaining validation logic
+- [ ] Edge cases are explicitly documented with reasoning
+
 ### Local Development & Testing
 - **Development Environment**: Solutions are developed locally on the developer's machine.
 - **Remote Testing**: Code is tested on a remote Home Assistant server before release to ensure real-world integration with actual HA instances.

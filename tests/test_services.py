@@ -1,4 +1,33 @@
-"""Tests for Hangar Assistant services."""
+"""Tests for Hangar Assistant service handlers and registration.
+
+This module tests the service layer that exposes actions to users via
+Home Assistant's service call interface.
+
+Test Strategy:
+    - Mock Home Assistant service registry
+    - Mock service calls with various parameters
+    - Test service handler functions directly
+    - Validate parameter handling and defaults
+    - Test integration with async operations (cleanup, dashboard, AI)
+
+Coverage:
+    - Service registration: manual_cleanup, rebuild_dashboard, refresh_ai_briefings
+    - Parameter validation: retention_months, custom values
+    - Default handling: Uses constants when parameters omitted
+    - Error handling: Graceful degradation with no config entries
+    - Async operation mocking: Executor jobs for file I/O
+
+Services Available:
+    - manual_cleanup: Purge old aviation records (PDFs)
+    - rebuild_dashboard: Regenerate dashboard from template
+    - refresh_ai_briefings: Manually trigger AI briefing generation
+    - speak_briefing: TTS playback of current briefing
+
+User Experience:
+    - Services callable from automations, scripts, or developer tools
+    - Parameters validated before execution
+    - Status feedback via Home Assistant notifications
+"""
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -14,13 +43,43 @@ from custom_components.hangar_assistant import (
 
 @pytest.fixture
 def mock_service_call():
-    """Create a mock service call."""
+    """Create a mock service call for testing service handlers.
+    
+    Provides:
+        - Mock ServiceCall instance
+        - Empty data dict (can be overridden in tests)
+    
+    Used By:
+        - All service handler tests
+        - Tests requiring service call parameters
+    
+    Returns:
+        MagicMock: Spec'd ServiceCall instance
+    """
     return MagicMock(spec=ServiceCall)
 
 
 @pytest.fixture
 def mock_hass():
-    """Create a mock Home Assistant instance."""
+    """Create a mock Home Assistant instance for service testing.
+    
+    Provides:
+        - Mock service registry (async_register)
+        - Mock config_entries for entry lookups
+        - Mock config.path() for file operations
+        - Mock async_add_executor_job for file I/O
+    
+    Used By:
+        - Service registration tests
+        - Service handler tests
+        - Tests requiring HA core functionality
+    
+    The config.path() mock returns "/config/www/hangar/" for PDF storage,
+    matching the production file structure.
+    
+    Returns:
+        MagicMock: Configured Home Assistant instance
+    """
     hass = MagicMock(spec=HomeAssistant)
     hass.services = MagicMock()
     # async_register is synchronous in HA; use MagicMock to avoid warnings

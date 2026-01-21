@@ -1,4 +1,32 @@
-"""Unit tests for NOTAM client."""
+"""Tests for NOTAM (Notice to Airmen) client with graceful degradation.
+
+This module tests the UK NATS PIB XML feed integration that provides
+critical airfield and airspace information to pilots.
+
+Test Strategy:
+    - Mock HTTP requests to NATS PIB XML feed
+    - Test XML parsing with realistic NOTAM data structures
+    - Validate persistent caching with configurable retention
+    - Test graceful degradation (use stale cache on failures)
+    - Verify location filtering (ICAO codes and geographic radius)
+    - Test failure tracking for monitoring
+
+Coverage:
+    - Client initialization with cache retention settings
+    - PIB XML parsing (NOTAM structure extraction)
+    - Persistent cache read/write operations
+    - ICAO code filtering
+    - Geographic proximity filtering (Haversine distance)
+    - Graceful failure handling (network errors, malformed XML)
+    - Stale cache usage when fresh data unavailable
+    - Failure tracking in config entry
+
+Aviation Context:
+    - NOTAMs provide critical safety information (runway closures, airspace restrictions)
+    - Integration uses free UK NATS PIB service (no API key required)
+    - Stale NOTAMs better than no NOTAMs for situational awareness
+    - Daily updates sufficient for most general aviation planning
+"""
 import json
 import os
 from datetime import datetime, timedelta
@@ -49,7 +77,19 @@ SAMPLE_PIB_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 @pytest.fixture
 def mock_hass():
-    """Create a mock Home Assistant instance."""
+    """Create a mock Home Assistant instance for NOTAM client testing.
+    
+    Provides:
+        - Mock hass with config.path() for cache file location
+        - Returns cache path: /mock/config/hangar_assistant_cache/notams.json
+    
+    Used By:
+        - All NOTAM client test classes
+        - Tests requiring cache file operations
+    
+    Returns:
+        MagicMock: Configured Home Assistant instance
+    """
     hass = MagicMock()
     hass.config.path = lambda x: f"/mock/config/{x}"
     return hass
@@ -57,7 +97,21 @@ def mock_hass():
 
 @pytest.fixture
 def mock_entry():
-    """Create a mock config entry."""
+    """Create a mock config entry with NOTAM integration settings.
+    
+    Provides:
+        - Mock entry with integrations.notams configuration
+        - enabled=True (NOTAM integration active)
+        - consecutive_failures=0 (no prior errors)
+        - Tracking fields for failure monitoring
+    
+    Used By:
+        - Tests validating failure tracking
+        - Tests requiring config entry updates
+    
+    Returns:
+        MagicMock: Config entry with NOTAM settings
+    """
     entry = MagicMock()
     entry.data = {
         "integrations": {
@@ -74,37 +128,157 @@ def mock_entry():
 
 @pytest.fixture
 def notam_client(mock_hass, mock_entry):
-    """Create a NOTAM client instance."""
+    """Create a NOTAM client instance with 7-day cache retention.
+    
+    Provides:
+        - Configured NOTAMClient with mock hass
+        - Cache retention: 7 days
+        - Failure tracking enabled via mock_entry
+    
+    Used By:
+        - Most NOTAM client tests
+        - Tests requiring pre-configured client
+    
+    Returns:
+        NOTAMClient: Ready-to-use client instance
+    """
     return NOTAMClient(mock_hass, cache_days=7, entry=mock_entry)
 
 
 class TestNOTAMClientInitialization:
-    """Test NOTAM client initialization."""
+    """Test suite for NOTAM client initialization and configuration.
+    
+    Tests basic client setup with various configuration options including
+    default parameters, custom cache retention, and config entry tracking.
+    
+    Test Approach:
+        - Direct instantiation without mocking internals
+        - Validate attribute assignment
+        - Verify cache path construction
+    
+    Scenarios Covered:
+        - Default initialization (7-day cache, no entry)
+        - Custom cache retention (14 days)
+        - Config entry tracking for failure monitoring
+        - Cache file path construction
+    """
 
     def test_initialization_with_defaults(self, mock_hass):
-        """Test client initializes with default parameters."""
+        """Test NOTAM client initializes with default 7-day cache retention.
+        
+        This test validates the default configuration when no custom
+        parameters are provided during client initialization.
+        
+        Setup:
+            - Create client with only mock_hass (no cache_days or entry)
+        
+        Validation:
+            - hass reference stored correctly
+            - cache_days defaults to 7
+            - entry is None (no failure tracking)
+        
+        Expected Result:
+            Client ready to fetch NOTAMs with 7-day cache retention.
+        """
         client = NOTAMClient(mock_hass)
         assert client.hass == mock_hass
         assert client.cache_days == 7
         assert client.entry is None
 
     def test_initialization_with_custom_cache_days(self, mock_hass, mock_entry):
-        """Test client initializes with custom cache retention."""
+        """Test NOTAM client accepts custom cache retention period.
+        
+        This test validates that cache retention can be configured per
+        installation (e.g., 14 days for frequent flyers, 3 days for occasional).
+        
+        Setup:
+            - Create client with cache_days=14
+            - Provide mock_entry for failure tracking
+        
+        Validation:
+            - cache_days set to 14 (not default 7)
+            - entry reference stored for failure tracking
+        
+        Expected Result:
+            Client configured to retain cached NOTAMs for 14 days,
+            enabling longer offline operation.
+        """
         client = NOTAMClient(mock_hass, cache_days=14, entry=mock_entry)
         assert client.cache_days == 14
         assert client.entry == mock_entry
 
     def test_cache_directory_path(self, notam_client):
-        """Test cache directory path is constructed correctly."""
+        """Test cache file path constructed correctly in HA config directory.
+        
+        This test validates the cache file path follows the standard
+        Hangar Assistant cache directory structure.
+        
+        Setup:
+            - Use notam_client fixture (pre-configured)
+        
+        Validation:
+            - cache_file path is /mock/config/hangar_assistant_cache/notams.json
+            - Path uses hass.config.path() helper
+        
+        Expected Result:
+            Cache file stored in persistent location that survives
+            Home Assistant restarts.
+        """
         expected_path = "/mock/config/hangar_assistant_cache/notams.json"
         assert str(notam_client.cache_file) == expected_path
 
 
 class TestXMLParsing:
-    """Test PIB XML parsing functionality."""
+    """Test suite for UK NATS PIB XML parsing.
+    
+    Tests the XML parsing logic that extracts structured NOTAM data from
+    the UK NATS PIB feed. Validates data extraction, field mapping, and
+    graceful handling of missing/malformed fields.
+    
+    Test Approach:
+        - Use realistic SAMPLE_PIB_XML fixture
+        - Test with complete and incomplete XML structures
+        - Validate type coercion (lat/lon to float, dates to ISO strings)
+    
+    Scenarios Covered:
+        - Valid complete XML (all fields present)
+        - XML with missing optional fields (latitude, longitude, Q-code)
+        - Empty XML (no NOTAMs)
+        - Malformed XML (invalid structure)
+    
+    Aviation Context:
+        NOTAMs may have partial data depending on type. For example,
+        airspace NOTAMs often lack precise coordinates.
+    """
 
     def test_parse_valid_xml(self, notam_client):
-        """Test parsing valid PIB XML returns correct data structure."""
+        """Test parsing complete PIB XML extracts all NOTAM fields correctly.
+        
+        This test validates the primary parsing flow with realistic,
+        complete NOTAM data including all optional fields.
+        
+        Scenario:
+            - Sample XML contains 3 NOTAMs (EGKA, EGLL, EGHI)
+            - All have complete data including coordinates and Q-codes
+        
+        Setup:
+            - Use SAMPLE_PIB_XML (defined at module level)
+            - Parse via _parse_pib_xml() method
+        
+        Validation:
+            - Returns list of 3 NOTAM dictionaries
+            - First NOTAM (EGKA):
+                - id: "A0001/25"
+                - location: "EGKA" (Shoreham)
+                - category: "AERODROME"
+                - text: "RWY 09/27 CLOSED FOR MAINTENANCE"
+                - q_code: "QMRLC" (runway closure)
+                - latitude: 51.33, longitude: -0.75
+        
+        Expected Result:
+            All NOTAM data extracted correctly with proper type conversions.
+            Coordinates as floats, dates as ISO strings.
+        """
         notams = notam_client._parse_pib_xml(SAMPLE_PIB_XML)
         
         assert len(notams) == 3
@@ -117,7 +291,29 @@ class TestXMLParsing:
         assert notams[0]["longitude"] == -0.75
 
     def test_parse_xml_with_missing_fields(self, notam_client):
-        """Test parsing XML with missing optional fields gracefully handles gaps."""
+        """Test parsing XML with missing optional fields handles gaps gracefully.
+        
+        This test validates that the parser doesn't crash when NOTAMs
+        lack optional fields like coordinates or Q-codes.
+        
+        Scenario:
+            - XML contains NOTAM without latitude, longitude, Q-code
+            - These fields are optional in PIB format
+        
+        Setup:
+            - Create XML with minimal required fields only
+            - Parse via _parse_pib_xml()
+        
+        Validation:
+            - Parser returns NOTAM dictionary
+            - Missing fields either None or omitted from dict
+            - Required fields (id, location, text) still present
+        
+        Expected Result:
+            Parser extracts available data without errors. Location
+            filtering may not work without coordinates, but NOTAM
+            still visible in full list.
+        """
         xml = """<?xml version="1.0" encoding="UTF-8"?>
         <PIBS>
           <PIB>

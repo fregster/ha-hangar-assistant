@@ -1,4 +1,36 @@
-"""Unit tests for OpenWeatherMap API client."""
+"""Tests for OpenWeatherMap API client with caching and rate limiting.
+
+This module tests the OWM integration client that provides professional
+weather data with robust caching to protect against API rate limits.
+
+Test Strategy:
+    - Mock HTTP requests to OWM API with realistic responses
+    - Test two-level caching (memory + persistent file)
+    - Validate rate limit tracking and warnings
+    - Test graceful degradation on API failures
+    - Verify data extraction from JSON responses
+
+Coverage:
+    - Client initialization with API keys
+    - Cache hit/miss scenarios
+    - Persistent cache across restarts (file-based)
+    - Rate limit protection (950/1000 warning threshold)
+    - Current weather data extraction
+    - Forecast data extraction (hourly, daily, minutely)
+    - Alert extraction from API responses
+    - Error handling and fallbacks
+
+Integration Impact:
+    - Provides weather data for sensors when OWM enabled
+    - Protects against rate limit breaches during HA restarts
+    - Enables forecast-based AI briefings
+    - Supports hybrid sensor modes (OWM + local sensors)
+
+Performance:
+    - Memory cache eliminates API calls for repeated requests
+    - Persistent cache survives HA restarts
+    - Configured TTL (default: 10 minutes) balances freshness and API usage
+"""
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch, mock_open
 from datetime import datetime, timedelta
@@ -13,7 +45,23 @@ from custom_components.hangar_assistant.utils.openweathermap import (
 
 @pytest.fixture
 def mock_hass():
-    """Create a mock Home Assistant instance."""
+    """Create a mock Home Assistant instance for OWM client testing.
+    
+    Provides:
+        - Mock hass with config.path() for cache directory
+        - Mock aiohttp client session for HTTP requests
+        - Mock async_add_executor_job for file I/O operations
+    
+    Used By:
+        - All OWM client test functions
+        - Tests requiring cache file operations
+    
+    The executor job mock converts synchronous file operations to
+    async-compatible functions for testing purposes.
+    
+    Returns:
+        MagicMock: Configured Home Assistant instance with cache support
+    """
     hass = MagicMock()
     hass.config.path = MagicMock(return_value="/config/hangar_assistant_cache")
     hass.helpers.aiohttp_client.async_get_clientsession = MagicMock(
@@ -31,7 +79,22 @@ def mock_hass():
 
 @pytest.fixture
 def owm_client(mock_hass):
-    """Create an OWM client instance."""
+    """Create an OWM client instance with caching enabled.
+    
+    Provides:
+        - Configured OpenWeatherMapClient
+        - API key: "test_api_key_12345"
+        - Cache enabled with 10-minute TTL
+        - Mock cache directory creation
+    
+    Used By:
+        - Tests requiring configured OWM client
+        - API call tests
+        - Cache behavior tests
+    
+    Returns:
+        OpenWeatherMapClient: Ready-to-use client instance
+    """
     with patch("pathlib.Path.mkdir"):
         return OpenWeatherMapClient(
             api_key="test_api_key_12345",
@@ -43,7 +106,27 @@ def owm_client(mock_hass):
 
 @pytest.fixture
 def sample_owm_response():
-    """Sample OWM API response."""
+    """Create realistic OWM One Call API 3.0 response for testing.
+    
+    Provides:
+        - Complete OWM API response structure
+        - Current weather data (temp, wind, clouds, etc.)
+        - Minutely precipitation forecast (2 datapoints)
+        - Hourly forecast (1 datapoint)
+        - Daily forecast (1 datapoint)
+        - Weather alerts (1 sample: UK Met Office wind warning)
+    
+    Used By:
+        - Data extraction tests
+        - Cache serialization tests
+        - API response parsing tests
+    
+    Location: 51.2°N, 1.2°W (Southwest England)
+    Conditions: 12.5°C, scattered clouds, moderate wind
+    
+    Returns:
+        dict: Complete OWM API response matching actual API structure
+    """
     return {
         "lat": 51.2,
         "lon": -1.2,
@@ -116,7 +199,22 @@ def sample_owm_response():
 
 
 class TestOpenWeatherMapClientInit:
-    """Test OWM client initialization."""
+    """Test suite for OpenWeatherMap client initialization.
+    
+    Tests client instantiation with various configuration options,
+    ensuring proper setup of caching, API keys, and rate limit tracking.
+    
+    Test Approach:
+        - Mock cache directory creation (Path.mkdir)
+        - Test default and custom configuration values
+        - Validate internal state after initialization
+    
+    Scenarios Covered:
+        - Default initialization (cache enabled, 10-min TTL)
+        - Custom cache TTL configuration
+        - Cache disabled mode
+        - Cache directory creation behavior
+    """
 
     @patch("pathlib.Path.mkdir")
     def test_init_with_defaults(self, mock_mkdir, mock_hass):

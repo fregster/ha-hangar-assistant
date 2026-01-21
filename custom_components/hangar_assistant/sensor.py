@@ -197,7 +197,7 @@ class HangarSensorBase(SensorEntity):
             return
 
         @callback
-        def _update_state(event):
+        def _update_state(_event):
             """Update the sensor state when a source entity changes."""
             self.async_write_ha_state()
 

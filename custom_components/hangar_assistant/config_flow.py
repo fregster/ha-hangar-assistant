@@ -123,14 +123,14 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Return the selected UI language (default 'en')."""
         return self._entry_data().get("settings", {}).get("language", "en")
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, _user_input=None):
         """Main configuration menu."""
         return self.async_show_menu(
             step_id="init",
             menu_options=["airfield", "aircraft", "pilot", "briefing", "global_config"]
         )
 
-    async def async_step_global_config(self, user_input=None):
+    async def async_step_global_config(self, _user_input=None):
         """Sub-menu for global system settings."""
         return self.async_show_menu(
             step_id="global_config",
@@ -827,7 +827,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             }
         )
 
-    async def async_step_briefing(self, user_input=None):
+    async def async_step_briefing(self, _user_input=None):
         """Sub-menu for configuring automated briefings."""
         briefings = self._list_from(self._entry_data().get("briefings", []))
         

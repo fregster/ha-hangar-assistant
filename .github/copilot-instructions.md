@@ -341,6 +341,20 @@ These commonly cause runtime errors if not properly typed/used:
 4. **Async functions**: All `async_*` methods must be awaited in async context
 5. **Event listeners**: Remember to call `async_on_remove()` to prevent memory leaks
 
+### Code Quality & SonarLint Standards
+
+To maintain a high-quality codebase and pass automated analysis, follow these rules:
+
+- **Refactor for Complexity**: Keep functions focused. If a function's cognitive complexity exceeds 15 (e.g., deeply nested logic, many branches), refactor it into smaller, descriptive private methods.
+- **Clean Async Usage**:
+    - Only use the `async` keyword if the function contains an `await` statement.
+    - Never perform blocking I/O (like `open()`, `os.*`, or `yaml.load()`) directly in an `async` function. Always wrap them in `hass.async_add_executor_job`.
+- **Unused Parameters**: If a required callback parameter (like `now` in `async_track_time_change` or `call` in service handlers) is not used, prefix it with an underscore (e.g., `_now`, `_call`) or omit it if the API allows.
+- **Exception Handling**:
+    - Avoid catching redundant exceptions (e.g., don't catch `OSError` and `FileNotFoundError` in the same block, as `FileNotFoundError` is a subclass of `OSError`).
+    - Use specific exceptions rather than a broad `Exception` where possible.
+- **Clean Imports**: Remove any unused imports. If an import is only needed for type checking, use `if TYPE_CHECKING:`.
+
 ### Localization & Translations Guidance
 
 To ensure a consistent, high-quality multilingual UI, follow these rules:

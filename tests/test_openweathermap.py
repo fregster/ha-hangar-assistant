@@ -234,13 +234,13 @@ class TestOpenWeatherMapClientAPI:
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=sample_owm_response)
         
-        # Create AsyncMock for context manager that properly returns mock_response
-        mock_context_manager = MagicMock()
-        mock_context_manager.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context_manager.__aexit__ = AsyncMock(return_value=False)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
         mock_session = MagicMock()
-        mock_session.get = MagicMock(return_value=mock_context_manager)
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -257,13 +257,13 @@ class TestOpenWeatherMapClientAPI:
         mock_response = AsyncMock()
         mock_response.status = 401
         
-        # Mock async context manager properly
-        mock_context = AsyncMock()
-        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context.__aexit__ = AsyncMock(return_value=None)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(return_value=mock_context)
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -278,13 +278,13 @@ class TestOpenWeatherMapClientAPI:
         mock_response = AsyncMock()
         mock_response.status = 429
         
-        # Mock async context manager properly
-        mock_context = AsyncMock()
-        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context.__aexit__ = AsyncMock(return_value=None)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(return_value=mock_context)
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -296,8 +296,8 @@ class TestOpenWeatherMapClientAPI:
     @pytest.mark.asyncio
     async def test_fetch_timeout(self, owm_client, mock_hass):
         """Test API fetch timeout handling."""
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(side_effect=asyncio.TimeoutError())
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -310,8 +310,8 @@ class TestOpenWeatherMapClientAPI:
     async def test_fetch_client_error(self, owm_client, mock_hass):
         """Test API fetch with client error."""
         # Mock a generic client error (ConnectionError is a built-in)
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
             side_effect=ConnectionError("Connection error")
         )
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
@@ -329,13 +329,13 @@ class TestOpenWeatherMapClientAPI:
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=sample_owm_response)
         
-        # Mock async context manager properly
-        mock_context = AsyncMock()
-        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context.__aexit__ = AsyncMock(return_value=None)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(return_value=mock_context)
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -438,13 +438,13 @@ class TestOpenWeatherMapClientMultiLevelCache:
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=sample_owm_response)
         
-        # Create AsyncMock for context manager that properly returns mock_response
-        mock_context_manager = MagicMock()
-        mock_context_manager.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context_manager.__aexit__ = AsyncMock(return_value=False)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
         mock_session = MagicMock()
-        mock_session.get = MagicMock(return_value=mock_context_manager)
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -531,13 +531,13 @@ class TestOpenWeatherMapClientRateLimitProtection:
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=sample_owm_response)
         
-        # Mock async context manager properly
-        mock_context = AsyncMock()
-        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context.__aexit__ = AsyncMock(return_value=None)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(return_value=mock_context)
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )
@@ -592,13 +592,13 @@ class TestOpenWeatherMapClientEdgeCases:
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=sample_owm_response)
         
-        # Mock async context manager properly
-        mock_context = AsyncMock()
-        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_context.__aexit__ = AsyncMock(return_value=None)
+        # Create async context manager mock properly
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        mock_context_manager.__aexit__.return_value = False
         
-        mock_session = AsyncMock()
-        mock_session.get = AsyncMock(return_value=mock_context)
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_context_manager
         mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
             mock_session
         )

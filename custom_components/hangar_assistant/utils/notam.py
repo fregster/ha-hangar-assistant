@@ -472,7 +472,13 @@ class NOTAMClient:
                     return None
 
                 cache_time = datetime.fromisoformat(timestamp_str)
-                if datetime.now() - cache_time < timedelta(days=self.cache_days):
+                # Normalise timezone awareness for safe subtraction
+                now = datetime.now(cache_time.tzinfo) if cache_time.tzinfo else datetime.now()
+                try:
+                    age = now - cache_time
+                except TypeError:
+                    age = now.replace(tzinfo=None) - cache_time.replace(tzinfo=None)
+                if age < timedelta(days=self.cache_days):
                     return cached["notams"]
                 return None
 
@@ -548,7 +554,12 @@ class NOTAMClient:
                     return 0
 
                 cache_time = datetime.fromisoformat(timestamp_str)
-                return int((datetime.now() - cache_time).total_seconds() / 3600)
+                now = datetime.now(cache_time.tzinfo) if cache_time.tzinfo else datetime.now()
+                try:
+                    age_seconds = (now - cache_time).total_seconds()
+                except TypeError:
+                    age_seconds = (now.replace(tzinfo=None) - cache_time.replace(tzinfo=None)).total_seconds()
+                return int(age_seconds / 3600)
             except (OSError, json.JSONDecodeError, KeyError, ValueError):
                 return 0
 

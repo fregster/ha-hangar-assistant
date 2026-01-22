@@ -261,7 +261,7 @@ class HangarAssistantConfigFlow(
         Returns:
             - async_step_api_integrations() on success
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             # Store general settings
@@ -282,7 +282,10 @@ class HangarAssistantConfigFlow(
         ]
         
         # Build unit preference options
-        unit_options = get_unit_preference_options()
+        lang: str = "en"
+        if user_input:
+            lang = user_input.get("language", "en")
+        unit_options = get_unit_preference_options(lang)
         
         return self.async_show_form(
             step_id="general_settings",
@@ -324,7 +327,7 @@ class HangarAssistantConfigFlow(
             - async_step_owm_setup() if OpenWeatherMap selected
             - async_step_add_airfield() if skipped or completed
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             # Check what user wants to configure
@@ -377,7 +380,7 @@ class HangarAssistantConfigFlow(
             - async_step_api_integrations() on success
             - Shows form with errors on failure
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             api_key = user_input.get("api_key", "").strip()
@@ -486,7 +489,7 @@ class HangarAssistantConfigFlow(
             - async_step_api_integrations() on success
             - Shows form with errors on failure
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             api_key = user_input.get("api_key", "").strip()
@@ -571,7 +574,7 @@ class HangarAssistantConfigFlow(
         Returns:
             - async_step_add_hangar() on success
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             icao = user_input.get("icao", "").strip().upper()
@@ -638,7 +641,7 @@ class HangarAssistantConfigFlow(
         Returns:
             - async_step_add_aircraft() on completion or skip
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             if user_input.get("skip", False):
@@ -651,9 +654,10 @@ class HangarAssistantConfigFlow(
                 errors["name"] = "name_required"
             else:
                 # Create hangar data
+                airfield_name = (self.wizard_state.airfield_data or {}).get("name", "")
                 self.wizard_state.hangar_data = {
                     "name": name,
-                    "airfield": self.wizard_state.airfield_data["name"],
+                    "airfield": airfield_name,
                     "temp_sensor": user_input.get("temp_sensor", ""),
                     "humidity_sensor": user_input.get("humidity_sensor", ""),
                 }
@@ -697,7 +701,7 @@ class HangarAssistantConfigFlow(
             - async_step_aircraft_template() if template selected
             - async_step_link_sensors() if manual entry or template applied
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             registration = user_input.get("registration", "").strip().upper()
@@ -713,8 +717,9 @@ class HangarAssistantConfigFlow(
                 # Check if user selected a template
                 if aircraft_type and aircraft_type in AIRCRAFT_TEMPLATES:
                     # Load template data
+                    airfield_name = (self.wizard_state.airfield_data or {}).get("name", "")
                     template_data = apply_aircraft_template(aircraft_type, registration)
-                    template_data["airfield"] = self.wizard_state.airfield_data["name"]
+                    template_data["airfield"] = airfield_name
                     
                     # Add hangar if configured
                     if self.wizard_state.hangar_data:
@@ -724,10 +729,11 @@ class HangarAssistantConfigFlow(
                     _LOGGER.info("Aircraft configured with template: %s (%s)", registration, aircraft_type)
                 else:
                     # Manual entry without template
+                    airfield_name = (self.wizard_state.airfield_data or {}).get("name", "")
                     self.wizard_state.aircraft_data = {
                         "reg": registration,
                         "type": user_input.get("type_manual", "Unknown"),
-                        "airfield": self.wizard_state.airfield_data["name"],
+                        "airfield": airfield_name,
                     }
                     
                     if self.wizard_state.hangar_data:
@@ -783,7 +789,7 @@ class HangarAssistantConfigFlow(
         Returns:
             - async_step_install_dashboard() on completion or skip
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             # Store sensor links (all optional)
@@ -841,7 +847,7 @@ class HangarAssistantConfigFlow(
         Returns:
             - async_create_entry() with all collected data
         """
-        errors = {}
+        errors: Dict[str, str] = {}
         
         if user_input is not None:
             method = user_input.get("method", "skip")
@@ -927,20 +933,22 @@ class HangarAssistantConfigFlow(
             Dict with complete configuration including settings, integrations,
             airfields, hangars, aircraft, and dashboard preferences
         """
-        config = {
-            "settings": self.wizard_state.general_settings,
-            "integrations": self.wizard_state.api_configs,
+        settings: Dict[str, Any] = dict(self.wizard_state.general_settings)
+        integrations: Dict[str, Any] = dict(self.wizard_state.api_configs)
+        config: Dict[str, Any] = {
+            "settings": settings,
+            "integrations": integrations,
             "airfields": [],
             "hangars": [],
             "aircraft": [],
         }
         
         # Mark setup as completed
-        config["settings"]["setup_completed"] = True
+        settings["setup_completed"] = True
         
         # Add NOTAM integration (free, enabled by default for new installs)
-        if "notams" not in config["integrations"]:
-            config["integrations"]["notams"] = {
+        if "notams" not in integrations:
+            integrations["notams"] = {
                 "enabled": True,
                 "update_time": "02:00",
                 "cache_days": 7,
@@ -952,7 +960,7 @@ class HangarAssistantConfigFlow(
             airfield = self.wizard_state.airfield_data.copy()
             
             # Add sensor links if provided
-            for sensor_type, entity_id in self.wizard_state.sensor_links.items():
+            for sensor_type, entity_id in (self.wizard_state.sensor_links or {}).items():
                 if entity_id:
                     airfield[sensor_type] = entity_id
             
@@ -967,11 +975,11 @@ class HangarAssistantConfigFlow(
             config["aircraft"].append(self.wizard_state.aircraft_data)
         
         # Store dashboard installation preference
-        if "dashboard" not in config["settings"]:
-            config["settings"]["dashboard"] = {}
-        
-        config["settings"]["dashboard"]["installation_method"] = self.wizard_state.dashboard_method
-        config["settings"]["dashboard"]["version"] = DEFAULT_DASHBOARD_VERSION
+        if "dashboard" not in settings:
+            settings["dashboard"] = {}
+
+        settings["dashboard"]["installation_method"] = self.wizard_state.dashboard_method
+        settings["dashboard"]["version"] = DEFAULT_DASHBOARD_VERSION
         
         return config
 

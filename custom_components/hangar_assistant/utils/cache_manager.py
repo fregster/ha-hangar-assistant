@@ -178,7 +178,7 @@ class CacheEntry(Generic[T]):
         return entry
 
 
-class CacheManager:
+class CacheManager(Generic[T]):
     """Unified cache manager with multi-level support.
 
     Provides consistent caching across the integration with support for:
@@ -240,7 +240,7 @@ class CacheManager:
         self._cache_dir_initialized = False
 
         # In-memory cache with OrderedDict for LRU eviction
-        self._memory_cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self._memory_cache: OrderedDict[str, CacheEntry[T]] = OrderedDict()
 
         # Statistics
         self._stats = {
@@ -415,7 +415,7 @@ class CacheManager:
         _LOGGER.debug("Cache MISS: %s/%s", self.namespace, key)
         return default
 
-    async def get_with_stale(  # type: ignore[return]
+    async def get_with_stale(
         self,
         key: str,
         max_age_hours: Optional[float] = None

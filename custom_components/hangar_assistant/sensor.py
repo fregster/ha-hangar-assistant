@@ -5,6 +5,7 @@ import logging
 import math
 import time
 from collections import OrderedDict
+from typing import Any
 from datetime import datetime, timedelta, timezone
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -2043,7 +2044,7 @@ class AirfieldNOTAMSensor(HangarSensorBase):
             self._notams = filtered_notams
             self._is_stale = is_stale
             self._last_update_time = dt_util.utcnow()
-            self._cache_stats = notam_client.get_cache_stats()
+            self._cache_stats = await notam_client.get_cache_stats()
 
         except Exception as e:
             _LOGGER.error(
@@ -2341,8 +2342,8 @@ class MetarSensor(HangarSensorBase):
     
     def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
         super().__init__(hass, config, global_settings)
-        self._metar_data = None
-        self._last_update = None
+        self._metar_data: dict[str, Any] | None = None
+        self._last_update: datetime | None = None
         
         # Get CheckWX configuration
         self._integrations = global_settings.get("integrations", {}) if global_settings else {}
@@ -2493,8 +2494,8 @@ class TafSensor(HangarSensorBase):
     
     def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
         super().__init__(hass, config, global_settings)
-        self._taf_data = None
-        self._last_update = None
+        self._taf_data: dict[str, Any] | None = None
+        self._last_update: datetime | None = None
         
         # Get CheckWX configuration
         self._integrations = global_settings.get("integrations", {}) if global_settings else {}
@@ -2622,9 +2623,9 @@ class StationInfoSensor(HangarSensorBase):
     
     def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
         super().__init__(hass, config, global_settings)
-        self._station_data = None
-        self._suntimes_data = None
-        self._last_update = None
+        self._station_data: dict[str, Any] | None = None
+        self._suntimes_data: dict[str, Any] | None = None
+        self._last_update: datetime | None = None
         
         # Get CheckWX configuration
         self._integrations = global_settings.get("integrations", {}) if global_settings else {}

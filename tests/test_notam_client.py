@@ -30,7 +30,7 @@ Aviation Context:
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from unittest.mock import MagicMock, patch, mock_open, AsyncMock
 import pytest
 
@@ -397,8 +397,8 @@ class TestCaching:
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         notam_client.cache_days = 7
         
-        # Write cache with old timestamp
-        old_time = (datetime.utcnow() - timedelta(days=8)).isoformat()
+        # Write cache with old timestamp (timezone-aware UTC)
+        old_time = (datetime.now(UTC) - timedelta(days=8)).isoformat()
         cache_data = {
             "notams": [{"id": "A0001/25"}],
             "timestamp": old_time
@@ -419,8 +419,8 @@ class TestCaching:
 
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         
-        # Write stale cache
-        old_time = (datetime.utcnow() - timedelta(days=10)).isoformat()
+        # Write stale cache (timezone-aware UTC)
+        old_time = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         cache_data = {
             "notams": [{"id": "A0001/25", "text": "Stale"}],
             "timestamp": old_time
@@ -497,8 +497,8 @@ class TestFetchNOTAMs:
 
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         
-        # Create stale cache
-        old_time = (datetime.utcnow() - timedelta(days=10)).isoformat()
+        # Create stale cache (timezone-aware UTC)
+        old_time = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         cache_data = {
             "notams": [{"id": "STALE001", "text": "Stale NOTAM"}],
             "timestamp": old_time
@@ -528,8 +528,8 @@ class TestFetchNOTAMs:
 
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         
-        # Create stale cache for fallback
-        old_time = (datetime.utcnow() - timedelta(days=10)).isoformat()
+        # Create stale cache for fallback (timezone-aware UTC)
+        old_time = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         cache_data = {
             "notams": [{"id": "FALLBACK001"}],
             "timestamp": old_time

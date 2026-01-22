@@ -579,7 +579,7 @@ def _score_forecast_point(
     Returns:
         Score from 0-100 (higher is better)
     """
-    score = 50  # Start neutral
+    score: float = 50.0  # Start neutral
 
     # Wind scoring
     wind_speed = f.get("wind_speed", 0)

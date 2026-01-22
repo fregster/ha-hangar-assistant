@@ -355,51 +355,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             blocking=False,
         )
 
-    async def handle_install_dashboard(call: ServiceCall) -> None:
-        """Service to install the Hangar Assistant dashboard.
-        
-        This service supports both automatic installation (via Lovelace API)
-        and manual installation (returns YAML for user to copy/paste).
-        Called from setup wizard or manually for dashboard updates.
-        
-        Service data:
-            - method: 'automatic' (default) or 'manual'
-        """
-        method = call.data.get("method", "automatic")
-        
-        entries = hass.config_entries.async_entries(DOMAIN)
-        if not entries:
-            _LOGGER.warning("No Hangar Assistant config entry found")
-            return
-        
-        entry = entries[0]
-        
-        if method == "automatic":
-            # Use existing dashboard creation logic
-            _LOGGER.info("Installing dashboard via automatic method")
-            result = await async_create_dashboard(
-                hass,
-                entry,
-                force_rebuild=True,
-                reason="install_service",
-            )
-            
-            if result:
-                # Update settings to mark dashboard as installed
-                new_data = dict(entry.data)
-                settings = new_data.setdefault("settings", {})
-                settings["dashboard_installed"] = True
-                settings["dashboard_url"] = "/hangar-assistant/glass_cockpit"
-                settings["dashboard_install_method"] = "automatic"
-                hass.config_entries.async_update_entry(entry, data=new_data)
-                
-                _LOGGER.info("✅ Dashboard installed successfully (automatic)")
-            else:
-                _LOGGER.error("❌ Dashboard installation failed")
-        
-        elif method == "manual":
-            # Generate YAML for manual installation
-            _LOGGER.info("Generating dashboard YAML for manual installation")
+    # Removed duplicate handle_install_dashboard definition (consolidated below)
     async def handle_install_dashboard(call: ServiceCall) -> None:
         """Service to install the Hangar Assistant dashboard.
         
@@ -615,11 +571,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 "departure": departure,
                 "destination": destination,
                 "distance_nm": distance_nm,
-                "flight_time_hours": round(flight_time_hours, 2),
+                "flight_time_hours": round(float(flight_time_hours or 0.0), 2),
                 "fuel_required_liters": round(fuel_required, 2),
                 "reserve_fuel_liters": round(reserve_fuel, 2),
                 "total_fuel_required_liters": round(total_fuel_required, 2),
-                "tank_capacity_liters": round(capacity_liters, 2),
+                "tank_capacity_liters": round(float(capacity_liters or 0.0), 2),
                 "sufficient_capacity": sufficient,
             }
         )

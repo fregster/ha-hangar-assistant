@@ -7,7 +7,7 @@ from typing import Dict, List, Any
 
 
 # Aircraft performance templates with realistic defaults
-AIRCRAFT_TEMPLATES = {
+AIRCRAFT_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "cessna_172": {
         "name": "Cessna 172 Skyhawk",
         "mtow_kg": 1157,
@@ -89,7 +89,7 @@ AIRCRAFT_TEMPLATES = {
 
 
 # Complete setup templates for common scenarios
-QUICK_START_TEMPLATES = {
+QUICK_START_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "uk_ppl_single": {
         "name": "UK PPL Single Aircraft",
         "description": "Single piston aircraft at UK airfield",

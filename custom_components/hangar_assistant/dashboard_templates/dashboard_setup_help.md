@@ -32,6 +32,12 @@ The integration now exposes dropdown entities automatically:
 
 These mirror your configured airfields/aircraft/pilots—no manual helpers needed. Use them in dashboards or automations if you want explicit selection rather than auto-detect.
 
+## ADS-B aircraft map
+
+- Device tracker entities for ADS-B/FLARM targets use the pattern `device_tracker.aircraft_*`.
+- The glass cockpit dashboard automatically maps them; no extra helpers or filters are required.
+- If no ADS-B sources are enabled, the section hides itself and the rest of the dashboard continues to function normally.
+
 ## Automation hook (optional)
 If you enable "Fire 'hangar_assistant_dashboard_setup' event" in the config flow, you can listen for it and ensure helpers/dashboards are set up:
 

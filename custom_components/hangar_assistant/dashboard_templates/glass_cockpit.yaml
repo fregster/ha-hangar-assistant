@@ -239,6 +239,59 @@ views:
         column_span: 3
       - cards:
           - type: heading
+            heading: Traffic Awareness (ADS-B/FLARM)
+            heading_style: title
+            icon: mdi:radar
+          - type: custom:mushroom-template-card
+            primary: ADS-B aircraft nearby
+            secondary: >-
+              {% set aircraft = states.device_tracker | selectattr('entity_id','search','^device_tracker\\.aircraft_') | rejectattr('state','equalto','unavailable') | list %}
+              {% set count = aircraft | length %}
+              {% if count > 0 %}
+                Tracking {{ count }} ADS-B/FLARM aircraft from your enabled sources.
+              {% else %}
+                Waiting for ADS-B or FLARM positions to appear. Sources stay optional and do not affect other sensors.
+              {% endif %}
+            icon: mdi:airplane-clock
+            icon_color: teal
+            multiline_secondary: true
+            entity: zone.home
+          - type: custom:auto-entities
+            show_empty: false
+            card_param: entities
+            card:
+              type: map
+              aspect_ratio: '16:9'
+              default_zoom: 10
+              hours_to_show: 0.25
+            filter:
+              include:
+                - entity_id: zone.home
+                - entity_id: device_tracker.aircraft_*
+              exclude:
+                - state: unavailable
+                - state: unknown
+          - type: custom:auto-entities
+            show_empty: false
+            card_param: entities
+            sort:
+              method: state
+            card:
+              type: entities
+              title: Nearby aircraft list
+              state_color: true
+            filter:
+              include:
+                - entity_id: device_tracker.aircraft_*
+              exclude:
+                - state: unavailable
+                - state: unknown
+          - type: markdown
+            content: >-
+              **Tip:** Device tracker entities appear as soon as an ADS-B/FLARM source publishes a valid position. No manual helpers are needed; entity IDs use the pattern `device_tracker.aircraft_{registration_or_icao24}`.
+        column_span: 3
+      - cards:
+          - type: heading
             heading: Your AI Briefing
             heading_style: title
             icon: mdi:account-voice

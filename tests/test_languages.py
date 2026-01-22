@@ -27,13 +27,11 @@ def test_language_file_completeness():
     """Verify all language files have the same structure (deep keys)."""
     translations_dir = Path(__file__).parent.parent / "custom_components" / "hangar_assistant" / "translations"
 
-    # Load all language files
-    files = {
-        "en": json.load(open(translations_dir / "en.json")),
-        "de": json.load(open(translations_dir / "de.json")),
-        "es": json.load(open(translations_dir / "es.json")),
-        "fr": json.load(open(translations_dir / "fr.json")),
-    }
+    # Load all language files with proper context managers
+    files = {}
+    for lang_code in ["en", "de", "es", "fr"]:
+        with open(translations_dir / f"{lang_code}.json") as f:
+            files[lang_code] = json.load(f)
 
     def collect_deep_keys(obj, parent=""):
         keys = set()

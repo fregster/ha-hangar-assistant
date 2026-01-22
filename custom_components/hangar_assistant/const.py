@@ -157,3 +157,81 @@ Format:
 - Structure briefs as: WXBRIEF → PERFORMANCE → LEGAL → RECOMMENDATION
 - Be direct and avoid aviation jargon when possible
 - Flag any missing or outdated data"""
+
+# ADS-B Tracking Configuration Keys
+CONF_ADSB = "adsb"
+CONF_ADSB_ENABLED = "adsb_enabled"
+CONF_ADSB_SOURCES = "adsb_sources"
+CONF_ADSB_TRACKED_AIRCRAFT = "tracked_aircraft"
+CONF_ADSB_AIRFIELD_TRAFFIC = "airfield_traffic"
+
+# dump1090 Configuration (local ADS-B receiver)
+CONF_DUMP1090_ENABLED = "dump1090_enabled"
+CONF_DUMP1090_URL = "dump1090_url"  # Full URL to dump1090 JSON endpoint
+CONF_DUMP1090_TIMEOUT = "dump1090_timeout"
+
+# OpenSky Network Configuration (free API, ADS-B + FLARM)
+CONF_OPENSKY_ENABLED = "opensky_enabled"
+CONF_OPENSKY_USERNAME = "opensky_username"
+CONF_OPENSKY_PASSWORD = "opensky_password"
+CONF_OPENSKY_RATE_LIMIT_ANONYMOUS = "opensky_rate_limit_anonymous"
+CONF_OPENSKY_RATE_LIMIT_AUTH = "opensky_rate_limit_auth"
+
+# Open Gliding Network Configuration (free APRS, FLARM only)
+CONF_OGN_ENABLED = "ogn_enabled"
+CONF_OGN_CALLSIGN = "ogn_callsign"
+CONF_OGN_APRS_SERVER = "ogn_aprs_server"
+CONF_OGN_APRS_PORT = "ogn_aprs_port"
+CONF_OGN_APRS_FILTER = "ogn_aprs_filter"
+CONF_OGN_DDB_CACHE_HOURS = "ogn_ddb_cache_hours"
+
+# ADS-B Exchange Configuration (RapidAPI, paid tiers)
+CONF_ADSBEXCHANGE_ENABLED = "adsbexchange_enabled"
+CONF_ADSBEXCHANGE_API_KEY = "adsbexchange_api_key"
+CONF_ADSBEXCHANGE_RAPIDAPI_HOST = "adsbexchange_rapidapi_host"
+
+# FlightRadar24 Configuration (paid API)
+CONF_FR24_ENABLED = "fr24_enabled"
+CONF_FR24_API_KEY = "fr24_api_key"
+
+# FlightAware Configuration (paid API)
+CONF_FLIGHTAWARE_ENABLED = "flightaware_enabled"
+CONF_FLIGHTAWARE_API_KEY = "flightaware_api_key"
+
+# ADS-B Defaults
+DEFAULT_ADSB_ENABLED = False  # Opt-in feature
+DEFAULT_ADSB_CACHE_TTL = 30  # seconds (aircraft positions update frequently)
+DEFAULT_ADSB_UPDATE_INTERVAL = 10  # seconds between updates
+DEFAULT_ADSB_MONITORING_RADIUS = 10  # nautical miles around airfield
+DEFAULT_DUMP1090_URL = "http://localhost:8080/data/aircraft.json"  # Full URL to dump1090
+DEFAULT_DUMP1090_TIMEOUT = 5  # seconds
+DEFAULT_OPENSKY_ANONYMOUS_CREDITS_PER_DAY = 400  # OpenSky anonymous rate limit
+DEFAULT_OPENSKY_AUTH_CREDITS_PER_DAY = 4000  # OpenSky authenticated rate limit
+DEFAULT_OGN_APRS_SERVER = "aprs.glidernet.org"
+DEFAULT_OGN_APRS_PORT = 14580
+DEFAULT_OGN_CALLSIGN = "HA-HANGAR"  # Default APRS callsign
+DEFAULT_OGN_DDB_CACHE_HOURS = 24  # Cache Device Database lookups for 24 hours
+DEFAULT_ADSBEXCHANGE_RAPIDAPI_HOST = "adsbexchange-com1.p.rapidapi.com"
+
+# ADS-B Data Source Priority (lower number = higher priority)
+ADSB_PRIORITY_DUMP1090 = 1  # Local receiver (best accuracy, lowest latency)
+ADSB_PRIORITY_OPENSKY = 2  # Free API, ADS-B + FLARM, 4000 credits with account
+ADSB_PRIORITY_OGN = 3  # Free APRS, FLARM only, unlimited
+ADSB_PRIORITY_ADSBEXCHANGE = 4  # Paid API, 500-1M requests
+ADSB_PRIORITY_FR24 = 5  # Paid API
+ADSB_PRIORITY_FLIGHTAWARE = 6  # Paid API
+
+# Default enabled sources (free APIs enabled by default)
+DEFAULT_ADSB_ENABLED_SOURCES = [
+    "opensky",  # Free, enabled by default (400-4000 credits/day)
+    "ogn",  # Free APRS, enabled by default (unlimited, FLARM only)
+]
+
+# ADS-B device tracker configuration
+CONF_ADSB_TRACK_AIRCRAFT_BY_REG = "track_aircraft_by_registration"
+CONF_ADSB_TRACK_AIRCRAFT_BY_ICAO = "track_aircraft_by_icao24"
+CONF_ADSB_DEVICE_TRACKER_PREFIX = "adsb_aircraft"
+
+# ADS-B sensor configuration
+CONF_ADSB_TRAFFIC_SENSORS = "adsb_traffic_sensors"
+CONF_ADSB_NEAREST_AIRCRAFT_SENSOR = "adsb_nearest_aircraft_sensor"

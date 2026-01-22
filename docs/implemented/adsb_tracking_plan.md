@@ -1,9 +1,26 @@
 # ADS-B Aircraft Tracking Integration
 
-**Status**: Planning Phase  
-**Target Version**: v2601.5.0+  
-**Planning Date**: 22 January 2026  
-**Complexity**: High (multi-source integration, real-time data, device tracking)
+**Status**: IMPLEMENTED - Released in v2601.5.0 (22 January 2026)  
+**Original Planning Date**: 22 January 2026  
+**Location**: Moved from docs/planning/ to docs/implemented/
+
+## Quick Links
+- Implementation:
+  - Core manager: [custom_components/hangar_assistant/utils/adsb_manager.py](custom_components/hangar_assistant/utils/adsb_manager.py)
+  - Device trackers: [custom_components/hangar_assistant/utils/adsb_device_tracker.py](custom_components/hangar_assistant/utils/adsb_device_tracker.py)
+  - Data sources: [custom_components/hangar_assistant/utils/dump1090_client.py](custom_components/hangar_assistant/utils/dump1090_client.py), [custom_components/hangar_assistant/utils/opensky_client.py](custom_components/hangar_assistant/utils/opensky_client.py), [custom_components/hangar_assistant/utils/ogn_client.py](custom_components/hangar_assistant/utils/ogn_client.py)
+  - Config flow: [custom_components/hangar_assistant/adsb_config_flow.py](custom_components/hangar_assistant/adsb_config_flow.py)
+  - Dashboard: [custom_components/hangar_assistant/dashboard_templates/glass_cockpit.yaml](custom_components/hangar_assistant/dashboard_templates/glass_cockpit.yaml)
+- Tests: [tests/test_adsb_integration.py](tests/test_adsb_integration.py); [tests/test_adsb_device_tracker.py](tests/test_adsb_device_tracker.py); [tests/test_opensky_client.py](tests/test_opensky_client.py)
+- Documentation: [docs/features/adsb_tracking.md](../features/adsb_tracking.md)
+
+## Implementation Summary
+- Multi-source ADS-B manager with deduplication and caching
+- Device tracker manager emitting aircraft positions for dashboards
+- Config flow coverage for OpenSky, dump1090, and OGN defaults
+- Dashboard map integration for ADS-B/FLARM aircraft
+- Unit tests covering manager, clients, and device tracker helper
+- Backward compatible opt-in feature (disabled by default)
 
 ## Table of Contents
 - [Executive Summary](#executive-summary)

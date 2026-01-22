@@ -7,6 +7,10 @@
         "/^perl -pi -e 's/input_select\\\\\\.airfield_selector/select\\.hangar_assistant_airfield_selector/g; s/input_select\\\\\\.aircraft_selector/select\\.hangar_assistant_aircraft_selector/g' custom_components/hangar_assistant/dashboard_templates/glass_cockpit\\.yaml$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^\\.venv/bin/python --version$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

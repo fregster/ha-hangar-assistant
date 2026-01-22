@@ -23,6 +23,7 @@ Coverage:
     - Graceful degradation when API fails
 """
 
+import asyncio
 import json
 from datetime import datetime, timedelta
 from pathlib import Path

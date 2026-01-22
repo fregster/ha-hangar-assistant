@@ -91,7 +91,11 @@ class OpenWeatherMapClient:
 
         # Persistent cache directory (survives restarts)
         # Note: Directory creation is lazy - only created when needed
-        self.cache_dir = Path(hass.config.path("hangar_assistant_cache"))
+        config_path = getattr(getattr(hass, "config", None), "path", None)
+        if callable(config_path):
+            self.cache_dir = Path(config_path("hangar_assistant_cache"))
+        else:
+            self.cache_dir = Path("/tmp/hangar_assistant_cache")
         self._cache_dir_initialized = False
 
         # In-memory cache for current session (LRU eviction for memory safety)
@@ -270,13 +274,8 @@ class OpenWeatherMapClient:
             return None
 
         try:
-            # Use orjson if available (2-5x faster)
-            if HAS_ORJSON:
-                cache_bytes = cache_file.read_bytes()
-                cached = orjson.loads(cache_bytes)
-            else:
-                with open(cache_file, "r") as f:
-                    cached = json.load(f)
+            with open(cache_file, "r") as f:
+                cached = orjson.loads(f.read()) if HAS_ORJSON else json.load(f)
 
             # Check if cache is still valid
             cached_time = datetime.fromisoformat(cached["cached_at"])
@@ -295,7 +294,7 @@ class OpenWeatherMapClient:
                 )
                 return None
 
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError, OSError) as e:
             _LOGGER.warning("Failed to read cache file: %s", e)
             return None
 
@@ -362,12 +361,10 @@ class OpenWeatherMapClient:
                 "data": data,
             }
 
-            # Use orjson if available (2-5x faster)
-            if HAS_ORJSON:
-                cache_bytes = orjson.dumps(cached, option=orjson.OPT_INDENT_2)
-                cache_file.write_bytes(cache_bytes)
-            else:
-                with open(cache_file, "w") as f:
+            with open(cache_file, "w") as f:
+                if HAS_ORJSON:
+                    f.write(orjson.dumps(cached, option=orjson.OPT_INDENT_2).decode("utf-8"))
+                else:
                     json.dump(cached, f, indent=2)
 
             _LOGGER.debug("Wrote persistent cache to %s", cache_file.name)

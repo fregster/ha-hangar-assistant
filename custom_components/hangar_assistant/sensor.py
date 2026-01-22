@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -182,6 +183,11 @@ class HangarSensorBase(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
+    # Shared state cache across all sensors (LRU with TTL)
+    _state_cache: OrderedDict[str, tuple] = OrderedDict()
+    _cache_ttl_seconds: int = DEFAULT_SENSOR_CACHE_TTL_SECONDS
+    _max_cache_entries: int = 50
+
     def __init__(self, hass: HomeAssistant, config: dict,
                  global_settings: dict | None = None):
         """Initialize the sensor.
@@ -213,6 +219,24 @@ class HangarSensorBase(SensorEntity):
         # Initialize cache for sensor value lookups
         # {entity_id: (value, timestamp)}
         self._sensor_cache: dict[str, tuple[float, float]] = {}
+
+    def _get_cached_state(self, cache_key: str):
+        """Retrieve cached state if still valid (LRU-managed)."""
+        if cache_key in self._state_cache:
+            cached_value, cached_time = self._state_cache[cache_key]
+            age = (dt_util.utcnow() - cached_time).total_seconds()
+            if age < self._cache_ttl_seconds:
+                self._state_cache.move_to_end(cache_key)
+                return cached_value
+        return None
+
+    def _cache_state(self, cache_key: str, value) -> None:
+        """Cache a state value with TTL and LRU eviction."""
+        self._state_cache[cache_key] = (value, dt_util.utcnow())
+        self._state_cache.move_to_end(cache_key)
+
+        while len(self._state_cache) > self._max_cache_entries:
+            self._state_cache.popitem(last=False)
 
     @property
     def extra_state_attributes(self) -> dict:

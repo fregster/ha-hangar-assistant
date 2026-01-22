@@ -65,7 +65,8 @@ def test_json_deserialization_with_orjson():
     assert result == {"test": "data", "value": 42}
 
 
-def test_lru_cache_eviction():
+@pytest.mark.asyncio
+async def test_lru_cache_eviction():
     """Test LRU cache evicts oldest entries when limit reached."""
     from custom_components.hangar_assistant.utils.cache_manager import (
         CacheManager,
@@ -91,24 +92,25 @@ def test_lru_cache_eviction():
         )
         cache._memory_cache[f"key_{i}"] = entry
         cache._memory_cache.move_to_end(f"key_{i}")
-    
+
     # Should only have 3 entries (oldest evicted)
     assert len(cache._memory_cache) == 4  # Haven't enforced limit yet
-    
+
     # Now set a new entry which should trigger eviction
     entry = CacheEntry(
         data={"value": "new"},
         timestamp=now,
         ttl_seconds=3600
     )
-    cache.set("new_key", entry)
-    
+    await cache.set("new_key", entry)
+
     # Check that oldest was evicted
     assert "key_0" not in cache._memory_cache
     assert "new_key" in cache._memory_cache
 
 
-def test_lru_cache_move_to_end_on_access():
+@pytest.mark.asyncio
+async def test_lru_cache_move_to_end_on_access():
     """Test LRU cache updates order on access."""
     from custom_components.hangar_assistant.utils.cache_manager import (
         CacheManager,
@@ -132,10 +134,10 @@ def test_lru_cache_move_to_end_on_access():
             timestamp=now,
             ttl_seconds=3600
         )
-        cache.set(f"key_{i}", entry)
+        await cache.set(f"key_{i}", entry)
     
     # Access key_0 (should move to end)
-    cache.get("key_0")
+    await cache.get("key_0")
     
     # key_0 should now be most recent
     keys_list = list(cache._memory_cache.keys())
@@ -200,8 +202,14 @@ async def test_notam_cache_single_read():
     client._fetch_from_nats = mock_fetch_fail
     
     # Mock stale cache available
-    client._read_stale_cache = lambda: [{"id": "TEST"}]
-    client._get_cache_age_hours = lambda: 48
+    async def _stale():
+        return [{"id": "TEST"}]
+
+    async def _age():
+        return 48
+
+    client._read_stale_cache = _stale
+    client._get_cache_age_hours = _age
     
     # Call fetch_notams
     notams, is_stale = await client.fetch_notams()

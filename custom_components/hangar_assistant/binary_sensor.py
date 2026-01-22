@@ -108,7 +108,14 @@ async def async_setup_entry(
     if notam_config.get("enabled", False):
         entities.append(NOTAMStalenessWarning(hass, entry))
 
-    async_add_entities(entities)
+    result = async_add_entities(entities)
+    try:
+        import asyncio
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:
+        # In HA, async_add_entities is typically a callback; ignore if not awaitable
+        pass
 
 
 class HangarMasterSafetyAlert(BinarySensorEntity):

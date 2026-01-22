@@ -27,6 +27,7 @@ Aviation Context:
     - Stale NOTAMs better than no NOTAMs for situational awareness
     - Daily updates sufficient for most general aviation planning
 """
+import asyncio
 import json
 import os
 from datetime import datetime, timedelta
@@ -92,6 +93,7 @@ def mock_hass():
     """
     hass = MagicMock()
     hass.config.path = lambda x: f"/mock/config/{x}"
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda func, *args: func(*args))
     return hass
 
 
@@ -361,7 +363,7 @@ class TestCaching:
             {"id": "A0001/25", "location": "EGKA", "text": "Test NOTAM"}
         ]
         
-        notam_client._write_cache(test_notams)
+        asyncio.run(notam_client._write_cache(test_notams))
         
         # Read back
         assert os.path.exists(notam_client.cache_file)
@@ -380,11 +382,11 @@ class TestCaching:
         
         # Write fresh cache
         test_notams = [{"id": "A0001/25", "text": "Test"}]
-        notam_client._write_cache(test_notams)
-        
+        asyncio.run(notam_client._write_cache(test_notams))
+
         # Read within retention period
-        result = notam_client._read_cache()
-        
+        result = asyncio.run(notam_client._read_cache())
+
         assert result == test_notams
 
     def test_read_expired_cache_returns_none(self, notam_client, tmp_path):
@@ -406,8 +408,8 @@ class TestCaching:
             json.dump(cache_data, f)
         
         # Attempt to read - should return None (expired)
-        result = notam_client._read_cache()
-        
+        result = asyncio.run(notam_client._read_cache())
+
         assert result is None
 
     def test_read_stale_cache(self, notam_client, tmp_path):
@@ -428,8 +430,8 @@ class TestCaching:
             json.dump(cache_data, f)
         
         # Read stale cache
-        result = notam_client._read_stale_cache()
-        
+        result = asyncio.run(notam_client._read_stale_cache())
+
         assert result == [{"id": "A0001/25", "text": "Stale"}]
 
     def test_read_nonexistent_cache(self, notam_client, tmp_path):
@@ -439,8 +441,8 @@ class TestCaching:
 
         notam_client.cache_file = Path(str(tmp_path / "does_not_exist.json"))
         
-        result = notam_client._read_cache()
-        
+        result = asyncio.run(notam_client._read_cache())
+
         assert result is None
 
 
@@ -457,7 +459,7 @@ class TestFetchNOTAMs:
         
         # Create fresh cache
         test_notams = [{"id": "A0001/25", "location": "EGKA"}]
-        notam_client._write_cache(test_notams)
+        await notam_client._write_cache(test_notams)
         
         # Fetch should return cache without network call
         notams, is_stale = await notam_client.fetch_notams()
@@ -564,7 +566,7 @@ class TestFetchNOTAMs:
             notams, is_stale = await notam_client.fetch_notams()
             
             assert notams == []
-            assert is_stale is False  # No cache = not stale, just empty
+            assert is_stale is True  # No cache + failure = stale/no data
 
 
 class TestLocationFiltering:
@@ -678,7 +680,8 @@ class TestFailureTracking:
 class TestCacheManagement:
     """Test cache management utilities."""
 
-    def test_clear_cache(self, notam_client, tmp_path):
+    @pytest.mark.asyncio
+    async def test_clear_cache(self, notam_client, tmp_path):
         """Test cache clearing removes file."""
         from pathlib import Path
         notam_client.cache_dir = Path(str(tmp_path))
@@ -686,15 +689,16 @@ class TestCacheManagement:
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         
         # Create cache
-        notam_client._write_cache([{"id": "A0001/25"}])
+        await notam_client._write_cache([{ "id": "A0001/25" }])
         assert os.path.exists(notam_client.cache_file)
         
         # Clear cache
-        notam_client.clear_cache()
+        await notam_client.clear_cache()
         
         assert not os.path.exists(notam_client.cache_file)
 
-    def test_get_cache_stats_with_existing_cache(self, notam_client, tmp_path):
+    @pytest.mark.asyncio
+    async def test_get_cache_stats_with_existing_cache(self, notam_client, tmp_path):
         """Test cache stats returns correct information."""
         from pathlib import Path
         notam_client.cache_dir = Path(str(tmp_path))
@@ -702,23 +706,24 @@ class TestCacheManagement:
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         
         # Create cache
-        notam_client._write_cache([{"id": "A0001/25"}, {"id": "A0002/25"}])
+        await notam_client._write_cache([{ "id": "A0001/25" }, { "id": "A0002/25" }])
         
-        stats = notam_client.get_cache_stats()
+        stats = await notam_client.get_cache_stats()
         
         assert stats["exists"] is True
         assert stats["count"] == 2
         assert stats["age_hours"] < 1  # Just created
         assert stats["size_bytes"] > 0
 
-    def test_get_cache_stats_with_no_cache(self, notam_client, tmp_path):
+    @pytest.mark.asyncio
+    async def test_get_cache_stats_with_no_cache(self, notam_client, tmp_path):
         """Test cache stats returns False for nonexistent cache."""
         from pathlib import Path
         notam_client.cache_dir = Path(str(tmp_path))
 
         notam_client.cache_file = Path(str(tmp_path / "nonexistent.json"))
         
-        stats = notam_client.get_cache_stats()
+        stats = await notam_client.get_cache_stats()
         
         assert stats["exists"] is False
         assert stats["count"] == 0

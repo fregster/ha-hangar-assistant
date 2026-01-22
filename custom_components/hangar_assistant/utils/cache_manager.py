@@ -84,9 +84,11 @@ class CacheEntry(Generic[T]):
     def __init__(
         self,
         data: T,
-        cached_at: datetime,
+        cached_at: Optional[datetime] = None,
         ttl: Optional[timedelta] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        timestamp: Optional[datetime] = None,
+        ttl_seconds: Optional[int] = None
     ):
         """Initialize cache entry.
 
@@ -96,9 +98,12 @@ class CacheEntry(Generic[T]):
             ttl: Time-to-live duration (None = never expires)
             metadata: Optional metadata dict
         """
+        effective_cached_at = cached_at or timestamp or datetime.now()
+        effective_ttl = ttl if ttl else (timedelta(seconds=ttl_seconds) if ttl_seconds else None)
+
         self.data = data
-        self.cached_at = cached_at
-        self.expires_at = cached_at + ttl if ttl else None
+        self.cached_at = effective_cached_at
+        self.expires_at = effective_cached_at + effective_ttl if effective_ttl else None
         self.metadata = metadata or {}
 
     def is_expired(self, now: Optional[datetime] = None) -> bool:
@@ -126,7 +131,15 @@ class CacheEntry(Generic[T]):
             Age in seconds
         """
         check_time = now or datetime.now()
-        return (check_time - self.cached_at).total_seconds()
+        # Normalise timezone awareness to prevent subtraction errors
+        base_time = self.cached_at
+        try:
+            return (check_time - base_time).total_seconds()
+        except TypeError:
+            # Convert both to naive by dropping tzinfo if mismatch occurs
+            ct = check_time.replace(tzinfo=None)
+            bt = base_time.replace(tzinfo=None)
+            return (ct - bt).total_seconds()
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize cache entry to dict for JSON storage.
@@ -217,6 +230,8 @@ class CacheManager:
         self.memory_enabled = memory_enabled
         self.persistent_enabled = persistent_enabled
         self.ttl = timedelta(minutes=ttl_minutes) if ttl_minutes else None
+        self._max_memory_entries = max_memory_entries
+        # Backwards compatibility
         self.max_memory_entries = max_memory_entries
 
         # Cache directory setup
@@ -480,7 +495,7 @@ class CacheManager:
         # Store in memory cache with LRU eviction
         if self.memory_enabled:
             # Implement LRU eviction if cache is full
-            if len(self._memory_cache) >= self.max_memory_entries:
+            if len(self._memory_cache) >= self._max_memory_entries:
                 # Remove oldest entry (FIFO in OrderedDict)
                 oldest_key, oldest_entry = self._memory_cache.popitem(last=False)
                 self._stats["evictions"] += 1

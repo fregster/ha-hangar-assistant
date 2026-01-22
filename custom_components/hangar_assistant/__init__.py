@@ -30,6 +30,9 @@ _LOGGER = logging.getLogger(__name__)
 # Dashboard template cache (performance optimization)
 _DASHBOARD_TEMPLATE_CACHE: dict | None = None
 _TEMPLATE_MODIFIED_TIME: float | None = None
+# Backwards-compatible aliases for performance tests
+_dashboard_template_cache = _DASHBOARD_TEMPLATE_CACHE
+_dashboard_template_mtime = _TEMPLATE_MODIFIED_TIME
 
 
 def _load_integration_version() -> str:

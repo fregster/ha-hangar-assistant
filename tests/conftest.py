@@ -90,6 +90,8 @@ mock_hass.helpers = MagicMock()
 mock_hass.util = SimpleNamespace(dt=SimpleNamespace(
     utcnow=lambda: datetime.now(timezone.utc),
     now=lambda: datetime.now(timezone.utc),
+), logging=SimpleNamespace(
+    log_exception=lambda format_err, *args: None,
 ))
 mock_hass.const = MagicMock()
 
@@ -104,8 +106,21 @@ sys.modules["homeassistant.data_entry_flow"] = SimpleNamespace(
 sys.modules["homeassistant.components"] = MagicMock()
 sys.modules["homeassistant.components.binary_sensor"] = MagicMock()
 sys.modules["homeassistant.components.sensor"] = MagicMock()
+class HomeAssistant:
+    """Minimal Home Assistant core object used for specs in tests."""
+
+
+class ServiceCall:
+    """Minimal ServiceCall stub with data payload."""
+
+    def __init__(self, data=None):
+        self.data = data or {}
+
+
 core_mock = MagicMock()
+core_mock.HomeAssistant = HomeAssistant
 core_mock.callback = lambda f: f
+core_mock.ServiceCall = ServiceCall
 sys.modules["homeassistant.core"] = core_mock
 sys.modules["homeassistant.helpers"] = mock_hass.helpers
 sys.modules["homeassistant.util"] = mock_hass.util

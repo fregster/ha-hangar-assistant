@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -77,8 +78,31 @@ class NOTAMClient:
         self.hass = hass
         self.cache_days = cache_days
         self.entry = entry
-        self.cache_dir = Path(hass.config.path("hangar_assistant_cache"))
+
+        # Safely resolve cache path even when hass.config.path is unavailable in tests
+        config_path = getattr(getattr(hass, "config", None), "path", None)
+        if callable(config_path):
+            cache_root = Path(config_path("hangar_assistant_cache"))
+        else:
+            cache_root = Path("/tmp/hangar_assistant_cache")
+
+        self.cache_dir = cache_root
         self.cache_file = self.cache_dir / "notams.json"
+
+    async def _run_io(self, func):
+        """Run blocking I/O safely even when hass mock lacks executor."""
+        runner = getattr(self.hass, "async_add_executor_job", None)
+
+        if callable(runner):
+            if asyncio.iscoroutinefunction(runner):
+                return await runner(func)
+            result = runner(func)
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, func)
 
     async def fetch_notams(self) -> Tuple[List[Dict[str, Any]], bool]:
         """Fetch NOTAMs from NATS or cache with stale fallback.
@@ -120,6 +144,15 @@ class NOTAMClient:
                     cache_age)
                 return cached, True
 
+            # If cache is expired or missing from the fresh read, attempt a stale read now
+            stale_cache = await self._read_stale_cache()
+            if stale_cache:
+                cache_age = await self._get_cache_age_hours()
+                _LOGGER.warning(
+                    "Using stale NOTAM cache (%d hours old) due to fetch failure",
+                    cache_age)
+                return stale_cache, True
+
             # No cache available at all - return empty but mark as stale (error condition)
             _LOGGER.error("No NOTAM data available (fresh or cached)")
             return [], True
@@ -141,7 +174,7 @@ class NOTAMClient:
             if response.status == 200:
                 xml_content = await response.text()
                 notams = self._parse_pib_xml(xml_content)
-                self._write_cache(notams)
+                await self._write_cache(notams)
                 _LOGGER.info(
                     "Fetched %d NOTAMs from NATS PIB feed",
                     len(notams))
@@ -434,7 +467,11 @@ class NOTAMClient:
                 with open(self.cache_file, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
 
-                cache_time = datetime.fromisoformat(cached["cached_at"])
+                timestamp_str = cached.get("cached_at") or cached.get("timestamp")
+                if not timestamp_str:
+                    return None
+
+                cache_time = datetime.fromisoformat(timestamp_str)
                 if datetime.now() - cache_time < timedelta(days=self.cache_days):
                     return cached["notams"]
                 return None
@@ -443,7 +480,7 @@ class NOTAMClient:
                 _LOGGER.debug("Failed to read NOTAM cache: %s", e)
                 return None
 
-        result = await self.hass.async_add_executor_job(_read_sync)
+        result = await self._run_io(_read_sync)
         if result:
             _LOGGER.debug(
                 "NOTAM cache hit (age: %d hours)",
@@ -470,34 +507,28 @@ class NOTAMClient:
             except (OSError, json.JSONDecodeError):
                 return None
 
-        return await self.hass.async_add_executor_job(_read_sync)
+        return await self._run_io(_read_sync)
+
+    def _write_cache_sync(self, notams: List[Dict[str, Any]]) -> None:
+        """Write NOTAMs to persistent cache (blocking helper)."""
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+            cached = {
+                "cached_at": datetime.now().isoformat(),
+                "notams": notams
+            }
+
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cached, f, indent=2)
+
+            _LOGGER.debug("Wrote %d NOTAMs to cache", len(notams))
+        except (OSError, TypeError) as e:
+            _LOGGER.error("Failed to write NOTAM cache: %s", e)
 
     async def _write_cache(self, notams: List[Dict[str, Any]]) -> None:
-        """Write NOTAMs to persistent cache.
-
-        Args:
-            notams: List of NOTAM dictionaries to cache
-        """
-        def _write_sync():
-            try:
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
-
-                cached = {
-                    "cached_at": datetime.now().isoformat(),
-                    "notams": notams
-                }
-
-                with open(self.cache_file, 'w', encoding='utf-8') as f:
-                    json.dump(cached, f, indent=2)
-
-                _LOGGER.debug("Wrote %d NOTAMs to cache", len(notams))
-                return True
-
-            except (OSError, TypeError) as e:
-                _LOGGER.error("Failed to write NOTAM cache: %s", e)
-                return False
-
-        await self.hass.async_add_executor_job(_write_sync)
+        """Async wrapper for cache writes for runtime usage."""
+        await self._run_io(lambda: self._write_cache_sync(notams))
 
     async def _get_cache_age_hours(self) -> int:
         """Get age of cached data in hours.
@@ -512,12 +543,16 @@ class NOTAMClient:
             try:
                 with open(self.cache_file, 'r', encoding='utf-8') as f:
                     cached = json.load(f)
-                cache_time = datetime.fromisoformat(cached["cached_at"])
+                timestamp_str = cached.get("cached_at") or cached.get("timestamp")
+                if not timestamp_str:
+                    return 0
+
+                cache_time = datetime.fromisoformat(timestamp_str)
                 return int((datetime.now() - cache_time).total_seconds() / 3600)
             except (OSError, json.JSONDecodeError, KeyError, ValueError):
                 return 0
 
-        return await self.hass.async_add_executor_job(_get_age_sync)
+        return await self._run_io(_get_age_sync)
 
     def filter_by_location(
         self,
@@ -623,7 +658,7 @@ class NOTAMClient:
                     return False
             return True
 
-        await self.hass.async_add_executor_job(_clear_sync)
+        await self._run_io(_clear_sync)
 
     async def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics.
@@ -672,7 +707,7 @@ class NOTAMClient:
                     "size_bytes": 0
                 }
 
-        return await self.hass.async_add_executor_job(_get_stats_sync)
+        return await self._run_io(_get_stats_sync)
 
     async def _increment_failure_counter(self, error_msg: str) -> None:
         """Track consecutive failures for monitoring.

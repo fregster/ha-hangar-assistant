@@ -1246,6 +1246,13 @@ class TestPilotInfoSensor:
             Sensor appears as "Pilot Qualifications" in UI,
             clearly identifying its purpose.
         """
+        config = {
+            "name": "John Doe",
+            "email": "john@example.com",
+            "licence_number": "PL1234567",
+            "medical_expiry": "2026-06-15",
+            "licence_type": "Commercial"
+        }
         sensor = PilotInfoSensor(mock_hass, config)
 
         assert sensor.name == "Pilot Qualifications"

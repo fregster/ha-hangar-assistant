@@ -769,6 +769,219 @@ Before merging performance optimizations, verify:
 - [ ] Performance tests added
 - [ ] Documentation updated
 
+## UI/UX Guidelines for Non-Technical Users
+
+**CRITICAL PRINCIPLE**: Hangar Assistant users are pilots, not programmers. Every interface, configuration option, and error message must be designed for aviation professionals who may have limited technical knowledge.
+
+### User-Centered Design Principles
+
+**1. Aviation Language, Not Technical Jargon**
+- ✅ CORRECT: "ICAO code (e.g., EGHP for Popham)"
+- ❌ WRONG: "Enter string matching pattern ^[A-Z]{4}$"
+- ✅ CORRECT: "Your aircraft registration (tail number)"
+- ❌ WRONG: "Aircraft identifier (alphanumeric string)"
+
+**2. Real-Time Validation with Helpful Feedback**
+- Show validation status as user types (✅/❌ icons)
+- Error messages must explain WHAT is wrong and HOW to fix it
+- Provide examples of correct format in error messages
+- Never show technical error traces to users
+
+Example validation patterns:
+```python
+# ✅ CORRECT - Helpful error message
+"ICAO codes are exactly 4 characters (e.g., EGHP, KJFK)"
+
+# ❌ WRONG - Technical error
+"ValueError: invalid ICAO format"
+```
+
+**3. Progressive Disclosure**
+- Start simple: Show only essential fields initially
+- Use "Show Advanced" toggles for optional/expert settings
+- Group related settings together logically
+- Provide defaults for everything - never leave users guessing
+
+**4. Tooltips and Inline Help**
+- Every non-obvious field needs a tooltip (💬 icon)
+- Tooltips should be concise (1-2 sentences)
+- Link to detailed documentation for complex topics
+- Use aviation terminology pilots understand
+
+Example tooltip patterns:
+```yaml
+# ✅ CORRECT
+"💬 MTOW: Maximum Takeoff Weight from your Aircraft POH.
+    Used to calculate performance margins and safety alerts."
+
+# ❌ WRONG
+"MTOW: Max weight parameter"
+```
+
+**5. Templates and Auto-Population**
+- Provide aircraft type templates (Cessna 172, PA-28, etc.)
+- Auto-populate from APIs when possible (CheckWX station data)
+- Show what was auto-populated and allow editing
+- Never force users to manually enter data that can be fetched
+
+**6. Error Prevention Over Error Handling**
+- Validate inputs before submission
+- Disable invalid options rather than showing errors
+- Use dropdowns/selectors instead of free-text where possible
+- Provide sensible defaults that work for most users
+
+**7. Clear Success Indicators**
+- Show what was created after each step (sensor count, entity IDs)
+- Provide "what's next" guidance after completion
+- Confirm actions with visual feedback (✅ Success messages)
+- Test connections immediately and show results
+
+### Configuration Flow Best Practices
+
+**Structure:**
+1. **Welcome Screen** - Explain what integration does, time estimate
+2. **Essential Settings** - Only absolutely required fields
+3. **Optional Enhancements** - APIs, advanced features (clearly marked optional)
+4. **Confirmation** - Show summary before creating
+5. **Success Screen** - What was created, next steps
+
+**Field Design:**
+```python
+# Always provide:
+# 1. Clear label in plain language
+# 2. Helpful description/tooltip
+# 3. Example value
+# 4. Default value (if applicable)
+# 5. Real-time validation
+
+data_schema = vol.Schema({
+    vol.Required("icao", description="ICAO Code"): str,
+    # Add tooltip: "4-letter airport code (e.g., EGHP, KJFK)"
+    # Add placeholder: "EGHP"
+    # Add validation: Real-time check + helpful errors
+})
+```
+
+**Multi-Step Wizards:**
+- Show progress indicator ("Step 3 of 7")
+- Allow going back to previous steps
+- Save progress automatically
+- Provide "Skip" option for optional steps
+- Show completion percentage
+
+### Error Messages for Pilots
+
+**Pattern: Problem → Explanation → Solution**
+
+✅ **CORRECT Examples:**
+```
+"❌ ICAO code must be uppercase
+   You entered: 'eghp'
+   Try: 'EGHP'"
+
+"❌ API connection failed
+   CheckWX could not be reached. Check your API key.
+   Get a free key at: https://checkwxapi.com/signup"
+
+"❌ Aircraft registration format not recognized
+   You entered: 'ABCD'
+   Examples: G-ABCD (UK), N12345 (US), D-EFGH (Germany)"
+```
+
+❌ **WRONG Examples:**
+```
+"Invalid input"
+"Error 422: Unprocessable Entity"
+"TypeError: expected str, got NoneType"
+```
+
+### Dashboard and Entity Naming
+
+**Entity ID Patterns:**
+- Use aircraft registration slugs: `sensor.g_abcd_fuel_endurance`
+- Use airfield name slugs: `sensor.popham_density_altitude`
+- Never use GUIDs or random strings
+- Keep names under 50 characters
+
+**Friendly Names:**
+- Natural language: "Popham Density Altitude"
+- Include aircraft reg: "G-ABCD Fuel Endurance"
+- Avoid abbreviations unless universally understood (MTOW, VFR)
+
+**Attribute Names:**
+- Use aviation terms: `crosswind_component` not `x_wind`
+- Include units: `temperature_c`, `altitude_ft`
+- Spell out: `last_updated_time` not `last_upd_t`
+
+### Dashboard Design Principles
+
+**Layout:**
+- Group by function: Weather → Performance → Safety → Fuel
+- Use cards, not tables (easier on mobile)
+- Show most critical info at top
+- Use color coding: 🟢 Safe → 🟡 Caution → 🔴 Warning
+
+**Data Visualization:**
+- Always show units (not just numbers)
+- Use gauges for ranges (DA, cloud base)
+- Use badges for status (VFR/MVFR/IFR)
+- Animated icons for real-time data (wind)
+
+**Mobile-First:**
+- Touch-friendly buttons (minimum 44px)
+- Readable text sizes (16px+ body text)
+- No horizontal scrolling
+- Works in portrait and landscape
+
+### Onboarding Experience
+
+**First-Time Setup:**
+1. **Welcome** - Show value proposition, time estimate
+2. **Quick Start Templates** - "UK PPL", "US Sport Pilot", "Glider"
+3. **Guided Wizard** - Step-by-step with validation
+4. **Auto-Population** - Fetch from APIs (CheckWX, OWM)
+5. **Success Screen** - Show what was created, next steps
+
+**Setup Wizard Principles:**
+- ≤15 minutes from install to functional dashboard
+- No step should require reading documentation
+- Provide templates for common aircraft types
+- Auto-populate whenever possible
+- Show progress throughout
+
+### Accessibility
+
+**For Non-Technical Users:**
+- No assumptions of HA knowledge required
+- Explain integration concepts in aviation terms
+- Link to detailed docs for complex features
+- Provide visual examples (screenshots)
+
+**For Screen Readers:**
+- All icons have text alternatives
+- Form labels properly associated
+- Error messages announced
+- Status changes announced
+
+### Documentation Requirements
+
+Every new feature must include:
+- **User-facing**: Plain language explanation (no code)
+- **Examples**: Real-world scenarios pilots understand
+- **Tooltips**: Inline help for every field
+- **Screenshots**: Visual guides for config flows
+- **Troubleshooting**: Common issues with solutions
+
+### Testing with Non-Technical Users
+
+Before releasing UI/UX changes:
+- [ ] Can a pilot configure it without documentation?
+- [ ] Are all error messages helpful and actionable?
+- [ ] Does auto-population work where expected?
+- [ ] Are defaults sensible for most users?
+- [ ] Is mobile experience smooth?
+- [ ] Does it work on first try (80%+ success rate)?
+
 ## Code Documentation Standards
 
 **All new classes and functions must include comprehensive docstrings** that follow this format:

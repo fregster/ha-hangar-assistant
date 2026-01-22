@@ -45,6 +45,42 @@ UNIT_PREFERENCE_AVIATION = "aviation"  # Feet, knots, pounds
 UNIT_PREFERENCE_SI = "si"  # Meters, kph, kilograms
 DEFAULT_UNIT_PREFERENCE = UNIT_PREFERENCE_AVIATION
 
+# Setup Wizard Constants
+SETUP_WIZARD_VERSION = "1.0"
+SETUP_WIZARD_ENABLED = True  # Feature flag for setup wizard
+
+# Welcome screen text
+WELCOME_TITLE = "Welcome to Hangar Assistant!"
+WELCOME_DESCRIPTION = """The complete aviation safety and operations integration for Home Assistant.
+
+What You Can Do:
+• Monitor airfield conditions (weather, density altitude)
+• Track aircraft performance limits & safety margins
+• Get AI-generated pre-flight safety briefings
+• Receive alerts for unsafe flying conditions
+• Calculate fuel costs & trip planning
+• Manage weight & balance
+• Log flights & maintenance
+
+Setup Time: 10-15 minutes
+"""
+
+SETUP_STEPS = [
+    "General Settings",
+    "External Integrations",
+    "Add First Airfield",
+    "Add Hangar (Optional)",
+    "Add First Aircraft",
+    "Connect Weather Sensors",
+    "Install Dashboard",
+]
+
+# Validation patterns for user input
+ICAO_PATTERN = r"^[A-Z]{4}$"
+UK_REG_PATTERN = r"^[A-Z]-[A-Z]{4}$"
+US_REG_PATTERN = r"^[A-Z]\d{4,5}[A-Z]?$"
+EU_REG_PATTERN = r"^[A-Z]{2}-[A-Z]{3}$"
+
 # Default AI system prompt for aviation briefings
 DEFAULT_AI_SYSTEM_PROMPT = """You are an aviation safety assistant specializing in pre-flight briefings and CAP 1590B compliance.
 

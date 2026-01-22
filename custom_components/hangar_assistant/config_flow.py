@@ -1,12 +1,134 @@
 from __future__ import annotations
 
 import logging
+import re
+from typing import Any, Dict, Optional, Set
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-from .const import DOMAIN, DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_DASHBOARD_VERSION, UNIT_PREFERENCE_AVIATION, UNIT_PREFERENCE_SI, DEFAULT_UNIT_PREFERENCE, DEFAULT_SENSOR_CACHE_TTL_SECONDS
+from .const import (
+    DOMAIN,
+    DEFAULT_AI_SYSTEM_PROMPT,
+    DEFAULT_DASHBOARD_VERSION,
+    UNIT_PREFERENCE_AVIATION,
+    UNIT_PREFERENCE_SI,
+    DEFAULT_UNIT_PREFERENCE,
+    DEFAULT_SENSOR_CACHE_TTL_SECONDS,
+    SETUP_WIZARD_VERSION,
+    SETUP_WIZARD_ENABLED,
+    WELCOME_TITLE,
+    WELCOME_DESCRIPTION,
+    SETUP_STEPS,
+    ICAO_PATTERN,
+    UK_REG_PATTERN,
+    US_REG_PATTERN,
+    EU_REG_PATTERN,
+)
 from .utils.i18n import get_available_languages, get_distance_unit_options, get_action_options, get_unit_preference_options
+from .validation import (
+    validate_icao,
+    validate_registration,
+    validate_mtow,
+    validate_runway_length,
+    validate_api_key,
+    validate_latitude,
+    validate_longitude,
+    format_validation_message,
+)
+from .templates import (
+    AIRCRAFT_TEMPLATES,
+    QUICK_START_TEMPLATES,
+    get_aircraft_template,
+    apply_aircraft_template,
+    list_aircraft_templates,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class SetupWizardState:
+    """State container for setup wizard progress.
+    
+    This class tracks the user's progress through the 7-step setup wizard,
+    storing configuration data for each step and managing step completion status.
+    
+    Attributes:
+        current_step: Current step number (0-6 for 7 steps)
+        completed_steps: Set of completed step names
+        general_settings: Dict of general settings from step 1
+        api_configs: Dict of API configurations (CheckWX, OWM, NOTAMs)
+        airfield_data: Dict of first airfield configuration
+        hangar_data: Optional dict of hangar configuration
+        aircraft_data: Dict of first aircraft configuration
+        sensor_links: Dict mapping sensor types to entity IDs
+        dashboard_method: "automatic" or "manual" installation
+    
+    Used by:
+        - HangarAssistantConfigFlow for first-time setup wizard
+        - Progress tracking and step skipping logic
+    """
+    
+    def __init__(self):
+        """Initialize wizard state with empty data structures."""
+        self.current_step: int = 0
+        self.completed_steps: Set[str] = set()
+        self.general_settings: Dict[str, Any] = {}
+        self.api_configs: Dict[str, Any] = {}
+        self.airfield_data: Optional[Dict] = None
+        self.hangar_data: Optional[Dict] = None
+        self.aircraft_data: Optional[Dict] = None
+        self.sensor_links: Dict[str, str] = {}
+        self.dashboard_method: str = "automatic"
+        self.use_wizard: bool = True  # Flag to track if wizard was chosen
+    
+    def mark_step_complete(self, step_name: str) -> None:
+        """Mark a step as completed.
+        
+        Args:
+            step_name: Name of step to mark complete (e.g., "general_settings")
+        """
+        self.completed_steps.add(step_name)
+        _LOGGER.debug("Marked step complete: %s", step_name)
+    
+    def can_skip_step(self, step_name: str) -> bool:
+        """Check if a step can be skipped.
+        
+        Args:
+            step_name: Name of step to check
+        
+        Returns:
+            True if step is optional and can be skipped
+        """
+        skip_rules = {
+            "api_integrations": True,  # Always optional (but recommended)
+            "add_hangar": True,  # Always optional
+            "link_sensors": True,  # Optional if APIs configured
+            "install_dashboard": True,  # Optional (can install manually)
+        }
+        return skip_rules.get(step_name, False)
+    
+    def get_progress_percentage(self) -> int:
+        """Calculate setup progress percentage.
+        
+        Returns:
+            Integer percentage (0-100) of completed steps
+        """
+        total_steps = len(SETUP_STEPS)
+        if total_steps == 0:
+            return 0
+        return int((len(self.completed_steps) / total_steps) * 100)
+    
+    def get_progress_text(self) -> str:
+        """Get progress text for display.
+        
+        Returns:
+            String like "Step 3 of 7 (42% complete)"
+        """
+        current = len(self.completed_steps) + 1
+        total = len(SETUP_STEPS)
+        percentage = self.get_progress_percentage()
+        return f"Step {current} of {total} ({percentage}% complete)"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,50 +139,808 @@ class HangarAssistantConfigFlow(
         domain=DOMAIN):  # type: ignore[call-arg]
     """Handle initial onboarding for Hangar Assistant.
 
-    This config flow manages the first-time setup and enforces a single configuration
-    entry for the integration.
+    This config flow manages first-time setup with an optional guided wizard
+    for new users, or direct configuration for advanced users.
+
+    Wizard Mode (First-Time Users):
+        - 7-step guided setup process
+        - Auto-population from CheckWX API
+        - Aircraft templates for common types
+        - Dashboard auto-installation
+        - Real-time validation and help
+
+    Direct Mode (Advanced Users):
+        - Creates blank entry for manual configuration
+        - All settings accessible via Options flow
 
     Inputs:
-        - user_input: Optional dict submitted from the initial form (empty payload is
-          sufficient to proceed).
+        - user_input: Optional dict submitted from forms
 
     Outputs/Behavior:
-        - Creates one blank ConfigEntry that users refine via the Options flow.
-        - Aborts with reason "already_configured" if an entry already exists.
+        - Shows wizard welcome screen for first-time users
+        - Creates ConfigEntry with wizard-collected data
+        - Aborts with reason "already_configured" if entry exists
 
     Used by:
-        - Devices & Services > Hangar Assistant (Configure button routes to
-          HangarOptionsFlowHandler).
-
-    Example:
-        - User clicks "Add Integration" → selects Hangar Assistant → flow creates the
-          entry and exposes the Configure menu.
+        - Devices & Services > Add Integration > Hangar Assistant
+        - Configure button routes to HangarOptionsFlowHandler
     """
     VERSION = 1
+
+    def __init__(self):
+        """Initialize config flow with wizard state."""
+        super().__init__()
+        self.wizard_state = SetupWizardState()
 
     async def async_step_user(self, user_input=None):
         """Initial step when adding the integration for the first time.
 
         Checks if an entry already exists (integration only supports single instance).
-        If allowed, creates a blank ConfigEntry that will be edited through the Options flow.
+        Shows wizard welcome screen for new installations if wizard is enabled.
 
         Args:
-            user_input: None on first load, empty dict on form submission
+            user_input: None on first load, dict on form submission
 
         Returns:
-            - async_abort(reason=\"already_configured\") if entry exists
-            - async_create_entry(\"Hangar Assistant\", {}) on first-time setup
-            - async_show_form(\"user\") to display the form
+            - async_abort(reason="already_configured") if entry exists
+            - async_step_welcome() if wizard enabled for new setup
+            - async_create_entry() to create blank entry for manual config
         """
         # Ensure only one instance of the integration is installed
         if self._async_current_entries():
             return self.async_abort(reason="already_configured")
 
+        # Show wizard welcome screen if enabled
+        if SETUP_WIZARD_ENABLED:
+            return await self.async_step_welcome()
+
+        # Fallback: Create blank entry for manual configuration
         if user_input is not None:
-            # Create a blank entry to get the user started
             return self.async_create_entry(title="Hangar Assistant", data={})
 
         return self.async_show_form(step_id="user")
+
+    # ========================================================================
+    # SETUP WIZARD FLOW STEPS (Phase 2)
+    # ========================================================================
+
+    async def async_step_welcome(self, user_input=None):
+        """Show welcome screen with wizard overview.
+        
+        This is the entry point for the guided setup wizard. Users can choose
+        to proceed with the wizard or skip to manual configuration.
+        
+        Args:
+            user_input: None on first load, dict with choice on submission
+        
+        Returns:
+            - async_step_general_settings() if user starts wizard
+            - async_create_entry() if user skips wizard
+        """
+        if user_input is not None:
+            if user_input.get("start_wizard", True):
+                self.wizard_state.use_wizard = True
+                return await self.async_step_general_settings()
+            else:
+                # User chose to skip wizard - create blank entry
+                self.wizard_state.use_wizard = False
+                return self.async_create_entry(
+                    title="Hangar Assistant",
+                    data={"settings": {"setup_completed": False}}
+                )
+        
+        # Build steps list for display
+        steps_text = "\n".join(
+            f"{i+1}. {step}" for i, step in enumerate(SETUP_STEPS)
+        )
+        
+        return self.async_show_form(
+            step_id="welcome",
+            data_schema=vol.Schema({
+                vol.Required("start_wizard", default=True): selector.BooleanSelector(),
+            }),
+            description_placeholders={
+                "welcome_title": WELCOME_TITLE,
+                "welcome_description": WELCOME_DESCRIPTION,
+                "setup_steps": steps_text,
+                "estimated_time": "10-15 minutes",
+            },
+        )
+
+    async def async_step_general_settings(self, user_input=None):
+        """Step 1: General settings (language, units, preferences).
+        
+        Collects core settings that affect the entire integration:
+        - UI language
+        - Unit preference (aviation/SI)
+        - Cache settings
+        
+        Args:
+            user_input: None on first load, dict with settings on submission
+        
+        Returns:
+            - async_step_api_integrations() on success
+        """
+        errors = {}
+        
+        if user_input is not None:
+            # Store general settings
+            self.wizard_state.general_settings = {
+                "language": user_input.get("language", "en"),
+                "unit_preference": user_input.get("unit_preference", DEFAULT_UNIT_PREFERENCE),
+                "sensor_cache_ttl_seconds": user_input.get("sensor_cache_ttl_seconds", DEFAULT_SENSOR_CACHE_TTL_SECONDS),
+                "setup_wizard_version": SETUP_WIZARD_VERSION,
+                "setup_completed": False,  # Will be set to True at end of wizard
+            }
+            self.wizard_state.mark_step_complete("general_settings")
+            return await self.async_step_api_integrations()
+        
+        # Build language options
+        language_options = [
+            selector.SelectOptionDict(value=code, label=label)
+            for code, label in get_available_languages()
+        ]
+        
+        # Build unit preference options
+        unit_options = get_unit_preference_options()
+        
+        return self.async_show_form(
+            step_id="general_settings",
+            data_schema=vol.Schema({
+                vol.Required("language", default="en"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=language_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required("unit_preference", default=DEFAULT_UNIT_PREFERENCE): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=unit_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("sensor_cache_ttl_seconds", default=DEFAULT_SENSOR_CACHE_TTL_SECONDS): vol.All(
+                    vol.Coerce(int), vol.Range(min=30, max=300)
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": self.wizard_state.get_progress_text(),
+                "step_description": "Configure language and unit preferences for your aviation operations.",
+            },
+        )
+
+    async def async_step_api_integrations(self, user_input=None):
+        """Step 2: API integrations menu (CheckWX, OpenWeatherMap, NOTAMs).
+        
+        Shows available external integrations and allows configuration.
+        All integrations are optional but recommended for best experience.
+        
+        Args:
+            user_input: None on first load, dict with selections on submission
+        
+        Returns:
+            - async_step_checkwx_setup() if CheckWX selected
+            - async_step_owm_setup() if OpenWeatherMap selected
+            - async_step_add_airfield() if skipped or completed
+        """
+        errors = {}
+        
+        if user_input is not None:
+            # Check what user wants to configure
+            if user_input.get("configure_checkwx", False):
+                return await self.async_step_checkwx_setup()
+            elif user_input.get("configure_owm", False):
+                return await self.async_step_owm_setup()
+            elif user_input.get("skip", False):
+                # User skipped API configuration
+                self.wizard_state.mark_step_complete("api_integrations")
+                return await self.async_step_add_airfield()
+            else:
+                # No selections but submitted - treat as skip
+                self.wizard_state.mark_step_complete("api_integrations")
+                return await self.async_step_add_airfield()
+        
+        return self.async_show_form(
+            step_id="api_integrations",
+            data_schema=vol.Schema({
+                vol.Optional("configure_checkwx", default=False): selector.BooleanSelector(),
+                vol.Optional("configure_owm", default=False): selector.BooleanSelector(),
+                vol.Optional("skip", default=False): selector.BooleanSelector(),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": self.wizard_state.get_progress_text(),
+                "checkwx_info": "CheckWX: Free METAR/TAF data (recommended)",
+                "owm_info": "OpenWeatherMap: Professional forecasts (~$10-30/month)",
+                "notams_info": "NOTAMs: Free UK NATS data (auto-enabled)",
+                "recommendation": "⚡ Recommended: Configure CheckWX for auto-population!",
+            },
+        )
+
+    # ========================================================================
+    # API INTEGRATION SUB-FLOWS (Phase 3)
+    # ========================================================================
+
+    async def async_step_checkwx_setup(self, user_input=None):
+        """Configure CheckWX API integration (free METAR/TAF data).
+        
+        CheckWX provides free aviation weather data including:
+        - Current METAR observations
+        - TAF terminal forecasts
+        - Station information for auto-population
+        
+        Args:
+            user_input: None on first load, dict with API key on submission
+        
+        Returns:
+            - async_step_api_integrations() on success
+            - Shows form with errors on failure
+        """
+        errors = {}
+        
+        if user_input is not None:
+            api_key = user_input.get("api_key", "").strip()
+            
+            # Validate API key format
+            is_valid, error_msg = validate_api_key(api_key, "checkwx")
+            if not is_valid:
+                errors["api_key"] = "invalid_api_key"
+                _LOGGER.warning("CheckWX API key validation failed: %s", error_msg)
+            else:
+                # Store configuration (don't test yet - will test when fetching airfield data)
+                self.wizard_state.api_configs["checkwx"] = {
+                    "enabled": True,
+                    "api_key": api_key,
+                    "metar_enabled": user_input.get("metar_enabled", True),
+                    "taf_enabled": user_input.get("taf_enabled", True),
+                    "station_enabled": user_input.get("station_enabled", True),
+                    "metar_cache_minutes": user_input.get("metar_cache_minutes", 30),
+                    "taf_cache_minutes": user_input.get("taf_cache_minutes", 360),
+                }
+                _LOGGER.info("CheckWX API configured successfully")
+                
+                # Return to integrations menu (user can configure more APIs)
+                return await self.async_step_api_integrations()
+        
+        # Build cache interval options
+        metar_cache_options = [
+            selector.SelectOptionDict(value=15, label="15 minutes"),
+            selector.SelectOptionDict(value=30, label="30 minutes"),
+            selector.SelectOptionDict(value=60, label="60 minutes"),
+        ]
+        
+        taf_cache_options = [
+            selector.SelectOptionDict(value=180, label="3 hours"),
+            selector.SelectOptionDict(value=360, label="6 hours"),
+            selector.SelectOptionDict(value=720, label="12 hours"),
+        ]
+        
+        return self.async_show_form(
+            step_id="checkwx_setup",
+            data_schema=vol.Schema({
+                vol.Required("api_key"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional("metar_enabled", default=True): selector.BooleanSelector(),
+                vol.Optional("taf_enabled", default=True): selector.BooleanSelector(),
+                vol.Optional("station_enabled", default=True): selector.BooleanSelector(),
+                vol.Optional("metar_cache_minutes", default=30): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=metar_cache_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("taf_cache_minutes", default=360): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=taf_cache_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "signup_url": "https://www.checkwxapi.com/signup",
+                "instructions": "1. Visit https://www.checkwxapi.com/signup\n2. Create free account\n3. Copy API key from profile\n4. Paste key below",
+                "cost": "✅ 100% FREE - No credit card required",
+            },
+        )
+
+    async def async_step_owm_setup(self, user_input=None):
+        """Configure OpenWeatherMap API integration (professional weather data).
+        
+        OpenWeatherMap provides professional weather forecasts including:
+        - Current weather conditions
+        - Hourly forecasts (48 hours)
+        - Daily forecasts (8 days)
+        - Weather alerts
+        
+        WARNING: This is a PAID service (~$10-30/month typical usage).
+        
+        Args:
+            user_input: None on first load, dict with API key on submission
+        
+        Returns:
+            - async_step_api_integrations() on success
+            - Shows form with errors on failure
+        """
+        errors = {}
+        
+        if user_input is not None:
+            api_key = user_input.get("api_key", "").strip()
+            
+            # Validate API key format
+            is_valid, error_msg = validate_api_key(api_key, "openweathermap")
+            if not is_valid:
+                errors["api_key"] = "invalid_api_key"
+                _LOGGER.warning("OWM API key validation failed: %s", error_msg)
+            else:
+                # Store configuration (don't test yet - will test when fetching weather)
+                self.wizard_state.api_configs["openweathermap"] = {
+                    "enabled": True,
+                    "api_key": api_key,
+                    "cache_enabled": user_input.get("cache_enabled", True),
+                    "update_interval": user_input.get("update_interval", 10),
+                    "cache_ttl": user_input.get("cache_ttl", 10),
+                }
+                _LOGGER.info("OpenWeatherMap API configured successfully")
+                
+                # Return to integrations menu
+                return await self.async_step_api_integrations()
+        
+        # Build interval options
+        interval_options = [
+            selector.SelectOptionDict(value=5, label="5 minutes"),
+            selector.SelectOptionDict(value=10, label="10 minutes"),
+            selector.SelectOptionDict(value=15, label="15 minutes"),
+            selector.SelectOptionDict(value=30, label="30 minutes"),
+            selector.SelectOptionDict(value=60, label="60 minutes"),
+        ]
+        
+        ttl_options = [
+            selector.SelectOptionDict(value=5, label="5 minutes"),
+            selector.SelectOptionDict(value=10, label="10 minutes"),
+            selector.SelectOptionDict(value=15, label="15 minutes"),
+            selector.SelectOptionDict(value=30, label="30 minutes"),
+        ]
+        
+        return self.async_show_form(
+            step_id="owm_setup",
+            data_schema=vol.Schema({
+                vol.Required("api_key"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+                vol.Optional("cache_enabled", default=True): selector.BooleanSelector(),
+                vol.Optional("update_interval", default=10): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=interval_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("cache_ttl", default=10): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=ttl_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "signup_url": "https://openweathermap.org/api",
+                "pricing": "~$0.0012 per call (~$10-30/month typical)",
+                "warning": "⚠️  This is a PAID service",
+                "recommendation": "Use CheckWX (free) for basic weather. OWM adds forecasts and alerts.",
+            },
+        )
+
+    # ========================================================================
+    # AIRFIELD, HANGAR, AIRCRAFT SETUP STEPS
+    # ========================================================================
+
+    async def async_step_add_airfield(self, user_input=None):
+        """Step 3: Add first airfield.
+        
+        Collects airfield information with optional auto-population from CheckWX.
+        Validates ICAO code format and provides real-time feedback.
+        
+        Args:
+            user_input: None on first load, dict with airfield data on submission
+        
+        Returns:
+            - async_step_add_hangar() on success
+        """
+        errors = {}
+        
+        if user_input is not None:
+            icao = user_input.get("icao", "").strip().upper()
+            name = user_input.get("name", "").strip()
+            
+            # Validate ICAO code
+            is_valid, error_msg = validate_icao(icao)
+            if not is_valid:
+                errors["icao"] = "invalid_icao"
+                _LOGGER.warning("ICAO validation failed: %s", error_msg)
+            elif not name:
+                errors["name"] = "name_required"
+            else:
+                # Create airfield data
+                self.wizard_state.airfield_data = {
+                    "icao": icao,
+                    "name": name,
+                    "latitude": user_input.get("latitude"),
+                    "longitude": user_input.get("longitude"),
+                    "elevation_m": user_input.get("elevation_m", 0),
+                    "weather_data_source": "sensors",  # Default
+                    "use_owm_forecast": False,
+                    "use_owm_alerts": False,
+                }
+                
+                _LOGGER.info("Airfield configured: %s (%s)", name, icao)
+                self.wizard_state.mark_step_complete("add_airfield")
+                return await self.async_step_add_hangar()
+        
+        # Show form with validation hints
+        has_checkwx = "checkwx" in self.wizard_state.api_configs
+        
+        return self.async_show_form(
+            step_id="add_airfield",
+            data_schema=vol.Schema({
+                vol.Required("icao"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                vol.Required("name"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                vol.Optional("latitude"): vol.All(vol.Coerce(float), vol.Range(min=-90, max=90)),
+                vol.Optional("longitude"): vol.All(vol.Coerce(float), vol.Range(min=-180, max=180)),
+                vol.Optional("elevation_m", default=0): vol.All(vol.Coerce(float), vol.Range(min=-100, max=5000)),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": self.wizard_state.get_progress_text(),
+                "icao_help": "4-letter airport code (e.g., EGHP, KJFK, LFPG)",
+                "checkwx_available": "✨ CheckWX configured - coordinates will auto-populate" if has_checkwx else "",
+                "example": "Example: ICAO=EGHP, Name=Popham Airfield",
+            },
+        )
+
+    async def async_step_add_hangar(self, user_input=None):
+        """Step 4: Add hangar (optional).
+        
+        Allows user to configure a hangar for environmental sensors.
+        This step is always optional and can be skipped.
+        
+        Args:
+            user_input: None on first load, dict with hangar data on submission
+        
+        Returns:
+            - async_step_add_aircraft() on completion or skip
+        """
+        errors = {}
+        
+        if user_input is not None:
+            if user_input.get("skip", False):
+                # User skipped hangar configuration
+                self.wizard_state.mark_step_complete("add_hangar")
+                return await self.async_step_add_aircraft()
+            
+            name = user_input.get("name", "").strip()
+            if not name:
+                errors["name"] = "name_required"
+            else:
+                # Create hangar data
+                self.wizard_state.hangar_data = {
+                    "name": name,
+                    "airfield": self.wizard_state.airfield_data["name"],
+                    "temp_sensor": user_input.get("temp_sensor", ""),
+                    "humidity_sensor": user_input.get("humidity_sensor", ""),
+                }
+                
+                _LOGGER.info("Hangar configured: %s", name)
+                self.wizard_state.mark_step_complete("add_hangar")
+                return await self.async_step_add_aircraft()
+        
+        return self.async_show_form(
+            step_id="add_hangar",
+            data_schema=vol.Schema({
+                vol.Optional("name"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                vol.Optional("temp_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("humidity_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("skip", default=False): selector.BooleanSelector(),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": self.wizard_state.get_progress_text(),
+                "optional_notice": "📦 Hangars are optional - skip if you don't use one",
+                "hangar_help": "Configure environmental sensors in your hangar for climate monitoring",
+            },
+        )
+
+    async def async_step_add_aircraft(self, user_input=None):
+        """Step 5: Add first aircraft with template support.
+        
+        Collects aircraft registration and optionally loads performance
+        data from templates (Cessna 172, PA-28, etc.).
+        
+        Args:
+            user_input: None on first load, dict with aircraft data on submission
+        
+        Returns:
+            - async_step_aircraft_template() if template selected
+            - async_step_link_sensors() if manual entry or template applied
+        """
+        errors = {}
+        
+        if user_input is not None:
+            registration = user_input.get("registration", "").strip().upper()
+            
+            # Validate registration format
+            is_valid, error_msg = validate_registration(registration)
+            if not is_valid:
+                errors["registration"] = "invalid_registration"
+                _LOGGER.warning("Registration validation failed: %s", error_msg)
+            else:
+                aircraft_type = user_input.get("aircraft_type", "")
+                
+                # Check if user selected a template
+                if aircraft_type and aircraft_type in AIRCRAFT_TEMPLATES:
+                    # Load template data
+                    template_data = apply_aircraft_template(aircraft_type, registration)
+                    template_data["airfield"] = self.wizard_state.airfield_data["name"]
+                    
+                    # Add hangar if configured
+                    if self.wizard_state.hangar_data:
+                        template_data["hangar"] = self.wizard_state.hangar_data["name"]
+                    
+                    self.wizard_state.aircraft_data = template_data
+                    _LOGGER.info("Aircraft configured with template: %s (%s)", registration, aircraft_type)
+                else:
+                    # Manual entry without template
+                    self.wizard_state.aircraft_data = {
+                        "reg": registration,
+                        "type": user_input.get("type_manual", "Unknown"),
+                        "airfield": self.wizard_state.airfield_data["name"],
+                    }
+                    
+                    if self.wizard_state.hangar_data:
+                        self.wizard_state.aircraft_data["hangar"] = self.wizard_state.hangar_data["name"]
+                    
+                    _LOGGER.info("Aircraft configured manually: %s", registration)
+                
+                self.wizard_state.mark_step_complete("add_aircraft")
+                return await self.async_step_link_sensors()
+        
+        # Build template options
+        template_options = [
+            selector.SelectOptionDict(value="", label="None (manual entry)")
+        ] + [
+            selector.SelectOptionDict(value=template_id, label=template_data["name"])
+            for template_id, template_data in AIRCRAFT_TEMPLATES.items()
+        ]
+        
+        return self.async_show_form(
+            step_id="add_aircraft",
+            data_schema=vol.Schema({
+                vol.Required("registration"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+                vol.Optional("aircraft_type"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=template_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Optional("type_manual"): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": self.wizard_state.get_progress_text(),
+                "reg_help": "Aircraft registration/tail number (e.g., G-ABCD, N12345)",
+                "template_hint": "✨ Select aircraft type to load default specs",
+                "templates_available": f"{len(AIRCRAFT_TEMPLATES)} templates available",
+            },
+        )
+
+    async def async_step_link_sensors(self, user_input=None):
+        """Step 6: Link weather sensors (optional).
+        
+        Allows user to connect Home Assistant weather sensors for real-time data.
+        This step is optional if APIs are configured.
+        
+        Args:
+            user_input: None on first load, dict with sensor mappings on submission
+        
+        Returns:
+            - async_step_install_dashboard() on completion or skip
+        """
+        errors = {}
+        
+        if user_input is not None:
+            # Store sensor links (all optional)
+            self.wizard_state.sensor_links = {
+                "temp_sensor": user_input.get("temp_sensor", ""),
+                "humidity_sensor": user_input.get("humidity_sensor", ""),
+                "pressure_sensor": user_input.get("pressure_sensor", ""),
+                "wind_speed_sensor": user_input.get("wind_speed_sensor", ""),
+                "wind_direction_sensor": user_input.get("wind_direction_sensor", ""),
+            }
+            
+            _LOGGER.info("Sensor links configured")
+            self.wizard_state.mark_step_complete("link_sensors")
+            return await self.async_step_install_dashboard()
+        
+        # Check if APIs are configured (makes sensors more optional)
+        has_apis = bool(self.wizard_state.api_configs)
+        
+        return self.async_show_form(
+            step_id="link_sensors",
+            data_schema=vol.Schema({
+                vol.Optional("temp_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("humidity_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("pressure_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("wind_speed_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional("wind_direction_sensor"): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": self.wizard_state.get_progress_text(),
+                "optional_notice": "🌡️ Sensors are optional" + (" - APIs configured!" if has_apis else ""),
+                "sensor_help": "Link existing HA weather sensors for real-time data",
+            },
+        )
+
+    async def async_step_install_dashboard(self, user_input=None):
+        """Step 7: Install Glass Cockpit dashboard (optional).
+        
+        Final step - offers to install the Glass Cockpit dashboard automatically
+        or provides YAML for manual installation.
+        
+        Args:
+            user_input: None on first load, dict with installation choice on submission
+        
+        Returns:
+            - async_create_entry() with all collected data
+        """
+        errors = {}
+        
+        if user_input is not None:
+            method = user_input.get("method", "skip")
+            self.wizard_state.dashboard_method = method
+            self.wizard_state.mark_step_complete("install_dashboard")
+            
+            # Wizard complete! Create config entry with all collected data
+            config_data = self._build_final_config()
+            
+            # Create entry first (so we have an entry reference for the service)
+            _LOGGER.info("Setup wizard completed successfully")
+            result = self.async_create_entry(
+                title="Hangar Assistant",
+                data=config_data
+            )
+            
+            # Trigger dashboard installation AFTER entry is created
+            if method in ["automatic", "manual"]:
+                # Schedule dashboard installation as a background task
+                # This ensures it runs after entry setup completes
+                async def _install_dashboard_after_setup():
+                    """Install dashboard after a brief delay to ensure entry is fully set up."""
+                    import asyncio
+                    await asyncio.sleep(2)  # Allow entry setup to complete
+                    
+                    try:
+                        await self.hass.services.async_call(
+                            DOMAIN,
+                            "install_dashboard",
+                            {"method": method},
+                            blocking=True
+                        )
+                        _LOGGER.info("Dashboard installation triggered: %s", method)
+                    except Exception as e:
+                        _LOGGER.error("Dashboard installation failed: %s", e)
+                
+                # Fire and forget - don't block wizard completion
+                self.hass.async_create_task(_install_dashboard_after_setup())
+            
+            return result
+        
+        return self.async_show_form(
+            step_id="install_dashboard",
+            data_schema=vol.Schema({
+                vol.Optional("method", default="automatic"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="automatic", label="Automatic (recommended)"),
+                            selector.SelectOptionDict(value="manual", label="Manual (provide YAML)"),
+                            selector.SelectOptionDict(value="skip", label="Skip (install later)"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "progress": "Step 7 of 7 (100% complete)",
+                "dashboard_info": "🎛️ Glass Cockpit: Beautiful aviation-themed dashboard",
+                "features": "• Live weather conditions\n• Performance calculations\n• Safety alerts\n• Fuel management",
+                "completion": "🎉 Setup wizard almost complete!",
+            },
+        )
+
+    def _build_final_config(self) -> Dict[str, Any]:
+        """Build final configuration from wizard state.
+        
+        Combines all wizard steps into a single configuration structure
+        that will be stored in the config entry.
+        
+        Returns:
+            Dict with complete configuration including settings, integrations,
+            airfields, hangars, aircraft, and dashboard preferences
+        """
+        config = {
+            "settings": self.wizard_state.general_settings,
+            "integrations": self.wizard_state.api_configs,
+            "airfields": [],
+            "hangars": [],
+            "aircraft": [],
+        }
+        
+        # Mark setup as completed
+        config["settings"]["setup_completed"] = True
+        
+        # Add NOTAM integration (free, enabled by default for new installs)
+        if "notams" not in config["integrations"]:
+            config["integrations"]["notams"] = {
+                "enabled": True,
+                "update_time": "02:00",
+                "cache_days": 7,
+                "stale_cache_allowed": True,
+            }
+        
+        # Add airfield
+        if self.wizard_state.airfield_data:
+            airfield = self.wizard_state.airfield_data.copy()
+            
+            # Add sensor links if provided
+            for sensor_type, entity_id in self.wizard_state.sensor_links.items():
+                if entity_id:
+                    airfield[sensor_type] = entity_id
+            
+            config["airfields"].append(airfield)
+        
+        # Add hangar if configured
+        if self.wizard_state.hangar_data:
+            config["hangars"].append(self.wizard_state.hangar_data)
+        
+        # Add aircraft
+        if self.wizard_state.aircraft_data:
+            config["aircraft"].append(self.wizard_state.aircraft_data)
+        
+        # Store dashboard installation preference
+        if "dashboard" not in config["settings"]:
+            config["settings"]["dashboard"] = {}
+        
+        config["settings"]["dashboard"]["installation_method"] = self.wizard_state.dashboard_method
+        config["settings"]["dashboard"]["version"] = DEFAULT_DASHBOARD_VERSION
+        
+        return config
 
     @classmethod
     @callback

@@ -39,3 +39,18 @@ speak_briefing:
       selector:
         entity:
           domain: media_player
+
+install_dashboard:
+  name: Install Dashboard
+  description: Install or reinstall the Hangar Assistant Glass Cockpit dashboard. Called automatically by the setup wizard or manually for dashboard updates.
+  fields:
+    method:
+      name: Installation Method
+      description: Installation method - 'automatic' installs via API, 'manual' returns YAML for copy/paste
+      default: automatic
+      example: automatic
+      selector:
+        select:
+          options:
+            - automatic
+            - manual

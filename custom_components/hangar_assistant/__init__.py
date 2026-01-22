@@ -102,6 +102,36 @@ INTEGRATION_MAJOR_VERSION = _extract_major_version(INTEGRATION_VERSION)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
+def should_show_setup_wizard(entry: ConfigEntry) -> bool:
+    """Determine if setup wizard should be shown.
+    
+    The wizard is shown for first-time setups where:
+    - No setup_completed flag is set, AND
+    - No airfields configured, AND
+    - No aircraft configured
+    
+    This ensures existing installations are never disrupted while providing
+    a guided onboarding experience for new users.
+    
+    Args:
+        entry: Config entry to check
+    
+    Returns:
+        True if wizard should be shown, False otherwise
+    """
+    # Check for setup completion flag
+    settings = entry.data.get("settings", {})
+    if settings.get("setup_completed", False):
+        return False
+    
+    # Check for minimal required data
+    airfields = entry.data.get("airfields", [])
+    aircraft = entry.data.get("aircraft", [])
+    
+    # Show wizard if no airfields AND no aircraft configured
+    return len(airfields) == 0 and len(aircraft) == 0
+
+
 def _get_briefing_text(hass: HomeAssistant) -> str | None:
     """Get the current AI briefing text.
 
@@ -322,6 +352,65 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             blocking=False,
         )
 
+    async def handle_install_dashboard(call: ServiceCall) -> None:
+        """Service to install the Hangar Assistant dashboard.
+        
+        This service supports both automatic installation (via Lovelace API)
+        and manual installation (returns YAML for user to copy/paste).
+        Called from setup wizard or manually for dashboard updates.
+        
+        Service data:
+            - method: 'automatic' (default) or 'manual'
+        """
+        method = call.data.get("method", "automatic")
+        
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            _LOGGER.warning("No Hangar Assistant config entry found")
+            return
+        
+        entry = entries[0]
+        
+        if method == "automatic":
+            # Use existing dashboard creation logic
+            _LOGGER.info("Installing dashboard via automatic method")
+            result = await async_create_dashboard(
+                hass,
+                entry,
+                force_rebuild=True,
+                reason="install_service",
+            )
+            
+            if result:
+                # Update settings to mark dashboard as installed
+                new_data = dict(entry.data)
+                settings = new_data.setdefault("settings", {})
+                settings["dashboard_installed"] = True
+                settings["dashboard_url"] = "/hangar-assistant/glass_cockpit"
+                settings["dashboard_install_method"] = "automatic"
+                hass.config_entries.async_update_entry(entry, data=new_data)
+                
+                _LOGGER.info("✅ Dashboard installed successfully (automatic)")
+            else:
+                _LOGGER.error("❌ Dashboard installation failed")
+        
+        elif method == "manual":
+            # Generate YAML for manual installation
+            _LOGGER.info("Generating dashboard YAML for manual installation")
+            dashboard_yaml = await _generate_dashboard_yaml(hass, entry)
+            
+            if dashboard_yaml:
+                # Store YAML in config for retrieval by wizard
+                new_data = dict(entry.data)
+                settings = new_data.setdefault("settings", {})
+                settings["dashboard_yaml"] = dashboard_yaml
+                settings["dashboard_install_method"] = "manual"
+                hass.config_entries.async_update_entry(entry, data=new_data)
+                
+                _LOGGER.info("✅ Dashboard YAML generated for manual installation")
+            else:
+                _LOGGER.error("❌ Dashboard YAML generation failed")
+
     # Register all services
     await _register_service(
         hass, "manual_cleanup", handle_manual_cleanup,
@@ -338,6 +427,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         vol.Schema({
             vol.Optional("tts_entity_id"): cv.entity_id,
             vol.Optional("media_player_entity_id"): cv.entity_id,
+        })
+    )
+    await _register_service(
+        hass, "install_dashboard", handle_install_dashboard,
+        vol.Schema({
+            vol.Optional("method", default="automatic"): vol.In(["automatic", "manual"]),
         })
     )
 
@@ -583,6 +678,63 @@ def _get_template_path() -> str:
         "dashboard_templates",
         "glass_cockpit.yaml"
     )
+
+
+async def _generate_dashboard_yaml(
+    hass: HomeAssistant,
+    entry: ConfigEntry
+) -> str | None:
+    """Generate dashboard YAML for manual installation.
+    
+    Loads the dashboard template and returns it as a YAML string
+    for users to manually copy/paste into their Home Assistant dashboard.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry with airfield/aircraft data
+    
+    Returns:
+        YAML string ready for manual installation, or None on error
+    """
+    def _load_and_format():
+        """Sync function for YAML I/O (wrapped in executor)."""
+        try:
+            template_path = _get_template_path()
+            
+            # Load template
+            with open(template_path, 'r', encoding='utf-8') as f:
+                yaml_content = f.read()
+            
+            # Add instructional header
+            header = """# Hangar Assistant Glass Cockpit Dashboard
+# 
+# INSTALLATION INSTRUCTIONS:
+# 1. Go to Home Assistant Settings → Dashboards
+# 2. Click "+ Add Dashboard" in the top right
+# 3. Enter title: "Hangar Glass Cockpit"
+# 4. Click "Create"
+# 5. Click the three-dot menu → "Edit Dashboard"
+# 6. Click the three-dot menu again → "Raw configuration editor"
+# 7. Delete the default content
+# 8. Copy and paste this ENTIRE file contents below
+# 9. Click "Save"
+#
+# The dashboard will now be available in your sidebar.
+#
+"""
+            
+            return header + yaml_content
+            
+        except OSError as e:
+            _LOGGER.error("Failed to load dashboard template: %s", e)
+            return None
+        except Exception as e:
+            _LOGGER.error("Unexpected error generating dashboard YAML: %s", e)
+            return None
+    
+    # Run blocking I/O in executor
+    yaml_string = await hass.async_add_executor_job(_load_and_format)
+    return yaml_string
 
 
 def _validate_template(template_path: str) -> bool:

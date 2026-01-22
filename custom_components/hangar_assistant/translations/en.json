@@ -4,7 +4,113 @@
       "user": {
         "title": "Welcome to Hangar Assistant",
         "description": "Hangar Assistant helps you manage flight safety, performance calculations, and CAP 1590B compliance. \n\nClick **Submit** to install the integration. You can add your aircraft and airfield sensors afterward by clicking **Configure** on the Hangar Assistant integration card."
+      },
+      "welcome": {
+        "title": "Welcome to Hangar Assistant!",
+        "description": "The complete aviation safety and operations integration for Home Assistant.\n\n**What You Can Do:**\n• Monitor airfield conditions (weather, density altitude)\n• Track aircraft performance limits & safety margins\n• Get AI-generated pre-flight safety briefings\n• Receive alerts for unsafe flying conditions\n• Calculate fuel costs & trip planning\n• Manage weight & balance\n• Log flights & maintenance\n\n**Setup Steps:**\n{setup_steps}\n\n**Estimated Time:** {estimated_time}",
+        "data": {
+          "start_wizard": "Start Guided Setup"
+        }
+      },
+      "general_settings": {
+        "title": "General Settings",
+        "description": "{step_description}\n\n**Progress:** {progress}",
+        "data": {
+          "language": "System Language",
+          "unit_preference": "Unit Preference (aviation uses feet/knots, SI uses meters/km/h)",
+          "sensor_cache_ttl_seconds": "Sensor Cache TTL (seconds)"
+        }
+      },
+      "api_integrations": {
+        "title": "External Integrations (Optional)",
+        "description": "Configure external APIs for enhanced functionality. All are optional but recommended.\n\n**Progress:** {progress}\n\n**Available Integrations:**\n• {checkwx_info}\n• {owm_info}\n• {notams_info}\n\n{recommendation}",
+        "data": {
+          "configure_checkwx": "Configure CheckWX (Free METAR/TAF)",
+          "configure_owm": "Configure OpenWeatherMap (Paid Forecasts)",
+          "skip": "Skip API Setup (Configure Later)"
+        }
+      },
+      "checkwx_setup": {
+        "title": "CheckWX API Setup",
+        "description": "CheckWX provides free aviation weather data worldwide.\n\n**Cost:** {cost}\n\n**Setup Instructions:**\n{instructions}\n\n**Data Provided:**\n• Current METAR observations\n• TAF terminal forecasts\n• Station information",
+        "data": {
+          "api_key": "CheckWX API Key",
+          "metar_enabled": "Enable METAR Data",
+          "taf_enabled": "Enable TAF Data",
+          "station_enabled": "Enable Station Info",
+          "metar_cache_minutes": "METAR Cache Duration",
+          "taf_cache_minutes": "TAF Cache Duration"
+        }
+      },
+      "owm_setup": {
+        "title": "OpenWeatherMap API Setup",
+        "description": "OpenWeatherMap provides professional weather forecasts and alerts.\n\n**Cost:** {pricing}\n{warning}\n\n**Recommendation:** {recommendation}\n\n**Signup:** {signup_url}",
+        "data": {
+          "api_key": "OpenWeatherMap API Key",
+          "cache_enabled": "Enable Data Caching",
+          "update_interval": "Update Interval",
+          "cache_ttl": "Cache Lifetime"
+        }
+      },
+      "add_airfield": {
+        "title": "Add Your First Airfield",
+        "description": "Configure your home airfield or most frequently used airport.\n\n**Progress:** {progress}\n\n**ICAO Code:** {icao_help}\n{checkwx_available}\n\n**Example:** {example}",
+        "data": {
+          "icao": "ICAO Code (4 letters)",
+          "name": "Airfield Name",
+          "latitude": "Latitude (optional)",
+          "longitude": "Longitude (optional)",
+          "elevation_m": "Elevation (meters AMSL)"
+        }
+      },
+      "add_hangar": {
+        "title": "Add Hangar (Optional)",
+        "description": "{optional_notice}\n\n**Progress:** {progress}\n\n{hangar_help}",
+        "data": {
+          "name": "Hangar Name",
+          "temp_sensor": "Temperature Sensor",
+          "humidity_sensor": "Humidity Sensor",
+          "skip": "Skip Hangar Setup"
+        }
+      },
+      "add_aircraft": {
+        "title": "Add Your First Aircraft",
+        "description": "Configure your aircraft with optional performance templates.\n\n**Progress:** {progress}\n\n**Registration:** {reg_help}\n{template_hint}\n\n**Templates Available:** {templates_available}",
+        "data": {
+          "registration": "Aircraft Registration (Tail Number)",
+          "aircraft_type": "Aircraft Type (Template)",
+          "type_manual": "Aircraft Type (Manual Entry)"
+        }
+      },
+      "link_sensors": {
+        "title": "Link Weather Sensors (Optional)",
+        "description": "{optional_notice}\n\n**Progress:** {progress}\n\n{sensor_help}",
+        "data": {
+          "temp_sensor": "Temperature Sensor",
+          "humidity_sensor": "Humidity Sensor",
+          "pressure_sensor": "Pressure Sensor (Altimeter)",
+          "wind_speed_sensor": "Wind Speed Sensor",
+          "wind_direction_sensor": "Wind Direction Sensor"
+        }
+      },
+      "install_dashboard": {
+        "title": "Install Glass Cockpit Dashboard",
+        "description": "{completion}\n\n**Progress:** {progress}\n\n{dashboard_info}\n\n**Features:**\n{features}",
+        "data": {
+          "method": "Installation Method"
+        }
       }
+    },
+    "error": {
+      "invalid_icao": "ICAO code must be exactly 4 uppercase letters (e.g., EGHP, KJFK)",
+      "invalid_registration": "Invalid registration format. Examples: G-ABCD (UK), N12345 (US), D-EFGH (Germany)",
+      "invalid_api_key": "Invalid API key format. Check your key and try again.",
+      "name_required": "Name is required",
+      "api_test_failed": "Could not connect to API. Check your key and internet connection.",
+      "connection_failed": "Connection failed. Please verify your API key.",
+      "icao_not_found": "ICAO code not found in CheckWX database",
+      "auto_populate_failed": "Auto-population failed. Please enter data manually.",
+      "no_api_configured": "No API configured for auto-population. Configure CheckWX first."
     },
     "abort": {
       "already_configured": "Hangar Assistant is already configured."

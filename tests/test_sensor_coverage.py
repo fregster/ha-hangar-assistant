@@ -425,7 +425,8 @@ class TestAIBriefingSensor:
         
         Expected Result:
             Sensor appears with clear, descriptive name in UI.
-        """        config = {"name": "Test Airfield"}
+        """
+        config = {"name": "Test Airfield"}
         sensor = AIBriefingSensor(mock_hass, config)
 
         assert sensor.name == "AI Pre-flight Briefing"

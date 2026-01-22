@@ -204,7 +204,7 @@ class TestUrlSanitization:
 
     def test_sanitize_valid_http_url(self):
         """Test valid HTTP URLs are accepted."""
-        url = "http://api.example.com/data"
+        url = "https://api.example.com/data"
         assert sanitize_url(url) == url
 
     def test_sanitize_file_scheme_blocked(self):

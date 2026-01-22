@@ -85,9 +85,9 @@ fi
 
 # Install Python requirements
 if [[ $DRY_RUN -eq 1 ]]; then
-  echo "DRY RUN: pip install -r requirements_test.txt"
+  echo "DRY RUN: pip install -r requirements.txt"
 else
-  pip install -r requirements_test.txt
+  pip install -r requirements.txt
 fi
 
 # Lint (flake8)

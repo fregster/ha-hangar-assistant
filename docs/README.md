@@ -38,7 +38,8 @@ ha-hangar-assistant/
 ├── LICENSE                        # MIT License
 ├── hacs.json                      # HACS integration manifest
 ├── pytest.ini                     # Test configuration
-├── requirements_test.txt          # Test dependencies
+├── requirements.txt               # Python dependencies (dev & test)
+├── requirements_test.txt          # Legacy (use requirements.txt)
 ├── .github/                       # GitHub workflows and copilot instructions
 ├── custom_components/             # Integration source code
 │   └── hangar_assistant/

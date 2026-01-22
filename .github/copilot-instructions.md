@@ -2,6 +2,7 @@
 
 ## Table of Contents
 - [Project Overview](#project-overview)
+- [British English Requirement](#british-english-requirement)
 - [Architecture & Data Model](#architecture--data-model)
 - [Backward Compatibility & Defaults](#backward-compatibility--defaults)
 - [External Integrations Architecture](#external-integrations-architecture)
@@ -25,6 +26,39 @@ Hangar Assistant is a Home Assistant integration for aviation safety and complia
 - **Domain**: `hangar_assistant`
 - **Dependencies**: `fpdf2` (via `manifest.json`)
 - **Versioning**: `YYYYNN.V.H` format (e.g., `2601.1.0`). Hotfix defaults to 0.
+
+## British English Requirement
+
+**CRITICAL PRINCIPLE**: All documentation, code comments, docstrings, release notes, and feature documentation MUST use British English spellings and conventions.
+
+### British English vs American English
+Always use British spellings:
+- ✅ **CORRECT** (British): authorise, behaviour, centre, colour, criticise, defence, favour, honour, initialise, kilometre, litre, licence (noun), license (verb), manoeuvre, metre, neighbour, optimise, organise, realise, recognise, serialise, specialise, summarise, theatre, travelled, travelling, vapour
+- ❌ **WRONG** (American): authorize, behavior, center, color, criticize, defense, favor, honor, initialize, kilometer, liter, license (both), maneuver, meter, neighbor, optimize, organize, realize, recognize, serialize, specialize, summarize, theater, traveled, traveling, vapor
+
+### Common Examples in Aviation Context
+- ✅ "centre of gravity" (not "center of gravity")
+- ✅ "colour-coded" (not "color-coded")
+- ✅ "authorised altitude" (not "authorized altitude")
+- ✅ "behaviour in crosswinds" (not "behavior in crosswinds")
+- ✅ "optimise performance" (not "optimize performance")
+- ✅ "initialise the sensor" (not "initialize the sensor")
+
+### Language Pack Requirement
+- **English language pack** (`translations/en.json`): MUST use British English spellings exclusively
+- **Non-English packs** (de/es/fr): Follow their own language conventions
+- **Code comments and docstrings**: British English required
+- **Documentation files** (`docs/**/*.md`): British English required
+- **Release notes**: British English required
+
+### Verification
+Before committing any user-facing text:
+- [ ] Check for American spellings (use IDE spell-checker with British English dictionary)
+- [ ] Review docstrings for British spelling consistency
+- [ ] Verify language pack (`translations/en.json`) uses British English
+- [ ] Ensure documentation files use British conventions
+
+**Rationale**: Hangar Assistant is developed for UK aviation (EASA, CAA references), making British English the natural choice for consistency with regulatory documentation and user expectations.
 
 ## Architecture & Data Model
 - **Single ConfigEntry**: Configuration is centralized. `entry.data` holds `airfields` (list), `hangars` (list), and `aircraft` (list).

@@ -115,7 +115,11 @@ async def async_setup_entry(
         # Add NOTAM sensor if integration is enabled
         if notam_enabled:
             entities.append(
-                AirfieldNOT
+                AirfieldNOTAMSensor(
+                    hass,
+                    airfield,
+                    global_settings,
+                    entry))
         
         # Add CheckWX sensors if integration is enabled and airfield has ICAO
         if checkwx_enabled and airfield.get("icao"):
@@ -126,11 +130,7 @@ async def async_setup_entry(
                 entities.append(TafSensor(hass, airfield, global_settings))
             
             if checkwx_config.get("station_enabled", True):
-                entities.append(StationInfoSensor(hass, airfield, global_settings))AMSensor(
-                    hass,
-                    airfield,
-                    global_settings,
-                    entry))
+                entities.append(StationInfoSensor(hass, airfield, global_settings))
 
     # 2. Process Aircraft from the list
     for aircraft in entry.data.get("aircraft", []):
@@ -157,6 +157,9 @@ async def async_setup_entry(
     # 3. Process Pilots from the list
     for pilot in entry.data.get("pilots", []):
         entities.append(PilotInfoSensor(hass, pilot, global_settings))
+
+    # 4. Add global integration health sensor
+    entities.append(IntegrationHealthSensor(hass, entry, global_settings))
 
     # Add all generated entities to the system
     async_add_entities(entities)
@@ -2737,3 +2740,159 @@ class StationInfoSensor(HangarSensorBase):
             if checkwx_config.get("station_enabled", True):
                 entities.append(StationInfoSensor(hass, airfield, global_settings))
 """
+
+
+class IntegrationHealthSensor(SensorEntity):
+    """Monitor health status of external integrations (OWM, NOTAM, CheckWX).
+
+    This sensor provides centralized monitoring of all external data sources,
+    tracking failures, last update times, and overall integration health.
+
+    State Values:
+        - "healthy": All enabled integrations functioning normally
+        - "warning": One integration experiencing issues
+        - "critical": Two or more integrations failing
+
+    Attributes:
+        - openweathermap: {enabled, consecutive_failures, last_error, last_success}
+        - notams: {enabled, consecutive_failures, last_error, last_update}
+        - checkwx: {enabled, consecutive_failures, last_error, last_success}
+        - failing_integrations: List of integration names with failures
+        - last_updated: Last sensor update timestamp
+
+    Used by:
+        - Dashboard health status displays
+        - Automation triggers for integration failures
+        - Admin monitoring of integration reliability
+
+    Example:
+        State: "warning"
+        Attributes:
+            openweathermap: {enabled: true, consecutive_failures: 2, last_error: "API key invalid"}
+            notams: {enabled: true, consecutive_failures: 0, last_update: "2026-01-22T10:00:00"}
+            checkwx: {enabled: false, consecutive_failures: 0}
+            failing_integrations: ["openweathermap"]
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = True  # Poll to detect config changes
+    _attr_icon = "mdi:heart-pulse"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        global_settings: dict | None = None
+    ):
+        """Initialize integration health sensor.
+
+        Args:
+            hass: Home Assistant instance
+            entry: Config entry with integration settings
+            global_settings: Global settings dict
+        """
+        self.hass = hass
+        self._entry = entry
+        self._global_settings = global_settings or {}
+
+        self._attr_unique_id = f"{DOMAIN}_integration_health"
+        self._attr_name = "Integration Health"
+
+        # Device info for grouping
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hangar_assistant_system")},
+            name="Hangar Assistant System",
+            manufacturer="Hangar Assistant",
+            model="Integration Monitor",
+        )
+
+    @property
+    def state(self) -> str:
+        """Return health status based on integration failures.
+
+        Returns:
+            "healthy", "warning", or "critical"
+        """
+        integrations = self._entry.data.get("integrations", {})
+        
+        failing_count = 0
+
+        # Check OWM
+        owm_config = integrations.get("openweathermap", {})
+        if owm_config.get("enabled") and owm_config.get("consecutive_failures", 0) > 0:
+            failing_count += 1
+
+        # Check NOTAM
+        notam_config = integrations.get("notams", {})
+        if notam_config.get("enabled") and notam_config.get("consecutive_failures", 0) > 0:
+            failing_count += 1
+
+        # Check CheckWX
+        checkwx_config = integrations.get("checkwx", {})
+        if checkwx_config.get("enabled") and checkwx_config.get("consecutive_failures", 0) > 0:
+            failing_count += 1
+
+        if failing_count == 0:
+            return "healthy"
+        elif failing_count == 1:
+            return "warning"
+        else:
+            return "critical"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return detailed integration status.
+
+        Returns:
+            Dict with per-integration status and failing list
+        """
+        integrations = self._entry.data.get("integrations", {})
+
+        failing_integrations = []
+
+        # OWM status
+        owm_config = integrations.get("openweathermap", {})
+        owm_status = {
+            "enabled": owm_config.get("enabled", False),
+            "consecutive_failures": owm_config.get("consecutive_failures", 0),
+            "last_error": owm_config.get("last_error"),
+            "last_success": owm_config.get("last_success"),
+        }
+        if owm_status["enabled"] and owm_status["consecutive_failures"] > 0:
+            failing_integrations.append("openweathermap")
+
+        # NOTAM status
+        notam_config = integrations.get("notams", {})
+        notam_status = {
+            "enabled": notam_config.get("enabled", False),
+            "consecutive_failures": notam_config.get("consecutive_failures", 0),
+            "last_error": notam_config.get("last_error"),
+            "last_update": notam_config.get("last_update"),
+        }
+        if notam_status["enabled"] and notam_status["consecutive_failures"] > 0:
+            failing_integrations.append("notams")
+
+        # CheckWX status
+        checkwx_config = integrations.get("checkwx", {})
+        checkwx_status = {
+            "enabled": checkwx_config.get("enabled", False),
+            "consecutive_failures": checkwx_config.get("consecutive_failures", 0),
+            "last_error": checkwx_config.get("last_error"),
+            "last_success": checkwx_config.get("last_success"),
+        }
+        if checkwx_status["enabled"] and checkwx_status["consecutive_failures"] > 0:
+            failing_integrations.append("checkwx")
+
+        return {
+            "openweathermap": owm_status,
+            "notams": notam_status,
+            "checkwx": checkwx_status,
+            "failing_integrations": failing_integrations,
+            "last_updated": dt_util.utcnow().isoformat(),
+        }
+
+    async def async_update(self) -> None:
+        """Update sensor state (polled every 5 minutes)."""
+        # State is computed from config entry data, no fetch needed
+        pass
+

@@ -1,6 +1,6 @@
 # Setup Wizard Implementation
 
-**Status**: ✅ IMPLEMENTED - Released in v2601.3.0 (22 January 2026)  
+**Status**: ✅ IMPLEMENTED - Released in v2601.2.0 (22 January 2026)  
 **Original Planning Date**: 21 January 2026  
 **Location**: Moved from `docs/planning/` to `docs/implemented/`  
 **Priority**: ⭐⭐⭐⭐⭐ CRITICAL (User Onboarding)
@@ -37,7 +37,7 @@
 ✅ 100% backward compatible (existing users unaffected)  
 
 **Completion Date:** 22 January 2026  
-**Implementation Time:** Completed in v2601.3.0 release  
+**Implementation Time:** Completed in v2601.2.0 release  
 
 **Note**: Original planning document preserved below for reference. Technical implementation details available in [setup_wizard_technical.md](setup_wizard_technical.md).
 
@@ -1721,7 +1721,7 @@ This comprehensive first-time setup experience transforms Hangar Assistant from 
 
 We ensure users can go from installation to a functional aviation safety system in **under 15 minutes**, building confidence and encouraging adoption.
 
-**Implementation Priority**: ⭐⭐⭐⭐⭐ CRITICAL for v2601.3.0 release
+**Implementation Priority**: ⭐⭐⭐⭐⭐ CRITICAL for v2601.2.0 release
 
 **Timeline**: 7-10 days for full wizard implementation
 

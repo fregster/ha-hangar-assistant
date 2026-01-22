@@ -1,7 +1,7 @@
 # Fuel Management
 
 **Feature**: Aircraft Fuel Planning & Cost Tracking  
-**Version**: 1.0 (v2601.4.0)  
+**Version**: 1.0 (v2601.2.0)  
 **Status**: ✅ Available
 
 ---
@@ -595,7 +595,7 @@ For developers and advanced users interested in the fuel management system archi
 
 ## Version History
 
-### v1.0 (v2601.4.0) - Current
+### v1.0 (v2601.2.0) - Current
 - Initial fuel management release
 - Three aircraft fuel sensors (burn rate, endurance, weight)
 - Two fuel calculation services (cost, trip estimation)

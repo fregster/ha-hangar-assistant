@@ -1,7 +1,7 @@
 # Fuel Management - Technical Documentation
 
 **Feature**: Aircraft Fuel Planning & Cost Tracking System  
-**Version**: 1.0 (v2601.4.0)  
+**Version**: 1.0 (v2601.2.0)  
 **Implementation**: Sensor-based with Service Helpers
 
 ---
@@ -859,5 +859,5 @@ weight = volume * unit_conversion * density
 ---
 
 **Last Updated**: 22 January 2026  
-**Implementation Version**: v2601.4.0  
+**Implementation Version**: v2601.2.0  
 **Author**: Hangar Assistant Development Team

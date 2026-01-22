@@ -1,7 +1,7 @@
 # Setup Wizard - Technical Documentation
 
 **Feature**: Guided First-Time Configuration System  
-**Version**: 1.0 (v2601.3.0)  
+**Version**: 1.0 (v2601.2.0)  
 **Implementation**: Config Flow with State Machine Pattern
 
 ---
@@ -558,7 +558,7 @@ await self.async_create_entry(...)  # Config entry created
 
 ## Future Enhancements
 
-### Planned Features (v2601.4.0+)
+### Planned Features (v2601.3.0+)
 
 1. **Enhanced Templates**
    - Expand from 7 to 40+ aircraft types
@@ -597,5 +597,5 @@ await self.async_create_entry(...)  # Config entry created
 ---
 
 **Last Updated**: 22 January 2026  
-**Implementation Version**: v2601.3.0  
+**Implementation Version**: v2601.2.0  
 **Author**: Hangar Assistant Development Team

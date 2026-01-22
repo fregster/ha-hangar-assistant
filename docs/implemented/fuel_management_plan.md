@@ -1,6 +1,6 @@
 # Fuel Management System Implementation
 
-**Status**: ✅ IMPLEMENTED - Released in v2601.4.0 (22 January 2026)  
+**Status**: ✅ IMPLEMENTED - Released in v2601.2.0 (22 January 2026)  
 **Original Planning Date**: 21 January 2026  
 **Location**: Moved from `docs/planning/` to `docs/implemented/`  
 **Priority**: ⭐⭐⭐⭐ HIGH
@@ -36,7 +36,7 @@
 ✅ 100% backward compatible (sensors only created if fuel data present)  
 
 **Completion Date:** 22 January 2026  
-**Implementation Time:** Completed in v2601.4.0 release  
+**Implementation Time:** Completed in v2601.2.0 release  
 
 **Note**: Original planning document preserved below for reference. Technical implementation details available in [fuel_management_technical.md](fuel_management_technical.md).
 

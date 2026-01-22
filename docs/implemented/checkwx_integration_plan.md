@@ -1,6 +1,6 @@
 # CheckWX API Integration Plan
 
-**Status**: ✅ IMPLEMENTED - Released in v2602.1.0 (22 January 2026)  
+**Status**: ✅ IMPLEMENTED - Released in v2601.2.0 (22 January 2026)  
 **Original Planning Date**: 21 January 2026  
 **Location**: Moved from `docs/planning/` to `docs/implemented/`  
 **Priority**: ⭐⭐⭐⭐⭐ CRITICAL
@@ -16,7 +16,7 @@
 - **Testing**: [`tests/test_checkwx_client.py`](../../tests/test_checkwx_client.py)
 - **Documentation**:
   - User Guide: [docs/features/checkwx_integration.md](../features/checkwx_integration.md)
-  - Release Notes: [docs/releases/RELEASE_NOTES_2602.1.0.md](../releases/RELEASE_NOTES_2602.1.0.md)
+  - Release Notes: [docs/releases/RELEASE_NOTES_2601.2.0.md](../releases/RELEASE_NOTES_2601.2.0.md)
 - **Translations**: `translations/{en,de,es,fr}.json` (config.step.checkwx_setup)
 
 ## Implementation Summary
@@ -984,9 +984,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 ### Release Strategy
 
-- **Beta Release**: v2601.3.0-beta (opt-in via GitHub)
+- **Beta Release**: v2601.2.0-beta (opt-in via GitHub)
 - **User Testing**: 2 weeks, gather feedback
-- **Stable Release**: v2601.3.0 (HACS)
+- **Stable Release**: v2601.2.0 (HACS)
 - **Documentation**: Update README, add CheckWX setup guide
 
 ---

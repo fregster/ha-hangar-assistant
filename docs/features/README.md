@@ -8,7 +8,7 @@ This directory contains comprehensive documentation for all major features in Ha
 
 ### 🚀 [Setup Wizard](setup_wizard.md)
 **Status**: ✅ Available  
-**Version**: 1.0 (v2601.3.0)  
+**Version**: 1.0 (v2601.2.0)  
 **Difficulty**: Beginner
 
 Guided 7-step onboarding experience that helps you configure Hangar Assistant in 10-15 minutes. Walks you through:

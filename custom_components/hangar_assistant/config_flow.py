@@ -1960,6 +1960,8 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                             selector.SelectOptionDict(value="ft", label="Feet"),
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 
                 # Fuel configuration section
                 vol.Required("fuel_type", default=ac.get("fuel", {}).get("type", "AVGAS")): selector.SelectSelector(
@@ -1989,8 +1991,6 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                             selector.SelectOptionDict(value="gallons_imperial", label="Imperial Gallons"),
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
-                    )
-                ),
                     )
                 ),
                 vol.Optional("hangar", default=ac.get("hangar", "")): selector.SelectSelector(

@@ -16,7 +16,7 @@ import json
 import logging
 import re
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Try to import orjson for 2-5x faster JSON operations
@@ -72,6 +72,7 @@ class OpenWeatherMapClient:
         hass,
         cache_enabled: bool = True,
         cache_ttl_minutes: int = DEFAULT_CACHE_TTL_MINUTES,
+        config_entry: Any = None,
     ):
         """Initialize OWM client with caching configuration.
 
@@ -80,11 +81,13 @@ class OpenWeatherMapClient:
             hass: Home Assistant instance
             cache_enabled: Enable persistent file-based caching
             cache_ttl_minutes: Cache lifetime in minutes
+            config_entry: Config entry for failure tracking (optional)
         """
         self.api_key = api_key
         self.hass = hass
         self.cache_enabled = cache_enabled
         self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
+        self.entry = config_entry
 
         # Persistent cache directory (survives restarts)
         # Note: Directory creation is lazy - only created when needed
@@ -103,6 +106,99 @@ class OpenWeatherMapClient:
             "OWM client initialized (cache: %s, TTL: %d min)",
             "enabled" if cache_enabled else "disabled",
             cache_ttl_minutes,
+        )
+
+    async def _increment_failure_counter(self, error_message: str) -> None:
+        """Increment consecutive failure counter and update last_error.
+
+        Args:
+            error_message: Error message to store
+        """
+        if not self.entry:
+            return
+
+        new_data = dict(self.entry.data)
+        integrations = new_data.get("integrations", {})
+        owm_config = integrations.get("openweathermap", {})
+
+        consecutive_failures = owm_config.get("consecutive_failures", 0) + 1
+        owm_config["consecutive_failures"] = consecutive_failures
+        owm_config["last_error"] = error_message
+
+        integrations["openweathermap"] = owm_config
+        new_data["integrations"] = integrations
+
+        self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+
+        _LOGGER.warning(
+            "OWM failure #%d: %s",
+            consecutive_failures,
+            error_message
+        )
+
+        # Auto-disable after 3 consecutive failures
+        if consecutive_failures >= 3:
+            await self._auto_disable_integration()
+
+    async def _reset_failure_counter(self) -> None:
+        """Reset consecutive failure counter on successful fetch."""
+        if not self.entry:
+            return
+
+        new_data = dict(self.entry.data)
+        integrations = new_data.get("integrations", {})
+        owm_config = integrations.get("openweathermap", {})
+
+        # Update failure counter and last_success timestamp
+        had_failures = owm_config.get("consecutive_failures", 0) > 0
+        owm_config["consecutive_failures"] = 0
+        owm_config["last_success"] = datetime.now(timezone.utc).isoformat()
+
+        integrations["openweathermap"] = owm_config
+        new_data["integrations"] = integrations
+
+        self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+
+        if had_failures:
+            _LOGGER.info("OWM connection restored, failure counter reset")
+
+    async def _auto_disable_integration(self) -> None:
+        """Auto-disable OWM integration after 3 consecutive failures."""
+        if not self.entry:
+            return
+
+        new_data = dict(self.entry.data)
+        integrations = new_data.get("integrations", {})
+        owm_config = integrations.get("openweathermap", {})
+
+        # Check if already disabled
+        if not owm_config.get("enabled", False):
+            return
+
+        owm_config["enabled"] = False
+        integrations["openweathermap"] = owm_config
+        new_data["integrations"] = integrations
+
+        self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+
+        _LOGGER.error(
+            "OpenWeatherMap integration auto-disabled after 3 consecutive failures. "
+            "Check your API key and re-enable in Settings → Integrations."
+        )
+
+        # Create persistent notification via service call
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Hangar Assistant: OpenWeatherMap Disabled",
+                "message": (
+                    "OpenWeatherMap has been disabled after 3 consecutive failures. "
+                    "Please check your API key and re-enable in Settings → Devices & Services → "
+                    "Hangar Assistant → Configure."
+                ),
+                "notification_id": "hangar_assistant_owm_disabled"
+            }
         )
 
     def _ensure_cache_dir(self) -> None:
@@ -203,6 +299,45 @@ class OpenWeatherMapClient:
             _LOGGER.warning("Failed to read cache file: %s", e)
             return None
 
+    def _read_persistent_cache_stale(
+        self, latitude: float, longitude: float
+    ) -> Optional[Dict[str, Any]]:
+        """Read cached data from disk even if expired (graceful degradation).
+
+        Args:
+            latitude: Latitude coordinate
+            longitude: Longitude coordinate
+
+        Returns:
+            Cached data dict if exists, None otherwise (ignoring TTL)
+        """
+        if not self.cache_enabled:
+            return None
+
+        self._ensure_cache_dir()
+
+        cache_file = self._get_cache_file_path(latitude, longitude)
+
+        if not cache_file.exists():
+            return None
+
+        try:
+            # Use orjson if available (2-5x faster)
+            if HAS_ORJSON:
+                cache_bytes = cache_file.read_bytes()
+                cached = orjson.loads(cache_bytes)
+            else:
+                with open(cache_file, "r") as f:
+                    cached = json.load(f)
+
+            # Return data regardless of age (stale cache for graceful degradation)
+            _LOGGER.debug("Using stale persistent cache for graceful degradation")
+            return cached["data"]
+
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            _LOGGER.warning("Failed to read stale cache file: %s", e)
+            return None
+
     def _write_persistent_cache(
         self, latitude: float, longitude: float, data: Dict[str, Any]
     ) -> None:
@@ -293,7 +428,25 @@ class OpenWeatherMapClient:
             return persistent_data
 
         # 3. Fetch from API (cache miss)
-        return await self._fetch_from_api(latitude, longitude, units)
+        try:
+            data = await self._fetch_from_api(latitude, longitude, units)
+            if data:
+                # Reset failure counter on successful fetch
+                await self._reset_failure_counter()
+                return data
+        except Exception as e:
+            _LOGGER.error("OWM API fetch failed: %s", e)
+            await self._increment_failure_counter(str(e))
+        
+        # 4. Return stale cache as last resort if API fails
+        stale_data = await self.hass.async_add_executor_job(
+            self._read_persistent_cache_stale, latitude, longitude
+        )
+        if stale_data:
+            _LOGGER.warning("Using stale OWM cache due to API failure")
+            return stale_data
+        
+        return None
 
     async def _fetch_from_api(
         self,
@@ -362,33 +515,41 @@ class OpenWeatherMapClient:
                         longitude,
                         self._api_calls_today,
                     )
+                    
+                    # Reset failure counter on success
+                    await self._reset_failure_counter()
+                    
                     return data
 
                 elif response.status == 401:
-                    _LOGGER.error("OWM API key invalid or expired")
+                    error_msg = "OWM API key invalid or expired"
+                    _LOGGER.error(error_msg)
+                    await self._increment_failure_counter(error_msg)
                     return None
 
                 elif response.status == 429:
-                    _LOGGER.error(
-                        "OWM API rate limit exceeded (%d calls today)",
-                        self._api_calls_today,
-                    )
+                    error_msg = f"OWM API rate limit exceeded ({self._api_calls_today} calls today)"
+                    _LOGGER.error(error_msg)
+                    await self._increment_failure_counter(error_msg)
                     return None
 
                 else:
-                    _LOGGER.error(
-                        "OWM API error: HTTP %d - %s",
-                        response.status,
-                        await response.text(),
-                    )
+                    error_text = await response.text()
+                    error_msg = f"OWM API error: HTTP {response.status} - {error_text}"
+                    _LOGGER.error(error_msg)
+                    await self._increment_failure_counter(error_msg)
                     return None
 
         except asyncio.TimeoutError:
-            _LOGGER.error("OWM API request timed out")
+            error_msg = "OWM API request timed out"
+            _LOGGER.error(error_msg)
+            await self._increment_failure_counter(error_msg)
             return None
 
         except Exception as e:
-            _LOGGER.error("OWM API request failed: %s", e)
+            error_msg = f"OWM API request failed: {e}"
+            _LOGGER.error(error_msg)
+            await self._increment_failure_counter(error_msg)
             return None
 
     def extract_current_weather(self, data: Dict[str, Any]) -> Dict[str, Any]:

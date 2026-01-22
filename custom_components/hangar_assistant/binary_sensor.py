@@ -96,6 +96,18 @@ async def async_setup_entry(
             )
         )
 
+    # Add integration health monitoring sensors
+    integrations = entry.data.get("integrations", {})
+    
+    # Add overall integration health sensor
+    if integrations:
+        entities.append(IntegrationHealthSensor(hass, entry))
+    
+    # Add NOTAM staleness warning if NOTAM integration enabled
+    notam_config = integrations.get("notams", {})
+    if notam_config.get("enabled", False):
+        entities.append(NOTAMStalenessWarning(hass, entry))
+
     async_add_entities(entities)
 
 
@@ -556,3 +568,262 @@ class PilotMedicalAlert(BinarySensorEntity):
             "expiry_date": self._config.get("medical_expiry"),
             "licence": self._config.get("licence_number")
         }
+
+
+class IntegrationHealthSensor(BinarySensorEntity):
+    """Overall health monitoring sensor for all external integrations.
+
+    This binary sensor monitors the health status of all external integrations
+    (OpenWeatherMap, NOTAMs, etc.) and provides a single at-a-glance indicator
+    for integration issues.
+
+    Trigger Conditions:
+        - is_on: True if any integration has consecutive failures > 0
+        - is_on: False if all integrations healthy (zero failures)
+
+    Severity Levels (attribute):
+        - "healthy": All integrations working (failures = 0)
+        - "warning": 1-2 consecutive failures on any integration
+        - "critical": 3+ consecutive failures or auto-disabled integration
+
+    Attributes:
+        - severity: healthy, warning, or critical
+        - owm_failures: OpenWeatherMap consecutive failure count
+        - owm_enabled: OWM integration enabled status
+        - owm_last_error: Last error message from OWM
+        - owm_last_success: Timestamp of last successful OWM update
+        - notam_failures: NOTAM consecutive failure count
+        - notam_enabled: NOTAM integration enabled status
+        - notam_last_error: Last error message from NOTAM
+        - notam_last_success: Timestamp of last successful NOTAM update
+        - disabled_integrations: List of auto-disabled integrations
+
+    Used by:
+        - Dashboard health indicators
+        - Automation triggers for failure notifications
+        - Admin monitoring of external service status
+
+    Example states:
+        - OFF (Healthy): severity="healthy", all failures=0
+        - ON (Warning): severity="warning", owm_failures=1
+        - ON (Critical): severity="critical", owm_enabled=False
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = True
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:network"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+        """Initialize integration health sensor.
+
+        Args:
+            hass: Home Assistant instance
+            entry: Config entry with integrations configuration
+        """
+        self.hass = hass
+        self._entry = entry
+
+        self._attr_unique_id = f"{DOMAIN}_integration_health"
+        self._attr_name = "Integration Health"
+
+        # Device info for grouping
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hangar_assistant_system")},
+            name="Hangar Assistant System",
+            manufacturer="Hangar Assistant",
+            model="Integration Monitor",
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if any integration has failures.
+
+        Returns:
+            True if any integration has failures > 0, False if all healthy
+        """
+        integrations = self._entry.data.get("integrations", {})
+
+        # Check OWM failures
+        owm_config = integrations.get("openweathermap", {})
+        owm_failures = owm_config.get("consecutive_failures", 0)
+
+        # Check NOTAM failures
+        notam_config = integrations.get("notams", {})
+        notam_failures = notam_config.get("consecutive_failures", 0)
+
+        # ON (problem) if any integration has failures
+        return owm_failures > 0 or notam_failures > 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return detailed integration health information.
+
+        Returns:
+            Dict with severity, per-integration status, and failure tracking
+        """
+        integrations = self._entry.data.get("integrations", {})
+
+        # Get OWM status
+        owm_config = integrations.get("openweathermap", {})
+        owm_failures = owm_config.get("consecutive_failures", 0)
+        owm_enabled = owm_config.get("enabled", False)
+
+        # Get NOTAM status
+        notam_config = integrations.get("notams", {})
+        notam_failures = notam_config.get("consecutive_failures", 0)
+        notam_enabled = notam_config.get("enabled", False)
+
+        # Determine severity
+        max_failures = max(owm_failures, notam_failures)
+        if max_failures == 0:
+            severity = "healthy"
+        elif max_failures >= 3 or (owm_config.get("api_key") and not owm_enabled):
+            severity = "critical"
+        else:
+            severity = "warning"
+
+        # List disabled integrations
+        disabled = []
+        if not owm_enabled and owm_failures >= 3:
+            disabled.append("openweathermap")
+        if not notam_enabled and notam_failures >= 3:
+            disabled.append("notams")
+
+        return {
+            "severity": severity,
+            "owm_failures": owm_failures,
+            "owm_enabled": owm_enabled,
+            "owm_last_error": owm_config.get("last_error"),
+            "owm_last_success": owm_config.get("last_success"),
+            "notam_failures": notam_failures,
+            "notam_enabled": notam_enabled,
+            "notam_last_error": notam_config.get("last_error"),
+            "notam_last_success": notam_config.get("last_success"),
+            "disabled_integrations": disabled,
+        }
+
+    async def async_update(self) -> None:
+        """Update sensor state (polled every 60 seconds)."""
+        # State is computed from config entry data, no fetch needed
+        pass
+
+
+class NOTAMStalenessWarning(BinarySensorEntity):
+    """Warning sensor that activates when NOTAM data becomes stale (>48 hours old).
+
+    This binary sensor monitors the age of cached NOTAM data and alerts users
+    when data hasn't been updated in over 48 hours, indicating potential
+    fetch failures or network connectivity issues.
+
+    Trigger Conditions:
+        - is_on: True if last NOTAM update > 48 hours ago
+        - is_on: False if data fresh (<48 hours) or integration disabled
+
+    Attributes:
+        - hours_old: Age of cached NOTAM data in hours
+        - last_update: ISO timestamp of last successful NOTAM fetch
+        - last_error: Most recent error message if failures occurred
+        - consecutive_failures: Number of consecutive failed fetch attempts
+
+    Used by:
+        - Dashboard warnings for stale aviation data
+        - Automation triggers for NOTAM fetch issues
+        - Admin monitoring of integration health
+
+    Example states:
+        - ON (Problem): NOTAM data 72 hours old, last_error: "Network timeout"
+        - OFF (OK): NOTAM data 6 hours old, last successful update today
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = True
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+        """Initialize NOTAM staleness warning sensor.
+
+        Args:
+            hass: Home Assistant instance
+            entry: Config entry with NOTAM integration settings
+        """
+        self.hass = hass
+        self._entry = entry
+
+        self._attr_unique_id = f"{DOMAIN}_notam_staleness_warning"
+        self._attr_name = "NOTAM Data Staleness"
+
+        # Device info for grouping
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hangar_assistant_system")},
+            name="Hangar Assistant System",
+            manufacturer="Hangar Assistant",
+            model="Integration Monitor",
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if NOTAM data is stale (>48 hours old).
+
+        Returns:
+            True if data older than 48 hours, False otherwise
+        """
+        integrations = self._entry.data.get("integrations", {})
+        notam_config = integrations.get("notams", {})
+
+        # If integration disabled, warning is off
+        if not notam_config.get("enabled", False):
+            return False
+
+        last_update_str = notam_config.get("last_update")
+        if not last_update_str:
+            # No update ever recorded - warning ON
+            return True
+
+        try:
+            last_update = datetime.fromisoformat(last_update_str)
+            age_hours = (dt_util.utcnow() - last_update).total_seconds() / 3600
+
+            # Stale threshold: 48 hours
+            return age_hours > 48
+
+        except (ValueError, TypeError):
+            # Invalid timestamp - warning ON
+            return True
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return detailed NOTAM staleness information.
+
+        Returns:
+            Dict with age, last update, errors, and failure count
+        """
+        integrations = self._entry.data.get("integrations", {})
+        notam_config = integrations.get("notams", {})
+
+        last_update_str = notam_config.get("last_update")
+        hours_old = None
+
+        if last_update_str:
+            try:
+                last_update = datetime.fromisoformat(last_update_str)
+                hours_old = round(
+                    (dt_util.utcnow() - last_update).total_seconds() / 3600, 1
+                )
+            except (ValueError, TypeError):
+                pass
+
+        return {
+            "hours_old": hours_old,
+            "last_update": last_update_str,
+            "last_error": notam_config.get("last_error"),
+            "consecutive_failures": notam_config.get("consecutive_failures", 0),
+            "stale_threshold_hours": 48,
+        }
+
+    async def async_update(self) -> None:
+        """Update sensor state (polled every 5 minutes)."""
+        # State is computed from config entry data, no fetch needed
+        pass
+

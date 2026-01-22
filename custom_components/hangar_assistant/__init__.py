@@ -743,6 +743,52 @@ async def _migrate_fuel_config(hass: HomeAssistant, entry: ConfigEntry) -> None:
         _LOGGER.info("Migrated fuel configuration with backward-compatible defaults")
 
 
+def _migrate_config_entry(data: dict) -> dict:
+    """Migrate config entry data to integrations namespace (synchronous helper).
+    
+    This function is called by tests and by the async migration function.
+    It returns a new dictionary with the migrated structure.
+    
+    Args:
+        data: Config entry data dictionary to migrate
+    
+    Returns:
+        New dictionary with integrations namespace added if needed
+    """
+    if "integrations" in data:
+        # Already migrated
+        return data
+    
+    settings = data.get("settings", {})
+    
+    # Determine if this is an existing install (has OWM key configured)
+    is_existing_install = bool(settings.get("openweathermap_api_key"))
+
+    integrations = {
+        "openweathermap": {
+            "enabled": settings.get("openweathermap_enabled", False),
+            "api_key": settings.get("openweathermap_api_key", ""),
+            "cache_enabled": settings.get("openweathermap_cache_enabled", True),
+            "update_interval": settings.get("openweathermap_update_interval", 10),
+            "cache_ttl": settings.get("openweathermap_cache_ttl", 10),
+            "consecutive_failures": 0,
+            "last_error": None,
+            "last_success": None
+        },
+        "notams": {
+            "enabled": False if is_existing_install else True,  # Off for existing, on for new
+            "update_time": "02:00",
+            "cache_days": 7,
+            "last_update": None,
+            "consecutive_failures": 0,
+            "last_error": None,
+            "stale_cache_allowed": True
+        }
+    }
+
+    return {**data, "integrations": integrations}
+
+
 async def _migrate_to_integrations(
         hass: HomeAssistant,
         entry: ConfigEntry) -> None:
@@ -757,33 +803,8 @@ async def _migrate_to_integrations(
         entry: Config entry to migrate
     """
     if "integrations" not in entry.data:
-        settings = entry.data.get("settings", {})
-
-        integrations = {
-            "openweathermap": {
-                "enabled": settings.get("openweathermap_enabled", False),
-                "api_key": settings.get("openweathermap_api_key", ""),
-                "cache_enabled": settings.get("openweathermap_cache_enabled", True),
-                "update_interval": settings.get("openweathermap_update_interval", 10),
-                "cache_ttl": settings.get("openweathermap_cache_ttl", 10),
-                "consecutive_failures": 0,
-                "last_error": None,
-                "last_success": None
-            },
-            "notams": {
-                "enabled": False,  # Existing installs: off by default
-                "update_time": "02:00",
-                "cache_days": 7,
-                "last_update": None,
-                "consecutive_failures": 0,
-                "last_error": None,
-                "stale_cache_allowed": True
-            }
-        }
-
-        new_data = {**entry.data, "integrations": integrations}
+        new_data = _migrate_config_entry(entry.data)
         hass.config_entries.async_update_entry(entry, data=new_data)
-
         _LOGGER.info("Migrated OWM settings to integrations namespace")
 
 

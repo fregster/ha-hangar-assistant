@@ -120,9 +120,9 @@ class NOTAMClient:
                     cache_age)
                 return cached, True
 
-            # No cache available at all
+            # No cache available at all - return empty but mark as stale (error condition)
             _LOGGER.error("No NOTAM data available (fresh or cached)")
-            return [], False
+            return [], True
 
         return [], False
 

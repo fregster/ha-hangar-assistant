@@ -1,7 +1,7 @@
 # Setup Wizard
 
 **Feature**: Guided First-Time Setup Experience  
-**Version**: 1.0 (v2601.3.0)  
+**Version**: 1.0 (v2601.2.0)  
 **Status**: ✅ Available
 
 ---
@@ -525,7 +525,7 @@ For developers and advanced users interested in the underlying architecture of t
 
 ## Version History
 
-### v1.0 (v2601.3.0 - 22 January 2026)
+### v1.0 (v2601.2.0 - 22 January 2026)
 - ✅ Initial release with 7-step guided wizard
 - ✅ API integration flows (CheckWX, OpenWeatherMap, NOTAMs)
 - ✅ Aircraft templates (7 types)
@@ -534,7 +534,7 @@ For developers and advanced users interested in the underlying architecture of t
 - ✅ Real-time validation for all inputs
 - ✅ Progress tracking and skip options
 
-### Planned Enhancements (v2601.4.0+)
+### Planned Enhancements (v2601.3.0+)
 - 🔄 40+ aircraft templates (currently 7)
 - 🔄 Quick-start scenarios (student, PPL, CPL, glider)
 - 🔄 Enhanced validation rules

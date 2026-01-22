@@ -9,7 +9,9 @@
 - [Key Patterns](#key-patterns)
 - [Security Best Practices](#security-best-practices)
 - [Performance Best Practices](#performance-best-practices)
+- [UI/UX Guidelines for Non-Technical Users](#uiux-guidelines-for-non-technical-users)
 - [Code Documentation Standards](#code-documentation-standards)
+- [Feature Documentation Standards](#feature-documentation-standards)
 - [Entity Implementation Patterns](#entity-implementation-patterns)
 - [Services Development](#services-development)
 - [Utility Modules](#utility-modules)
@@ -1037,6 +1039,280 @@ def my_function(param1: str, param2: int) -> bool:
 - **Context**: Mention how the code integrates with the broader system
 - **Examples**: Include usage examples for complex functions/classes
 - **Comments**: Use inline comments for non-obvious logic or calculations (especially aviation formulas)
+
+## Feature Documentation Standards
+
+**CRITICAL PRINCIPLE**: Every feature that users interact with MUST have user-centric documentation in `docs/features/`. This ensures features remain accessible, maintainable, and understandable to non-technical pilots.
+
+### Documentation Location & Organization
+
+**User-facing features**: `docs/features/{feature_name}.md`
+- Setup wizard, dashboard installation, AI briefings, NOTAM integration, etc.
+- Focus: What users see, how to use it, troubleshooting user issues
+
+**Developer documentation**: `docs/development/{topic}.md`
+- Architecture decisions, migration guides, code quality reviews
+- Focus: Implementation details, technical design, developer workflows
+
+**API & Integration references**: `docs/api/{service_name}.md` (future)
+- External API documentation, integration protocols
+- Focus: Technical specifications for integrations
+
+**Release notes**: `docs/releases/RELEASE_NOTES_{version}.md`
+- What changed, breaking changes, upgrade instructions
+- Focus: Version-specific changes and migration paths
+
+### Required Documentation Elements
+
+Every feature document MUST include:
+
+1. **Overview**
+   - What the feature does in 2-3 sentences
+   - Why it exists (user benefit, safety improvement)
+   - When it appears or how to access it
+   - Example: "The Setup Wizard guides you through first-time configuration in 7 steps, appearing automatically when no airfields are configured."
+
+2. **Step-by-Step Usage**
+   - Complete walkthrough of user journey
+   - Screenshots or examples for each step
+   - What users see at each stage
+   - Expected outcomes
+   - Example: "Step 1: Welcome Screen → Shows overview and time estimate (2-5 minutes)"
+
+3. **Troubleshooting**
+   - Common issues users encounter
+   - Clear problem → solution format
+   - Real error messages users see (not code exceptions)
+   - Links to related troubleshooting docs
+   - Example: "Problem: Wizard won't appear. Solution: Check if airfields already configured in Settings → Devices & Services → Hangar Assistant."
+
+4. **FAQ**
+   - 5-10 frequently asked questions
+   - Practical questions users actually ask
+   - Direct answers without jargon
+   - Example: "Q: Can I change settings later? A: Yes, go to Settings → Devices & Services → Hangar Assistant → Configure."
+
+5. **Best Practices**
+   - Tailored guidance for different user types (student pilot, private pilot, glider pilot, etc.)
+   - Tips for optimal usage
+   - Common mistakes to avoid
+   - Real-world scenarios
+   - Example: "Student Pilots: Start with one airfield and practice aircraft. Add more as you gain experience."
+
+6. **Technical Details** (Optional, collapsible)
+   - For advanced users who want deeper understanding
+   - Config entry structure, entity naming patterns
+   - Integration with other features
+   - Customization options
+   - Example: "Advanced: Dashboard state persists per-device using localStorage. Override with URL parameters for fixed displays."
+
+7. **Related Documentation**
+   - Links to complementary features
+   - External references (aviation regulations, API docs)
+   - Next steps or advanced usage
+   - Example: "Related: [Aircraft Templates](aircraft_templates.md), [Dashboard Customization](dashboard_guide.md)"
+
+### Writing Style Guidelines
+
+**Transform Technical → User-Friendly:**
+
+✅ **CORRECT Examples:**
+```
+Technical: "SetupWizardState class tracks completed_steps as a Set"
+User: "The wizard remembers which steps you've completed so you can return later"
+
+Technical: "async_step_welcome() returns Form with schema validation"
+User: "Step 1 shows an overview of what you'll configure (takes 2-5 minutes)"
+
+Technical: "ICAO validation uses regex pattern ^[A-Z]{4}$"
+User: "Enter your 4-letter airport code (e.g., EGHP for Popham)"
+
+Technical: "Background task scheduled with 2-second delay for entry initialization"
+User: "Dashboard installs automatically in the background without blocking the wizard"
+
+Technical: "Entity IDs generated using _slugify() for consistency"
+User: "Sensors named after your airfield (e.g., sensor.popham_density_altitude)"
+```
+
+❌ **WRONG Examples:**
+```
+"The config flow instantiates HangarAssistantConfigFlow"
+"Uses vol.Schema for form validation"
+"Raises ConfigEntryNotReady on initialization failure"
+"Implements async_setup_entry() pattern"
+```
+
+**Key Principles:**
+- **Aviation language, not code**: "ICAO code" not "4-character string identifier"
+- **User benefits, not implementation**: "Automatically fetches weather" not "Calls OpenWeatherMap API with caching"
+- **Examples over theory**: Show EGHP, KJFK, not just "4 letters"
+- **Progressive disclosure**: Essential info first, advanced details in collapsible sections
+- **Actionable guidance**: "Do this" not "You could potentially consider"
+
+### Documentation Update Requirements
+
+**CRITICAL**: Code changes that affect user experience MUST update feature documentation.
+
+**When to update docs:**
+- ✅ New wizard step added → Update setup_wizard.md step-by-step section
+- ✅ Error message changed → Update troubleshooting section
+- ✅ New configuration option → Add to FAQ and best practices
+- ✅ UI flow modified → Update step-by-step walkthrough
+- ✅ New entity created → Document in "what gets created" section
+- ✅ Service behavior changed → Update usage instructions
+
+**Update checklist:**
+1. **Overview**: Does high-level description still match feature?
+2. **Steps**: Do walkthrough steps reflect actual UI flow?
+3. **Troubleshooting**: Are error messages and solutions current?
+4. **FAQ**: Do answers reflect new behavior?
+5. **Best Practices**: Do recommendations align with new capabilities?
+6. **Technical Details**: Are entity IDs, config structure accurate?
+7. **Related Docs**: Are cross-references still valid?
+
+**Don't update docs for:**
+- ❌ Internal refactoring (no user-visible change)
+- ❌ Code comment improvements
+- ❌ Test additions (unless exposing new user-facing behavior)
+- ❌ Performance optimizations (unless user-noticeable)
+
+### Documentation Structure Example
+
+Based on `docs/features/setup_wizard.md` (established pattern):
+
+```markdown
+# Feature Name
+
+## Overview
+[2-3 sentence description of what, why, when]
+
+## Getting Started
+[Prerequisites, access method, initial setup]
+
+## Step-by-Step Guide
+### Step 1: [Name]
+[What user sees, what to enter, what happens]
+
+### Step 2: [Name]
+[Continue for all steps]
+
+## After Completion
+[What was created, immediate next steps]
+
+## Troubleshooting
+### Problem: [Specific issue]
+**Symptoms**: [What user sees]
+**Solution**: [Exact steps to fix]
+
+## FAQ
+### [Question users actually ask]?
+[Direct answer in plain language]
+
+## Best Practices
+### For [User Type 1]
+[Tailored recommendations]
+
+### For [User Type 2]
+[Different recommendations]
+
+## Technical Details (Advanced)
+<details>
+<summary>Click to expand</summary>
+
+[Technical architecture, entity structure, customization options]
+
+</details>
+
+## Related Documentation
+- [Link to related feature]
+- [Link to external reference]
+
+## Version History
+### v1.0 (Current)
+- Initial release
+- [Key features]
+
+### Planned Enhancements
+- [Future improvements]
+```
+
+### Validation & Quality Checks
+
+Before merging new feature documentation:
+
+**Content Completeness:**
+- [ ] All 7 required sections present (Overview, Usage, Troubleshooting, FAQ, Best Practices, Technical, Related)
+- [ ] No technical jargon without plain-language explanation
+- [ ] Real examples provided (ICAO codes, aircraft regs, etc.)
+- [ ] Links to related docs valid and working
+
+**User Accessibility:**
+- [ ] Can a non-technical pilot understand without reading code?
+- [ ] Are error messages shown as users see them (not code exceptions)?
+- [ ] Do troubleshooting steps actually solve the problem?
+- [ ] Are best practices actionable and specific?
+
+**Synchronization:**
+- [ ] Documentation matches current UI flow
+- [ ] Entity IDs and sensor names accurate
+- [ ] Screenshots (if present) show current interface
+- [ ] Version history updated
+
+**Style Compliance:**
+- [ ] Aviation terminology used consistently
+- [ ] Transformation from technical to user-friendly complete
+- [ ] Examples use real-world values (EGHP, G-ABCD, etc.)
+- [ ] Progressive disclosure: simple first, advanced later
+
+### Documentation Maintenance Workflow
+
+**For new features:**
+1. Implement code and tests
+2. Create `docs/features/{feature}.md` using template above
+3. Transform technical implementation into user benefits
+4. Add troubleshooting for anticipated issues
+5. Include FAQ based on user research or common questions
+6. Link from related docs
+
+**For feature updates:**
+1. Make code changes
+2. Identify affected documentation sections
+3. Update user-facing descriptions to match new behavior
+4. Add new troubleshooting if issues discovered
+5. Update FAQ if new questions arise
+6. Review cross-references
+
+**For major refactors:**
+1. If user experience unchanged: No doc updates needed
+2. If UI flow changes: Update step-by-step guide
+3. If entities renamed: Update technical details section
+4. If behavior changes: Update overview and best practices
+
+### Example: Phase 2-4 Documentation Consolidation
+
+**Before (Developer-focused):**
+- `PHASE_2_3_COMPLETION_SUMMARY.md`: Technical implementation details
+- `PHASE_4_COMPLETION_SUMMARY.md`: Service handler specifications
+- Audience: Developers
+- Content: Code structure, test results, implementation notes
+
+**After (User-focused):**
+- `docs/features/setup_wizard.md`: Comprehensive user guide
+- Audience: Pilots using the integration
+- Content: How to use wizard, troubleshooting, best practices, FAQ
+- Consolidates 3 phases into single maintainable document
+
+**Transformation highlights:**
+```markdown
+Before: "async_step_general_settings() collects unit preferences and defaults"
+After: "Step 2: Choose your preferred units (aviation standard or metric)"
+
+Before: "CheckWX integration validates API key via test request"
+After: "We'll test your CheckWX API key to ensure it works (free signup available)"
+
+Before: "Dashboard installation spawns background task with 2s delay"
+After: "Dashboard installs automatically in the background - you can continue using Home Assistant"
+```
 
 ## Entity Implementation Patterns
 - **Safety Alerts**: `HangarMasterSafetyAlert` (Binary Sensor, class `SAFETY`) triggers if weather data > 30 mins old or Carb Risk is "Serious Risk".

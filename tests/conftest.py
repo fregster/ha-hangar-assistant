@@ -1,4 +1,12 @@
 import sys
+import os
+
+# Prefer local test compatibility shims so tests don't require native build deps.
+# Insert `tests/compat` at the front of sys.path so our pure-Python shim is picked
+# up before any installed `lru` C-extension package that may fail to build.
+_compat_dir = os.path.join(os.path.dirname(__file__), "compat")
+if os.path.isdir(_compat_dir) and _compat_dir not in sys.path:
+    sys.path.insert(0, _compat_dir)
 from types import SimpleNamespace
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
@@ -82,6 +90,8 @@ mock_hass.helpers = MagicMock()
 mock_hass.util = SimpleNamespace(dt=SimpleNamespace(
     utcnow=lambda: datetime.now(timezone.utc),
     now=lambda: datetime.now(timezone.utc),
+), logging=SimpleNamespace(
+    log_exception=lambda format_err, *args: None,
 ))
 mock_hass.const = MagicMock()
 
@@ -96,8 +106,21 @@ sys.modules["homeassistant.data_entry_flow"] = SimpleNamespace(
 sys.modules["homeassistant.components"] = MagicMock()
 sys.modules["homeassistant.components.binary_sensor"] = MagicMock()
 sys.modules["homeassistant.components.sensor"] = MagicMock()
+class HomeAssistant:
+    """Minimal Home Assistant core object used for specs in tests."""
+
+
+class ServiceCall:
+    """Minimal ServiceCall stub with data payload."""
+
+    def __init__(self, data=None):
+        self.data = data or {}
+
+
 core_mock = MagicMock()
+core_mock.HomeAssistant = HomeAssistant
 core_mock.callback = lambda f: f
+core_mock.ServiceCall = ServiceCall
 sys.modules["homeassistant.core"] = core_mock
 sys.modules["homeassistant.helpers"] = mock_hass.helpers
 sys.modules["homeassistant.util"] = mock_hass.util

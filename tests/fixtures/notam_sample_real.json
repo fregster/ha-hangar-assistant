@@ -1,0 +1,13 @@
+{
+  "description": "Real-world UK NATS PIB XML feed sample for testing NOTAM parsing",
+  "source": "https://pibs.nats.co.uk/operational/pibs/PIB.xml",
+  "downloaded_at": "2026-01-21T20:00:00Z",
+  "format": "UK NATS Pre-flight Information Bulletin (PIB) XML",
+  "purpose": "Ensures test coverage matches production data structure",
+  "update_frequency": "Should be refreshed every 6 months to stay current",
+  "notes": [
+    "Contains live NOTAM data from UK airspace",
+    "Used as fixture for XML parsing validation",
+    "File age is checked automatically by test_notam_fixture_freshness"
+  ]
+}

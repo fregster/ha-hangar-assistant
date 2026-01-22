@@ -1,0 +1,1730 @@
+# Setup Wizard Implementation
+
+**Status**: ✅ IMPLEMENTED - Released in v2601.2.0 (22 January 2026)  
+**Original Planning Date**: 21 January 2026  
+**Location**: Moved from `docs/planning/` to `docs/implemented/`  
+**Priority**: ⭐⭐⭐⭐⭐ CRITICAL (User Onboarding)
+
+---
+
+## Quick Links
+
+- **Implementation**: 
+  - Config Flow: [`custom_components/hangar_assistant/config_flow.py`](../../custom_components/hangar_assistant/config_flow.py) (SetupWizardState class, async_step_welcome through async_step_completion)
+  - Templates: [`custom_components/hangar_assistant/templates.py`](../../custom_components/hangar_assistant/templates.py) (Aircraft templates)
+- **Testing**: 
+  - Wizard Flow: [`tests/test_setup_wizard.py`](../../tests/test_setup_wizard.py)
+  - Integration Tests: [`tests/test_wizard_flow.py`](../../tests/test_wizard_flow.py)
+- **Documentation**:
+  - User Guide: [docs/features/setup_wizard.md](../features/setup_wizard.md)
+  - Technical Details: [docs/implemented/setup_wizard_technical.md](setup_wizard_technical.md)
+- **Translations**: `translations/{en,de,es,fr}.json` (config.step.welcome, general_settings, airfield_setup, aircraft_setup, etc.)
+
+## Implementation Summary
+
+✅ SetupWizardState class for progress tracking with completed_steps Set  
+✅ 7-step guided wizard flow (welcome → general → airfield → aircraft → checkwx → notam → completion)  
+✅ State persistence for resumption (last_airfield, last_aircraft tracking)  
+✅ Background dashboard installation (async task with 2-second delay)  
+✅ Real-time validation (ICAO code format, API connection testing)  
+✅ Aircraft templates (7 types: Cessna 172, PA-28, C152, Grob 103, Rotax 912, Diamond DA40, Extra 300)  
+✅ API integration flows (CheckWX, OpenWeatherMap, NOTAMs)  
+✅ Skip options for optional steps  
+✅ Manual YAML generation fallback  
+✅ Comprehensive test suite (test_setup_wizard.py, test_wizard_flow.py)  
+✅ User documentation with step-by-step guide  
+✅ Translations (en/de/es/fr)  
+✅ 100% backward compatible (existing users unaffected)  
+
+**Completion Date:** 22 January 2026  
+**Implementation Time:** Completed in v2601.2.0 release  
+
+**Note**: Original planning document preserved below for reference. Technical implementation details available in [setup_wizard_technical.md](setup_wizard_technical.md).
+
+---
+
+# Original Planning Document
+
+---
+
+## Table of Contents
+- [Executive Summary](#executive-summary)
+- [Onboarding Philosophy](#onboarding-philosophy)
+- [Setup Flow Overview](#setup-flow-overview)
+- [Welcome Screen Design](#welcome-screen-design)
+- [Progressive Setup Wizard](#progressive-setup-wizard)
+- [API Integration Setup](#api-integration-setup)
+- [Dashboard Installation](#dashboard-installation)
+- [Tooltips & Guidance](#tooltips--guidance)
+- [Error Prevention](#error-prevention)
+- [Success Validation](#success-validation)
+- [Quick Start Templates](#quick-start-templates)
+- [Implementation Details](#implementation-details)
+- [Testing Strategy](#testing-strategy)
+
+---
+
+## Executive Summary
+
+A comprehensive first-time setup experience is **critical for user adoption**. The goal is to transform a complex aviation integration into a guided, confidence-building process that gets users from installation to a functional dashboard in **under 15 minutes**.
+
+**Key Principles:**
+- **Progressive Disclosure**: Don't overwhelm with all options at once
+- **Recommended Path**: Guide users through optimal setup order
+- **Validation**: Confirm each step works before proceeding
+- **Flexible Skip**: Allow power users to skip ahead
+- **Clear Value**: Show what each step unlocks
+
+**Target User Journey:**
+1. Install via HACS (30 seconds)
+2. First-load welcome & setup wizard (5 minutes)
+3. API setup (optional, 3-5 minutes)
+4. Add first airfield (2 minutes)
+5. Add first aircraft (2 minutes)
+6. Install dashboard (2 minutes)
+7. **See live data** ✨ (instant gratification)
+
+**Total Time to Value**: ≤15 minutes
+
+---
+
+## Onboarding Philosophy
+
+### Core Principles
+
+**1. Don't Make Users Read Documentation**
+- Inline help text explains every field
+- Tooltips for complex concepts
+- Examples show proper formatting
+- Validation prevents errors before submission
+
+**2. Show Immediate Value**
+- Create sample sensors during setup
+- Dashboard preview before final installation
+- Success messages with next steps
+- Visual progress indicators
+
+**3. Progressive Disclosure**
+- Start simple (minimum required fields)
+- Unlock advanced options via "Show Advanced"
+- Only show relevant options based on previous choices
+
+**4. Fail-Safe Design**
+- Can't proceed with invalid data
+- Clear error messages with fix instructions
+- "Skip for now" option on every optional step
+- Easy to return and complete later
+
+**5. Contextual Recommendations**
+- "Recommended for you" based on config
+- "Most users choose..." guidance
+- "Best practices" tips at decision points
+
+---
+
+## Setup Flow Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    HACS Installation                    │
+│              (User clicks "Download" button)            │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   First Load Detection                  │
+│     (Check if entry.data is empty or first setup)      │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                    Welcome Screen                       │
+│   • What is Hangar Assistant?                          │
+│   • What you can do with it                            │
+│   • Setup time estimate: 10-15 minutes                 │
+│   • [Start Setup Wizard] [Skip to Manual Config]       │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│              Step 1: General Settings                   │
+│   • Name your setup                                     │
+│   • Choose unit preference (Aviation/SI)               │
+│   • Select language                                     │
+│   • [Continue]                                          │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│        Step 2: External Integrations (Optional)         │
+│   ⚡ Recommended: Setup APIs before adding airfields    │
+│                                                         │
+│   ☐ OpenWeatherMap (Professional weather forecasts)    │
+│   ☐ CheckWX (Official aviation weather - METAR/TAF)    │
+│   ☐ NOTAM Service (Flight restrictions & warnings)     │
+│                                                         │
+│   💡 Why now? Auto-populates airfield data!            │
+│                                                         │
+│   [Configure APIs] [Skip for Now]                      │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│           Step 3: Add Your First Airfield               │
+│   📍 Where do you fly from?                            │
+│                                                         │
+│   • ICAO Code (e.g., EGHP)                             │
+│   • Or search by name                                  │
+│   • Auto-populate from CheckWX? ✨                     │
+│                                                         │
+│   [Add Airfield] [I'll do this later]                  │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│      Step 4: Add Hangar (Optional)                      │
+│   🏠 Do you keep aircraft in a hangar?                 │
+│                                                         │
+│   ☐ Yes, add hangar with specific conditions           │
+│   ☑ No, aircraft is outside (use airfield conditions)  │
+│                                                         │
+│   [Add Hangar] [Skip - Use Airfield Conditions]        │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│          Step 5: Add Your First Aircraft                │
+│   ✈️  What do you fly?                                 │
+│                                                         │
+│   • Registration (e.g., G-ABCD)                        │
+│   • Type (e.g., Cessna 172)                            │
+│   • Basic specs (MTOW, runway requirements)            │
+│   • Fuel (optional, can add later)                     │
+│                                                         │
+│   [Add Aircraft] [Skip for Now]                        │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│           Step 6: Connect Weather Sensors               │
+│   🌡️  Link your Home Assistant weather sensors         │
+│                                                         │
+│   • Temperature sensor                                  │
+│   • Humidity sensor                                     │
+│   • Pressure sensor                                     │
+│   • Wind sensor                                         │
+│                                                         │
+│   💡 Already have OpenWeatherMap/CheckWX? Skip this!   │
+│                                                         │
+│   [Select Sensors] [Skip - Using API Weather]          │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│              Step 7: Install Dashboard                  │
+│   📊 Add Glass Cockpit dashboard to your Home Assistant│
+│                                                         │
+│   This will:                                            │
+│   • Create a new dashboard view                        │
+│   • Add all your sensors and controls                  │
+│   • Provide aviation-style visualizations              │
+│                                                         │
+│   [Preview Dashboard] [Install Dashboard] [Manual]     │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Setup Complete! 🎉                     │
+│                                                         │
+│   ✅ Created 15 sensors for Popham                     │
+│   ✅ Created 8 sensors for G-ABCD                      │
+│   ✅ Dashboard installed: /hangar-glass-cockpit        │
+│                                                         │
+│   Next Steps:                                           │
+│   • View your dashboard                                 │
+│   • Add more aircraft/airfields                        │
+│   • Configure AI briefing schedules                    │
+│   • Set up automations                                 │
+│                                                         │
+│   [View Dashboard] [Add More] [Done]                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Welcome Screen Design
+
+### First Load Detection
+
+**Trigger Conditions**:
+```python
+def should_show_welcome(entry: ConfigEntry) -> bool:
+    """Determine if welcome screen should be shown."""
+    # Show welcome if:
+    # 1. No airfields configured
+    # 2. No aircraft configured
+    # 3. First-time flag not set
+    
+    if "setup_completed" in entry.data.get("settings", {}):
+        return False
+    
+    airfields = entry.data.get("airfields", [])
+    aircraft = entry.data.get("aircraft", [])
+    
+    return len(airfields) == 0 and len(aircraft) == 0
+```
+
+### Welcome Screen Content
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│          ✈️  Welcome to Hangar Assistant! 🛩️                │
+│                                                              │
+│  The complete aviation safety and operations integration    │
+│  for Home Assistant.                                         │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  📊 What You Can Do:                                        │
+│                                                              │
+│   ✓ Monitor airfield conditions (weather, density altitude) │
+│   ✓ Track aircraft performance limits & safety margins      │
+│   ✓ Get AI-generated pre-flight safety briefings           │
+│   ✓ Receive alerts for unsafe flying conditions            │
+│   ✓ Calculate fuel costs & trip planning                   │
+│   ✓ Manage weight & balance                                │
+│   ✓ Log flights & maintenance                              │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ⏱️  Setup Time: 10-15 minutes                              │
+│                                                              │
+│  💡 Tip: Have your API keys ready for best experience!     │
+│      • OpenWeatherMap (optional)                            │
+│      • CheckWX (optional, free tier available)             │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ☐ Don't show this again                                   │
+│                                                              │
+│          [Start Setup Wizard]    [Manual Configuration]     │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Progressive Setup Wizard
+
+### Step 1: General Settings
+
+**Purpose**: Establish basic configuration before diving into complex setup
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 1 of 7: General Settings                              │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  Setup Name (Optional)                                       │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ My Flying Club                                          │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  💬 Give your setup a name (e.g., "My Flying Club")        │
+│                                                              │
+│  Unit Preference                                             │
+│  ○ Aviation Units (ft, kts, inHg) - Recommended            │
+│  ○ SI Units (m, km/h, hPa)                                  │
+│                                                              │
+│  💬 Aviation units match standard pilot instruments         │
+│                                                              │
+│  Language                                                    │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ English                                              ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  Available: English, Deutsch, Español, Français             │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                              [Back]        [Continue]        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 2: External Integrations (Critical Step!)
+
+**Purpose**: Setup APIs BEFORE adding airfields to enable auto-population
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 2 of 7: External Integrations (Optional but Recommended)│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  ⚡ Setup APIs Now for Best Experience!                     │
+│                                                              │
+│  Why configure these before adding airfields?               │
+│  • Auto-populate airfield data (lat/lon, elevation, etc.)  │
+│  • Immediate weather data when sensors are created          │
+│  • Avoid manual data entry                                  │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ☐ CheckWX - Official Aviation Weather                     │
+│     FREE tier: 3,000 requests/day                          │
+│     Provides: METAR, TAF, Station Info                     │
+│                                                              │
+│     [▶ Setup CheckWX]                                       │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ☐ OpenWeatherMap - Professional Forecasts                 │
+│     Paid: $0.0012/call (10 min cache recommended)          │
+│     Provides: Hourly/daily forecasts, weather alerts       │
+│                                                              │
+│     [▶ Setup OpenWeatherMap]                                │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ☑ NOTAM Service - Flight Restrictions (FREE)              │
+│     Automatically enabled                                   │
+│     Provides: UK NATS NOTAMs, daily updates                │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  💡 Don't have API keys? You can:                          │
+│     • Use Home Assistant weather sensors instead           │
+│     • Add APIs later via Settings                          │
+│                                                              │
+│                    [Skip for Now]        [Continue]         │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**CheckWX Sub-Dialog** (if user clicks "Setup CheckWX"):
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Setup CheckWX API                                           │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  📝 Get Your Free API Key:                                  │
+│     1. Visit: https://www.checkwxapi.com/signup            │
+│     2. Sign up (free, no credit card required)             │
+│     3. Copy your API key from profile page                 │
+│                                                              │
+│  API Key                                                     │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ ••••••••••••••••••••••••••••••••••                     │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  🔒 Stored securely, never logged                          │
+│                                                              │
+│  Cache Settings (Recommended Defaults)                       │
+│  METAR Update Interval: [30] minutes                        │
+│  TAF Update Interval:   [360] minutes (6 hours)            │
+│                                                              │
+│  ☑ Enable METAR (current weather)                          │
+│  ☑ Enable TAF (forecasts)                                  │
+│  ☑ Auto-populate airfield station data                     │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  [Test Connection]                    [Cancel]    [Save]    │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 3: Add First Airfield
+
+**Purpose**: Create primary airfield with guided input
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 3 of 7: Add Your First Airfield                       │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  📍 Where is your home base?                                │
+│                                                              │
+│  ICAO Code (e.g., EGHP, EGKA, KJFK)                        │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ EGHP                                     [🔍 Validate] │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  💬 4-letter airport code (ICAO format)                     │
+│                                                              │
+│  ✨ CheckWX Integration Detected!                           │
+│     We can automatically populate:                          │
+│     • Airfield name, location, elevation                   │
+│     • Coordinates (lat/lon)                                │
+│     • Sunrise/sunset times                                 │
+│     • Current METAR/TAF weather                            │
+│                                                              │
+│     [▶ Auto-Populate from CheckWX]                          │
+│                                                              │
+│  ────────── OR Enter Manually ──────────                    │
+│                                                              │
+│  Airfield Name                                               │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Popham                                                  │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ▼ Show Advanced (Coordinates, Elevation, Runways)         │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                    [Skip for Now]        [Add Airfield]     │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**After Auto-Populate**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  ✅ Station Data Retrieved!                                  │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ICAO: EGHP                                                  │
+│  Name: Popham Airfield                                       │
+│  Location: Winchester, Hampshire, United Kingdom             │
+│  Elevation: 550 ft / 168 m                                   │
+│  Coordinates: 51.2017°N, 1.2351°W                           │
+│                                                              │
+│  Current Weather (METAR):                                    │
+│  • Temperature: 8°C                                          │
+│  • Wind: 270° at 12 kts                                      │
+│  • Visibility: 10+ km                                        │
+│  • Clouds: Few at 3,000 ft                                   │
+│  • Flight Category: VFR ✅                                   │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ☑ Use this data                                            │
+│                                                              │
+│  ▼ Edit Details (Optional)                                  │
+│                                                              │
+│                              [Back]        [Add Airfield]   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 4: Add Hangar (Optional)
+
+**Purpose**: Allow users to configure hangar-specific environment
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 4 of 7: Hangar Configuration (Optional)               │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  🏠 Do you keep your aircraft in a hangar?                  │
+│                                                              │
+│  ○ No, my aircraft is parked outside                        │
+│     Uses airfield weather conditions                        │
+│                                                              │
+│  ○ Yes, I have a hangar with different conditions          │
+│     Track hangar-specific temperature, humidity, etc.       │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  💡 Why track hangar conditions?                            │
+│     • Detect carburetor icing risk before engine start     │
+│     • Monitor condensation/moisture for aircraft health    │
+│     • Different performance calculations (warm hangar)     │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  If YES:                                                     │
+│                                                              │
+│  Hangar Name                                                 │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Main Hangar                                             │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Location                                                    │
+│  ○ At Popham (EGHP)                                         │
+│  ○ At different airfield: [Select ▼]                       │
+│                                                              │
+│  Temperature Sensor (Home Assistant entity)                 │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ sensor.hangar_temperature                            ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│           [Skip - No Hangar]                  [Add Hangar]  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 5: Add First Aircraft
+
+**Purpose**: Configure primary aircraft with smart defaults
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 5 of 7: Add Your First Aircraft                       │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  ✈️  What aircraft do you fly?                              │
+│                                                              │
+│  Registration (Tail Number)                                  │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ G-ABCD                                                  │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  💬 Your aircraft registration (e.g., G-ABCD, N12345)      │
+│                                                              │
+│  Aircraft Type                                               │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Cessna 172                                           ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  💬 Select from common types or enter custom               │
+│                                                              │
+│  ✨ Would you like to load default specs for Cessna 172?   │
+│     [▶ Load Cessna 172 Template]                            │
+│                                                              │
+│  ────────── Basic Performance ──────────                    │
+│                                                              │
+│  Maximum Takeoff Weight (MTOW)                               │
+│  ┌──────────────────────┐                                   │
+│  │ 1157              kg │ (2550 lbs)                        │
+│  └──────────────────────┘                                   │
+│                                                              │
+│  Minimum Runway Length                                       │
+│  ┌──────────────────────┐                                   │
+│  │ 500               m  │ (1640 ft)                         │
+│  └──────────────────────┘                                   │
+│                                                              │
+│  ▼ Show Advanced (Fuel, Performance Charts, Engines)       │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Home Location                                               │
+│  ○ Parked at Popham (EGHP)                                  │
+│  ○ In Main Hangar at Popham                                 │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                    [Skip for Now]        [Add Aircraft]     │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Aircraft Template Loaded**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  ✅ Cessna 172 Template Loaded!                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Pre-filled values (you can edit):                          │
+│                                                              │
+│  • MTOW: 1,157 kg (2,550 lbs)                               │
+│  • Empty Weight: 743 kg (1,638 lbs)                         │
+│  • Min Runway: 500 m (1,640 ft)                             │
+│  • Cruise Speed: 105 kts                                     │
+│  • Fuel Type: AVGAS                                          │
+│  • Fuel Burn: 35 L/h (9.2 gal/h)                            │
+│  • Tank Capacity: 155 L (41 gal)                            │
+│                                                              │
+│  💡 These are typical values. Adjust for your specific      │
+│     aircraft based on your POH (Pilot Operating Handbook).  │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ☑ Use these values                                         │
+│                                                              │
+│  ▼ Customize Values                                         │
+│                                                              │
+│                              [Back]        [Add Aircraft]   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 6: Connect Weather Sensors
+
+**Purpose**: Link existing HA sensors or skip if using APIs
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 6 of 7: Connect Weather Sensors                       │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  🌡️  Link your Home Assistant weather sensors               │
+│                                                              │
+│  ✨ Detected Integrations:                                  │
+│     ✅ CheckWX (METAR/TAF)                                  │
+│     ✅ OpenWeatherMap                                       │
+│                                                              │
+│  💡 You already have weather APIs configured!               │
+│     Manual sensors are optional for backup/override.        │
+│                                                              │
+│  [Skip This Step - Use API Weather]                         │
+│                                                              │
+│  ────────── OR Link Manual Sensors ──────────               │
+│                                                              │
+│  Temperature Sensor (for Popham)                             │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ sensor.popham_temperature                            ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Humidity Sensor                                             │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ sensor.popham_humidity                               ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Pressure Sensor                                             │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ sensor.popham_pressure                               ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Wind Speed Sensor                                           │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ sensor.popham_wind_speed                             ▼ │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                    [Skip for Now]        [Link Sensors]     │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 7: Install Dashboard
+
+**Purpose**: Add Glass Cockpit dashboard to Home Assistant
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Step 7 of 7: Install Dashboard                             │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                              │
+│  📊 Glass Cockpit Dashboard                                 │
+│                                                              │
+│  Provides:                                                   │
+│  • Live airfield conditions (weather, DA, carb risk)        │
+│  • Aircraft performance margins & safety alerts             │
+│  • Best runway selection based on wind                      │
+│  • AI-generated safety briefings                            │
+│  • Fuel cost estimates & trip planning                      │
+│  • NOTAMs and weather alerts                                │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Installation Method:                                        │
+│                                                              │
+│  ○ Automatic (Recommended)                                  │
+│     Adds dashboard to your Home Assistant automatically     │
+│                                                              │
+│  ○ Manual YAML                                              │
+│     Copy YAML to your configuration.yaml                    │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  [▶ Preview Dashboard]                                       │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Dashboard URL (after installation):                        │
+│  http://homeassistant.local:8123/hangar-glass-cockpit       │
+│                                                              │
+│  📱 Mobile-Optimized: Yes                                   │
+│  🎨 Theme: Aviation Glass Cockpit                           │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│          [Skip for Now]    [Manual Setup]  [Install Now]    │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Dashboard Installation Progress**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Installing Dashboard...                                     │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  ✅ Loading dashboard template                              │
+│  ✅ Substituting sensor IDs (Popham, G-ABCD)                │
+│  ✅ Creating dashboard view: /hangar-glass-cockpit          │
+│  ✅ Registering JavaScript state manager                    │
+│  ⏳ Reloading Home Assistant frontend...                    │
+│                                                              │
+│  ████████████████████████████████████ 90%                   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## API Integration Setup
+
+### CheckWX Setup Dialog (Detailed)
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Configure CheckWX Aviation Weather API                      │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  CheckWX provides official aviation weather in METAR/TAF    │
+│  format - the industry standard for flight planning.        │
+│                                                              │
+│  📝 Get Your Free API Key:                                  │
+│                                                              │
+│     1. Visit: https://www.checkwxapi.com/signup            │
+│     2. Sign up (free, no credit card required)             │
+│     3. Go to your Profile page                             │
+│     4. Copy your API key                                    │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  API Key                                                     │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Type or paste your API key]                           │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  🔒 Stored securely in Home Assistant                      │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Features to Enable:                                         │
+│                                                              │
+│  ☑ METAR (Current Weather)                                  │
+│     Updates every 30 minutes                                │
+│     Provides: Temperature, wind, visibility, clouds         │
+│                                                              │
+│  ☑ TAF (Forecasts)                                          │
+│     Updates every 6 hours                                   │
+│     Provides: 24-48 hour aviation forecasts                │
+│                                                              │
+│  ☑ Station Information                                      │
+│     Auto-populate airfield data (lat/lon, elevation)       │
+│                                                              │
+│  ☑ Sunrise/Sunset Times                                     │
+│     VFR daylight requirements                               │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Advanced Settings ▼                                         │
+│                                                              │
+│  METAR Cache Duration: [15] minutes                         │
+│  TAF Cache Duration:   [360] minutes                        │
+│  Rate Limit Warning:   [2700] requests (90% of 3000)       │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Rate Limits (Free Tier):                                   │
+│  • 3,000 requests per day                                   │
+│  • Resets at 00:00 UTC                                      │
+│  • Recommended: Cache aggressively                          │
+│                                                              │
+│  💡 With 15-min METAR cache and 6-hour TAF cache,          │
+│     typical usage: 200-300 requests/day (well under limit) │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  [Test Connection]                    [Cancel]    [Save]    │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Test Connection Result**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  ✅ Connection Successful!                                   │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Test METAR for KJFK (John F Kennedy Intl):                 │
+│                                                              │
+│  METAR KJFK 211951Z 19018G31KT 10SM FEW036 FEW170          │
+│  BKN250 00/M07 A3035                                         │
+│                                                              │
+│  Decoded:                                                    │
+│  • Temperature: 0°C (32°F)                                   │
+│  • Dew Point: -7°C (19°F)                                    │
+│  • Wind: 190° at 18 kts, gusts 31 kts                       │
+│  • Visibility: 10+ statute miles                            │
+│  • Flight Category: VFR ✅                                   │
+│                                                              │
+│  API Status: ✅ Operational                                 │
+│  Response Time: 145 ms                                       │
+│  Requests Today: 1 / 3,000                                   │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                                            [Continue]        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### OpenWeatherMap Setup Dialog
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Configure OpenWeatherMap API                                │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  OpenWeatherMap provides professional weather forecasts     │
+│  with hourly/daily predictions and severe weather alerts.   │
+│                                                              │
+│  ⚠️  This is a PAID service (already have API key?)         │
+│                                                              │
+│  📝 Get Your API Key:                                        │
+│                                                              │
+│     1. Visit: https://openweathermap.org/api               │
+│     2. Subscribe to "One Call API 3.0"                     │
+│     3. Pricing: ~$0.0012 per call                          │
+│     4. Copy your API key                                    │
+│                                                              │
+│  💡 Typical monthly cost: $10-30 depending on usage        │
+│     (Aggressive caching recommended!)                       │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  API Key                                                     │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [Type or paste your API key]                           │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Features to Enable:                                         │
+│                                                              │
+│  ☑ Current Weather                                          │
+│  ☑ 48-Hour Hourly Forecast                                  │
+│  ☑ 8-Day Daily Forecast                                     │
+│  ☑ Weather Alerts                                           │
+│  ☑ UV Index                                                 │
+│  ☑ Precipitation Forecast                                   │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Cache Settings (Recommended for Cost Control)              │
+│                                                              │
+│  Update Interval: [10] minutes                              │
+│  Cache Expires:   [10] minutes                              │
+│                                                              │
+│  Estimated API Calls: ~144 per day per airfield            │
+│  Estimated Cost:      ~$0.17 per day per airfield          │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  [Test Connection]                    [Cancel]    [Save]    │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Dashboard Installation
+
+### Automatic Installation Flow
+
+**Option 1: Service-Based Installation** (Preferred)
+
+```python
+# Service call from config flow
+async def install_dashboard(hass: HomeAssistant, entry: ConfigEntry):
+    """Install Glass Cockpit dashboard automatically."""
+    
+    # 1. Load template
+    template_path = Path(__file__).parent / "dashboard_templates" / "glass_cockpit.yaml"
+    with open(template_path, 'r') as f:
+        template = f.read()
+    
+    # 2. Substitute entity IDs
+    airfields = entry.data.get("airfields", [])
+    aircraft = entry.data.get("aircraft", [])
+    
+    # Get first airfield/aircraft for default view
+    default_airfield = airfields[0]["name"] if airfields else "popham"
+    default_aircraft = aircraft[0]["reg"] if aircraft else "g_abcd"
+    
+    template = template.replace("{{default_airfield}}", default_airfield)
+    template = template.replace("{{default_aircraft}}", default_aircraft)
+    
+    # 3. Create dashboard via Lovelace API
+    await hass.services.async_call(
+        "lovelace",
+        "create_dashboard",
+        {
+            "url_path": "hangar-glass-cockpit",
+            "title": "Hangar Glass Cockpit",
+            "icon": "mdi:airplane",
+            "require_admin": False,
+            "mode": "storage",  # UI-editable
+            "config": yaml.safe_load(template)
+        }
+    )
+    
+    # 4. Register JavaScript state manager
+    js_path = Path(__file__).parent / "dashboard_templates" / "hangar_state_manager.js"
+    # Copy to www/ directory
+    www_path = hass.config.path("www/hangar_state_manager.js")
+    shutil.copy(js_path, www_path)
+    
+    # 5. Set flag that dashboard is installed
+    entry.data["settings"]["dashboard_installed"] = True
+    entry.data["settings"]["dashboard_url"] = "/hangar-glass-cockpit"
+```
+
+### Manual Installation Instructions
+
+**If user chooses "Manual Setup":**
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Manual Dashboard Installation                               │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  📋 Copy the following to your configuration.yaml:          │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ lovelace:                                               │ │
+│  │   mode: yaml                                            │ │
+│  │   dashboards:                                           │ │
+│  │     hangar-glass-cockpit:                              │ │
+│  │       mode: yaml                                        │ │
+│  │       title: Hangar Glass Cockpit                      │ │
+│  │       icon: mdi:airplane                               │ │
+│  │       show_in_sidebar: true                            │ │
+│  │       filename: hangar_dashboard.yaml                  │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  [📋 Copy to Clipboard]                                     │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Then:                                                       │
+│                                                              │
+│  1. Create a file: /config/hangar_dashboard.yaml           │
+│                                                              │
+│  2. Copy dashboard template:                                │
+│     [📥 Download Template]                                  │
+│                                                              │
+│  3. Restart Home Assistant                                  │
+│                                                              │
+│  4. Dashboard will appear in sidebar                        │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Need Help? See: docs/dashboard_setup.md                    │
+│                                                              │
+│                                        [Done]    [Get Help] │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Tooltips & Guidance
+
+### Context-Sensitive Help
+
+**Implementation Pattern**:
+
+```python
+# Tooltip component (reusable)
+{
+    "type": "custom:tooltip",
+    "icon": "mdi:help-circle-outline",
+    "title": "What is ICAO Code?",
+    "content": """
+        ICAO (International Civil Aviation Organization) codes are 
+        4-letter airport identifiers used worldwide.
+        
+        Examples:
+        • EGHP = Popham, UK
+        • EGKA = Shoreham, UK
+        • KJFK = New York JFK, USA
+        
+        Find ICAO codes at: https://airportcodes.aero
+    """
+}
+```
+
+### Field-Level Tooltips
+
+**Registration Field**:
+```
+💬 Your aircraft registration (tail number).
+   Format: G-ABCD (UK), N12345 (US), D-EFGH (Germany)
+```
+
+**MTOW Field**:
+```
+💬 Maximum Takeoff Weight from your Aircraft POH.
+   Used to calculate performance margins and safety alerts.
+   Must be in kilograms (kg) or pounds (lbs) depending on unit preference.
+```
+
+**Fuel Burn Rate**:
+```
+💬 Average fuel consumption at cruise power.
+   Check your Pilot Operating Handbook (POH) for accurate values.
+   Example: Cessna 172 @ 65% power ≈ 35 L/h (9.2 gal/h)
+```
+
+**ICAO Code**:
+```
+💬 4-letter airport code (ICAO format).
+   Different from IATA codes (e.g., EGHP vs EHP).
+   Find codes at: https://airportcodes.aero
+```
+
+### Smart Suggestions
+
+**Aircraft Type Field**:
+```yaml
+# Show autocomplete with common types
+suggestions:
+  - "Cessna 172"
+  - "Piper PA-28"
+  - "Diamond DA40"
+  - "Robin DR400"
+  - "Cirrus SR20"
+  - "Beechcraft Bonanza"
+  - "Tecnam P2008"
+  - "Rotax 912 (Generic)"
+```
+
+**When user types "Cessna"**:
+```
+✨ Load default specs for Cessna 172?
+   [Yes] [No, I'll enter manually]
+```
+
+---
+
+## Error Prevention
+
+### Validation Rules
+
+**ICAO Code Validation**:
+```python
+def validate_icao(icao: str) -> tuple[bool, str]:
+    """Validate ICAO code format."""
+    if not icao:
+        return False, "ICAO code is required"
+    
+    if len(icao) != 4:
+        return False, "ICAO codes are exactly 4 characters (e.g., EGHP)"
+    
+    if not icao.isupper():
+        return False, "ICAO codes must be uppercase"
+    
+    if not icao.isalpha():
+        return False, "ICAO codes contain only letters (no numbers)"
+    
+    return True, ""
+```
+
+**Registration Validation**:
+```python
+def validate_registration(reg: str) -> tuple[bool, str]:
+    """Validate aircraft registration format."""
+    if not reg:
+        return False, "Aircraft registration is required"
+    
+    # Basic format check
+    if len(reg) < 3:
+        return False, "Registration too short (e.g., G-ABCD, N12345)"
+    
+    # Check for common formats
+    patterns = [
+        r'^[A-Z]-[A-Z]{4}$',      # UK: G-ABCD
+        r'^[A-Z]\d{4,5}$',        # US: N12345
+        r'^[A-Z]{2}-[A-Z]{3}$',   # Europe: D-EFGH
+    ]
+    
+    if not any(re.match(p, reg) for p in patterns):
+        return False, "Registration format not recognized. Common formats: G-ABCD, N12345, D-EFGH"
+    
+    return True, ""
+```
+
+**Numeric Validation with Range**:
+```python
+def validate_mtow(value: float, unit: str) -> tuple[bool, str]:
+    """Validate MTOW is reasonable."""
+    if value <= 0:
+        return False, "MTOW must be greater than 0"
+    
+    if unit == "kg":
+        if value < 300 or value > 5000:
+            return False, f"MTOW {value} kg seems unusual. Typical range: 300-5000 kg"
+    elif unit == "lbs":
+        if value < 660 or value > 11000:
+            return False, f"MTOW {value} lbs seems unusual. Typical range: 660-11000 lbs"
+    
+    return True, ""
+```
+
+### Real-Time Validation
+
+**Show validation as user types**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  ICAO Code                                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ EGHP                                          ✅        │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  ✅ Valid ICAO code                                         │
+└──────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│  ICAO Code                                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ eghp                                          ❌        │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  ❌ ICAO codes must be uppercase (try: EGHP)               │
+└──────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│  ICAO Code                                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ KJFK                                          ✅        │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  ✅ Valid ICAO code                                         │
+│  ✨ CheckWX has data for KJFK (New York JFK)               │
+│     [Auto-populate airfield data?]                          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Success Validation
+
+### Per-Step Validation
+
+**After adding airfield**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  ✅ Airfield Added Successfully!                             │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Created sensors:                                            │
+│  ✅ sensor.popham_density_altitude                          │
+│  ✅ sensor.popham_carb_risk                                 │
+│  ✅ sensor.popham_cloud_base                                │
+│  ✅ sensor.popham_weather_data_age                          │
+│  ✅ binary_sensor.popham_master_safety_alert                │
+│  ✅ ... (10 more sensors)                                   │
+│                                                              │
+│  Weather data: ✅ Receiving (CheckWX METAR)                 │
+│  Current conditions: VFR, 8°C, Wind 270° at 12 kts         │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                                            [Continue]        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**After adding aircraft**:
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  ✅ Aircraft Added Successfully!                             │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Created sensors:                                            │
+│  ✅ sensor.g_abcd_ground_roll_margin                        │
+│  ✅ sensor.g_abcd_best_runway                               │
+│  ✅ sensor.g_abcd_fuel_burn_rate                            │
+│  ✅ sensor.g_abcd_fuel_endurance                            │
+│  ✅ binary_sensor.g_abcd_performance_warning                │
+│  ✅ ... (5 more sensors)                                    │
+│                                                              │
+│  Linked to: Popham (EGHP)                                    │
+│  Current status: ✅ Safe to fly (all checks passed)         │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│                                            [Continue]        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Final Setup Summary
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│                  🎉 Setup Complete!                          │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Your Hangar Assistant is ready to fly!                     │
+│                                                              │
+│  Configuration Summary:                                      │
+│                                                              │
+│  ✈️  Aircraft:                                              │
+│     • G-ABCD (Cessna 172) at Popham                         │
+│                                                              │
+│  📍 Airfields:                                              │
+│     • Popham (EGHP) - Home Base                             │
+│                                                              │
+│  🌍 Integrations:                                           │
+│     ✅ CheckWX (METAR/TAF)                                  │
+│     ✅ NOTAM Service (UK NATS)                              │
+│     ⚠️  OpenWeatherMap (Not configured)                    │
+│                                                              │
+│  📊 Dashboard:                                              │
+│     ✅ Installed: /hangar-glass-cockpit                     │
+│                                                              │
+│  📈 Sensors Created:                                        │
+│     ✅ 15 airfield sensors                                  │
+│     ✅ 8 aircraft sensors                                   │
+│     ✅ 3 select entities (airfield/aircraft picker)         │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  🚀 Next Steps:                                             │
+│                                                              │
+│  1. [View Dashboard] - See your live data!                  │
+│                                                              │
+│  2. Add More:                                                │
+│     • More airfields (for cross-country planning)          │
+│     • More aircraft (if you fly multiple types)            │
+│     • Hangars (for environment monitoring)                 │
+│                                                              │
+│  3. Configure AI Briefings:                                  │
+│     • Set schedule for automated safety briefings          │
+│     • Choose briefing time (e.g., 07:00 daily)             │
+│                                                              │
+│  4. Set Up Automations:                                      │
+│     • Alerts for unsafe conditions                         │
+│     • Reminders for preflight checks                       │
+│     • Voice briefings via TTS                              │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  💡 Pro Tips:                                               │
+│  • Bookmark dashboard on mobile for quick access           │
+│  • Add dashboard to sidebar for easy navigation            │
+│  • Check sensor values match your weather station          │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Need Help?                                                  │
+│  📖 Documentation: github.com/pfrye/ha-hangar-assistant     │
+│  💬 Discussions: GitHub Issues & Discussions tab            │
+│  ✉️  Support: hangar-assistant@example.com                 │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  [View Dashboard]  [Add More]  [Configure AI]  [Done]       │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quick Start Templates
+
+### Pre-configured Templates
+
+**Template 1: UK PPL Single Aircraft**
+
+```yaml
+template_name: "UK PPL Single Aircraft"
+description: "Single piston aircraft at UK airfield"
+includes:
+  - 1 airfield (UK)
+  - 1 aircraft (Cessna 172 defaults)
+  - CheckWX integration
+  - NOTAM service
+  - Glass Cockpit dashboard
+estimated_time: "10 minutes"
+```
+
+**Template 2: US Sport Pilot**
+
+```yaml
+template_name: "US Sport Pilot"
+description: "Light Sport Aircraft setup"
+includes:
+  - 1 airfield (US)
+  - 1 LSA aircraft (Flight Design defaults)
+  - CheckWX integration
+  - OpenWeatherMap
+  - Glass Cockpit dashboard
+estimated_time: "12 minutes"
+```
+
+**Template 3: Glider Club**
+
+```yaml
+template_name: "Glider Club"
+description: "Gliding operations setup"
+includes:
+  - 1 airfield
+  - 1 glider (ASW 20 defaults)
+  - Thermal forecasting sensors
+  - CheckWX integration
+  - Glass Cockpit dashboard
+estimated_time: "8 minutes"
+```
+
+**Template 4: Flight School**
+
+```yaml
+template_name: "Flight School"
+description: "Multi-aircraft training environment"
+includes:
+  - 2 airfields
+  - 3 aircraft (training fleet)
+  - CheckWX integration
+  - Fuel cost tracking
+  - Multi-aircraft dashboard
+estimated_time: "20 minutes"
+```
+
+### Template Selection Screen
+
+```yaml
+┌──────────────────────────────────────────────────────────────┐
+│  Choose a Quick Start Template                               │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  Or start from scratch with the Setup Wizard                │
+│                                                              │
+│  ○ UK PPL Single Aircraft                     ⏱️  10 min    │
+│     Perfect for: Private pilots, single aircraft owners     │
+│                                                              │
+│  ○ US Sport Pilot                             ⏱️  12 min    │
+│     Perfect for: LSA pilots, sport pilot certificate       │
+│                                                              │
+│  ○ Glider Club                                ⏱️  8 min     │
+│     Perfect for: Gliding operations, soaring clubs         │
+│                                                              │
+│  ○ Flight School                              ⏱️  20 min    │
+│     Perfect for: Training organizations, multi-aircraft    │
+│                                                              │
+│  ○ Custom Setup (Wizard)                      ⏱️  15 min    │
+│     Full control over configuration                         │
+│                                                              │
+│  ────────────────────────────────────────────────────────── │
+│                                                              │
+│  💡 Templates can be customized after setup                 │
+│                                                              │
+│                    [Back to Welcome]        [Continue]      │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Implementation Details
+
+### Config Flow Modifications
+
+**New Flow Handler: Setup Wizard**
+
+```python
+class HangarAssistantSetupWizard(ConfigFlow):
+    """Setup wizard for first-time configuration."""
+    
+    VERSION = 1
+    
+    async def async_step_user(self, user_input=None):
+        """Handle the initial step."""
+        # Check if this is first setup
+        if self._should_show_welcome():
+            return await self.async_step_welcome()
+        
+        # Otherwise, go to normal config flow
+        return await self.async_step_manual_config()
+    
+    async def async_step_welcome(self, user_input=None):
+        """Show welcome screen."""
+        if user_input is not None:
+            if user_input.get("start_wizard"):
+                return await self.async_step_general_settings()
+            else:
+                return await self.async_step_manual_config()
+        
+        return self.async_show_form(
+            step_id="welcome",
+            data_schema=vol.Schema({
+                vol.Required("start_wizard", default=True): bool,
+            }),
+            description_placeholders={
+                "welcome_text": WELCOME_TEXT,
+            }
+        )
+    
+    async def async_step_general_settings(self, user_input=None):
+        """Step 1: General settings."""
+        # Implementation...
+    
+    async def async_step_api_integrations(self, user_input=None):
+        """Step 2: API integrations."""
+        # Show CheckWX, OWM, NOTAM options
+        # Implementation...
+    
+    async def async_step_add_airfield(self, user_input=None):
+        """Step 3: Add first airfield."""
+        # Implementation with CheckWX auto-populate
+        # Implementation...
+    
+    async def async_step_add_hangar(self, user_input=None):
+        """Step 4: Optional hangar."""
+        # Implementation...
+    
+    async def async_step_add_aircraft(self, user_input=None):
+        """Step 5: Add first aircraft."""
+        # Implementation with templates
+        # Implementation...
+    
+    async def async_step_link_sensors(self, user_input=None):
+        """Step 6: Link weather sensors."""
+        # Skip if APIs configured
+        # Implementation...
+    
+    async def async_step_install_dashboard(self, user_input=None):
+        """Step 7: Install dashboard."""
+        # Implementation...
+    
+    async def async_step_complete(self, user_input=None):
+        """Final summary screen."""
+        # Show success message
+        # Implementation...
+```
+
+### Dashboard Auto-Installation Service
+
+```python
+async def async_install_dashboard(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    method: str = "automatic"
+) -> Dict[str, Any]:
+    """Install Glass Cockpit dashboard.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry
+        method: "automatic" or "manual"
+    
+    Returns:
+        Dict with installation status and URL
+    """
+    if method == "automatic":
+        try:
+            # Load template
+            template = await _load_dashboard_template(hass)
+            
+            # Substitute entity IDs
+            config = _substitute_entity_ids(template, entry)
+            
+            # Create dashboard via Lovelace
+            await hass.services.async_call(
+                "lovelace",
+                "create_dashboard",
+                {
+                    "url_path": "hangar-glass-cockpit",
+                    "title": "Hangar Glass Cockpit",
+                    "icon": "mdi:airplane",
+                    "require_admin": False,
+                    "mode": "storage",
+                    "config": config
+                }
+            )
+            
+            # Copy JavaScript files
+            await _copy_dashboard_resources(hass)
+            
+            return {
+                "success": True,
+                "url": "/hangar-glass-cockpit",
+                "message": "Dashboard installed successfully"
+            }
+            
+        except Exception as e:
+            _LOGGER.error("Failed to install dashboard: %s", e)
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Dashboard installation failed"
+            }
+    
+    else:  # manual
+        # Return instructions and YAML
+        yaml_config = await _generate_manual_config(entry)
+        return {
+            "success": True,
+            "method": "manual",
+            "yaml": yaml_config,
+            "instructions": MANUAL_INSTALL_INSTRUCTIONS
+        }
+```
+
+### Persistent Notification for Setup
+
+```python
+async def async_notify_setup_complete(hass: HomeAssistant, entry: ConfigEntry):
+    """Send persistent notification when setup is complete."""
+    
+    airfields = entry.data.get("airfields", [])
+    aircraft = entry.data.get("aircraft", [])
+    
+    message = f"""
+## 🎉 Hangar Assistant Setup Complete!
+
+**Configuration:**
+- Airfields: {len(airfields)}
+- Aircraft: {len(aircraft)}
+- Dashboard: ✅ Installed
+
+**Next Steps:**
+1. [View Dashboard](/hangar-glass-cockpit)
+2. Add more airfields/aircraft via Settings
+3. Configure AI briefing schedule
+
+Need help? Check the [documentation](https://github.com/pfrye/ha-hangar-assistant).
+"""
+    
+    await hass.services.async_call(
+        "persistent_notification",
+        "create",
+        {
+            "title": "Hangar Assistant Setup Complete",
+            "message": message,
+            "notification_id": "hangar_setup_complete"
+        }
+    )
+```
+
+---
+
+## Testing Strategy
+
+### User Testing Scenarios
+
+**Scenario 1: New User, No APIs**
+1. Fresh HA install
+2. Install Hangar Assistant via HACS
+3. Go through wizard
+4. Skip API setup
+5. Add airfield manually
+6. Add aircraft with template
+7. Link existing weather sensors
+8. Install dashboard automatically
+9. Verify dashboard works
+
+**Scenario 2: New User, With CheckWX**
+1. Fresh install
+2. Setup CheckWX first (has API key ready)
+3. Auto-populate airfield data
+4. Verify METAR sensors work
+5. Add aircraft with CheckWX weather
+6. Install dashboard
+7. Verify real-time data
+
+**Scenario 3: Power User, Skip Wizard**
+1. Click "Skip to Manual Config"
+2. Add airfield manually
+3. Add aircraft manually
+4. Configure APIs separately
+5. Install dashboard manually (YAML)
+6. Verify full functionality
+
+**Scenario 4: Migration from Existing Setup**
+1. User has old config
+2. Wizard detects existing data
+3. Offer to enhance (add APIs, dashboard)
+4. Preserve existing config
+5. No data loss
+
+### Automated Tests
+
+**File**: `tests/test_setup_wizard.py`
+
+```python
+def test_welcome_screen_shown_on_first_load():
+    """Test welcome screen appears for new users."""
+    # Empty config
+    # Should show welcome
+
+def test_wizard_skipped_for_existing_users():
+    """Test wizard skipped if setup already complete."""
+    # Config with data
+    # Should skip to main config
+
+def test_api_setup_validates_keys():
+    """Test API key validation."""
+    # Invalid CheckWX key → error message
+    # Valid key → success
+
+def test_icao_auto_populate_works():
+    """Test CheckWX auto-populate."""
+    # Enter ICAO
+    # Click auto-populate
+    # Verify data loaded
+
+def test_dashboard_installation():
+    """Test automatic dashboard install."""
+    # Install via wizard
+    # Verify dashboard exists
+    # Verify entities in dashboard
+
+def test_setup_complete_notification():
+    """Test persistent notification created."""
+    # Complete setup
+    # Check notification exists
+    # Verify content correct
+```
+
+---
+
+## Success Metrics
+
+### Onboarding Completion Rate
+- **Goal**: 80% of users who start wizard complete it
+- **Metric**: Track wizard step progress
+- **Target**: <10% abandon at any single step
+
+### Time to First Dashboard View
+- **Goal**: <15 minutes from HACS install to viewing dashboard
+- **Metric**: Track timestamps (install → dashboard URL access)
+- **Target**: 90th percentile <15 minutes
+
+### API Adoption Rate
+- **Goal**: 50% of users configure at least one external API
+- **Metric**: Track CheckWX/OWM enabled in configs
+- **Target**: CheckWX >40%, OWM >10%
+
+### Dashboard Installation Rate
+- **Goal**: 70% of users install dashboard via wizard
+- **Metric**: Track `dashboard_installed` flag
+- **Target**: Automatic >60%, Manual >10%
+
+### Support Requests Reduction
+- **Goal**: Reduce "how do I set up?" questions
+- **Metric**: GitHub issues tagged "setup help"
+- **Target**: <5% of total issues
+
+---
+
+## Conclusion
+
+This comprehensive first-time setup experience transforms Hangar Assistant from a complex aviation integration into an accessible, guided onboarding process. By:
+
+✅ **Providing clear guidance** at every step  
+✅ **Recommending optimal configuration order** (APIs before airfields)  
+✅ **Enabling auto-population** via CheckWX  
+✅ **Offering templates** for common scenarios  
+✅ **Validating in real-time** to prevent errors  
+✅ **Installing dashboard automatically**  
+✅ **Showing immediate value** with live data  
+
+We ensure users can go from installation to a functional aviation safety system in **under 15 minutes**, building confidence and encouraging adoption.
+
+**Implementation Priority**: ⭐⭐⭐⭐⭐ CRITICAL for v2601.2.0 release
+
+**Timeline**: 7-10 days for full wizard implementation
+
+---
+
+**Document End**

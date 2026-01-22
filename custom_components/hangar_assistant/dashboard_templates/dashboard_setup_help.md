@@ -46,6 +46,53 @@ automation:
         data:
           title: "Hangar Assistant Dashboard"
           message: "Dashboard setup event fired. If the dashboard is missing, add the YAML entry or reload dashboards."
-
+```
 
 Tip: Built-in selectors are created automatically from your configured airfields, aircraft, and pilots—no manual helpers are required.
+
+---
+
+## Per-Device Dashboard State Management
+
+### Overview
+
+The dashboard now supports **per-device airfield and aircraft selection**, allowing multiple displays to show different aircraft simultaneously.
+
+### How It Works
+
+Each device maintains its own view using a priority-based system:
+
+1. **URL Parameters** (Highest) - For fixed wall displays
+2. **localStorage** (Medium) - Preserves user's last selection
+3. **Config Defaults** (Low) - Set in General Settings
+4. **Auto-Detection** (Fallback) - First available entity
+
+### Setup Examples
+
+**Fixed Wall Display** (always shows G-ABCD):
+```
+http://homeassistant:8123/hangar-glass-cockpit?aircraft=g_abcd
+```
+
+**Interactive Users:**
+- No URL params needed
+- Selection saved in browser automatically
+- Each device/browser remembers independently
+
+**Config Defaults:**
+1. Configure → Global Configuration → General Settings
+2. Set "Default Dashboard Airfield" and "Default Dashboard Aircraft"
+
+### Migration Notes
+
+- **Existing setups:** No changes required - backward compatible
+- **Select entities:** Still work for automations
+- **New feature:** Optional - old behavior continues if not configured
+
+### Technical Details
+
+JavaScript module: `dashboard_templates/hangar_state_manager.js`
+- Handles state management
+- URL param detection
+- localStorage persistence
+- Config default fallback

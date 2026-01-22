@@ -1,0 +1,31 @@
+[flake8]
+# ONLY check project source code, not external libraries
+# Explicitly limit to custom_components and tests directories
+filename = custom_components/hangar_assistant/*.py,tests/*.py
+
+# Exclude everything else (virtual environments, dependencies, build artifacts)
+exclude = .venv,venv,build,dist,.git,.tox,.eggs,*.egg-info,node_modules,.pytest_cache,.mypy_cache,__pycache__
+
+# Max line length (default is 79)
+max-line-length = 120
+
+# Max complexity
+max-complexity = 10
+
+# Select specific error codes to enforce
+# E9 - Runtime errors
+# F63 - Invalid usage of *
+# F7 - Syntax errors in type comments
+# F82 - Undefined names
+select = E9,F63,F7,F82
+
+# Ignore specific warnings if needed (uncomment as necessary)
+# E203 - Whitespace before ':'
+# E501 - Line too long
+# W503 - Line break before binary operator
+ignore = E203,E501,W503
+
+# Per-file ignores for test files
+per-file-ignores =
+    tests/*:F401,F841
+    */__init__.py:F401

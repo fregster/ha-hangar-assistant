@@ -37,6 +37,7 @@ async def test_async_setup_entry_creates_select_entities(hass) -> None:
     entry = _mock_entry(
         {
             "airfields": [{"name": "Popham"}],
+            "hangars": [{"name": "Hangar 3", "airfield_name": "Popham"}],
             "aircraft": [{"reg": "G-ABCD"}],
             "pilots": [{"name": "Alice"}],
         }
@@ -46,12 +47,14 @@ async def test_async_setup_entry_creates_select_entities(hass) -> None:
 
     await async_setup_entry(hass, entry, lambda ents: created.extend(ents))
 
-    assert len(created) == 3
-    airfield, aircraft, pilot = created
+    assert len(created) == 4
+    airfield, hangar, aircraft, pilot = created
     assert airfield.options == ["popham"]
+    assert hangar.options == ["popham_hangar_3"]
     assert aircraft.options == ["g-abcd"]
     assert pilot.options == ["alice"]
     assert airfield.current_option == "popham"
+    assert hangar.current_option == "popham_hangar_3"
     assert aircraft.current_option == "g-abcd"
     assert pilot.current_option == "alice"
     assert airfield.entity_id == "select.hangar_assistant_airfield_selector"

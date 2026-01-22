@@ -1,4 +1,27 @@
-"""Tests for sensor unit preference integration."""
+"""Tests for sensor unit preference system (aviation vs SI units).
+
+This module tests the unit preference system that allows users to choose
+between aviation-standard units (ft, kt, etc.) and SI units (m, kph, etc.).
+
+Test Strategy:
+    - Test each sensor type's unit output with both preferences
+    - Validate _attr_native_unit_of_measurement property
+    - Test that unit preference cascades from global settings
+    - Verify backward compatibility (default to aviation if not set)
+
+Coverage:
+    - DensityAltSensor: ft vs m
+    - CloudBaseSensor: ft vs m
+    - Crosswind sensors: kt vs kph
+    - CarbRiskTransitionSensor: ft vs m
+    - GroundRollSensor: m (always meters)
+
+User Experience:
+    - Aviation preference (default): Traditional units familiar to pilots
+    - SI preference: Metric units for international users
+    - Home Assistant displays units in entity cards automatically
+    - Unit conversion happens transparently in sensor code
+"""
 import pytest
 from unittest.mock import MagicMock
 from custom_components.hangar_assistant.sensor import (
@@ -17,10 +40,38 @@ from custom_components.hangar_assistant.const import (
 
 
 class TestDensityAltSensorUnits:
-    """Test DensityAltSensor respects unit preference."""
+    """Test suite for density altitude sensor unit handling.
+    
+    Tests that DensityAltSensor correctly outputs feet (aviation) or
+    meters (SI) based on global unit preference setting.
+    
+    Test Approach:
+        - Create sensor with different unit_preference settings
+        - Validate _attr_native_unit_of_measurement
+        - Mock required sensor states (temp, pressure)
+    
+    Scenarios Covered:
+        - Aviation preference → "ft"
+        - SI preference → "m"
+    """
     
     def test_da_aviation_units(self):
-        """Test DA sensor outputs feet when preference is aviation."""
+        """Test density altitude sensor uses feet with aviation preference.
+        
+        This test validates the default/traditional behavior where density
+        altitude is displayed in feet, the aviation standard unit.
+        
+        Setup:
+            - Mock temp sensor: 15°C (ISA standard)
+            - settings: {"unit_preference": "aviation"}
+        
+        Validation:
+            - native_unit_of_measurement is "ft"
+        
+        Expected Result:
+            Sensor displays density altitude in feet, matching aviation
+            charts, pilot operating handbooks, and ATIS broadcasts.
+        """
         mock_hass = MagicMock()
         mock_hass.states.get.return_value = MagicMock(state="15")
         
@@ -36,7 +87,23 @@ class TestDensityAltSensorUnits:
         assert sensor._attr_native_unit_of_measurement == "ft"
     
     def test_da_si_units(self):
-        """Test DA sensor outputs meters when preference is SI."""
+        """Test density altitude sensor uses meters with SI preference.
+        
+        This test validates the SI/metric option for international users
+        who prefer meters over feet.
+        
+        Setup:
+            - Mock temp sensor: 15°C
+            - settings: {"unit_preference": "si"}
+        
+        Validation:
+            - native_unit_of_measurement is "m"
+        
+        Expected Result:
+            Sensor displays density altitude in meters. User sees metric
+            values in dashboard, though aviation formulas still calculate
+            internally in feet then convert.
+        """
         mock_hass = MagicMock()
         mock_hass.states.get.return_value = MagicMock(state="15")
         

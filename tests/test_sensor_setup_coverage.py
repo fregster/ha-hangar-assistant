@@ -1,4 +1,27 @@
-"""Tests for sensor setup and base functionality."""
+"""Tests for sensor platform setup and entity registration.
+
+This module tests the async_setup_entry() function that creates sensor
+entities when the Hangar Assistant integration is loaded by Home Assistant.
+
+Test Strategy:
+    - Mock Home Assistant core (hass, config_entries)
+    - Mock async_add_entities callback to capture created sensors
+    - Validate correct sensor types created for airfields and aircraft
+    - Test edge cases (empty config, missing sensors)
+
+Coverage:
+    - async_setup_entry creates airfield sensors
+    - async_setup_entry creates aircraft sensors
+    - Sensor creation with complete configuration
+    - Sensor creation with partial/missing configuration
+    - Entity list passed to async_add_entities callback
+
+Integration Context:
+    - async_setup_entry is called by Home Assistant during integration load
+    - Must create all sensors defined in config entry
+    - Sensors must be added via async_add_entities callback
+    - Missing required config should gracefully skip sensor creation
+"""
 import pytest
 from unittest.mock import MagicMock
 from homeassistant.core import HomeAssistant
@@ -14,7 +37,19 @@ from custom_components.hangar_assistant.sensor import (
 
 @pytest.fixture
 def mock_hass():
-    """Create mock Home Assistant instance."""
+    """Create mock Home Assistant instance for sensor setup testing.
+    
+    Provides:
+        - Mock hass with states attribute for sensor lookups
+        - Spec'd to HomeAssistant type for type checking
+    
+    Used By:
+        - All sensor setup tests in this module
+        - Tests requiring hass.states.get() calls
+    
+    Returns:
+        MagicMock: Configured Home Assistant instance
+    """
     hass = MagicMock(spec=HomeAssistant)
     hass.states = MagicMock()
     return hass
@@ -22,7 +57,31 @@ def mock_hass():
 
 @pytest.fixture
 def mock_config_entry():
-    """Create a mock config entry."""
+    """Create mock config entry with complete airfield and aircraft data.
+    
+    Provides:
+        - 1 airfield: "Test Airfield" at London coordinates (51.5, -0.1)
+        - Elevation: 100m, Runways: 09/27, Length: 1000m
+        - All weather sensors configured (temp, dp, pressure, wind)
+        - 1 aircraft: G-TEST (Cessna 172), linked to Test Airfield
+        - Baseline ground roll: 300m
+        - Empty pilots list
+        - Empty settings dict
+    
+    Used By:
+        - test_async_setup_entry_creates_airfield_sensors
+        - test_async_setup_entry_creates_aircraft_sensors
+        - Tests requiring complete configuration
+    
+    Example sensors created:
+        - sensor.test_airfield_density_altitude
+        - sensor.test_airfield_cloud_base
+        - sensor.g_test_ground_roll
+        - sensor.g_test_performance_margin
+    
+    Returns:
+        MagicMock: ConfigEntry with complete test data
+    """
     entry = MagicMock(spec=ConfigEntry)
     entry.data = {
         "airfields": [

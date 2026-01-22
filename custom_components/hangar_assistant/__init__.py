@@ -397,6 +397,51 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         elif method == "manual":
             # Generate YAML for manual installation
             _LOGGER.info("Generating dashboard YAML for manual installation")
+    async def handle_install_dashboard(call: ServiceCall) -> None:
+        """Service to install the Hangar Assistant dashboard.
+        
+        This service supports both automatic installation (via Lovelace API)
+        and manual installation (returns YAML for user to copy/paste).
+        Called from setup wizard or manually for dashboard updates.
+        
+        Service data:
+            - method: 'automatic' (default) or 'manual'
+        """
+        method = call.data.get("method", "automatic")
+        
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            _LOGGER.warning("No Hangar Assistant config entry found")
+            return
+        
+        entry = entries[0]
+        
+        if method == "automatic":
+            # Use existing dashboard creation logic
+            _LOGGER.info("Installing dashboard via automatic method")
+            result = await async_create_dashboard(
+                hass,
+                entry,
+                force_rebuild=True,
+                reason="install_service",
+            )
+            
+            if result:
+                # Update settings to mark dashboard as installed
+                new_data = dict(entry.data)
+                settings = new_data.setdefault("settings", {})
+                settings["dashboard_installed"] = True
+                settings["dashboard_url"] = "/hangar-assistant/glass_cockpit"
+                settings["dashboard_install_method"] = "automatic"
+                hass.config_entries.async_update_entry(entry, data=new_data)
+                
+                _LOGGER.info("✅ Dashboard installed successfully (automatic)")
+            else:
+                _LOGGER.error("❌ Dashboard installation failed")
+        
+        elif method == "manual":
+            # Generate YAML for manual installation
+            _LOGGER.info("Generating dashboard YAML for manual installation")
             dashboard_yaml = await _generate_dashboard_yaml(hass, entry)
             
             if dashboard_yaml:
@@ -410,6 +455,171 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 _LOGGER.info("✅ Dashboard YAML generated for manual installation")
             else:
                 _LOGGER.error("❌ Dashboard YAML generation failed")
+    
+    async def handle_calculate_fuel_cost(call: ServiceCall) -> None:
+        """Service to calculate fuel cost for a flight.
+        
+        Service data:
+            - aircraft_reg: Aircraft registration (e.g., G-ABCD)
+            - flight_time_hours: Flight time in hours
+            - fuel_price_per_liter: Fuel price per liter (or gallon)
+        """
+        from .utils.units import convert_fuel_volume
+        
+        aircraft_reg = call.data.get("aircraft_reg", "").upper().replace("-", "_")
+        flight_time = call.data.get("flight_time_hours", 0)
+        fuel_price = call.data.get("fuel_price_per_liter", 0)
+        
+        # Find aircraft config
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            _LOGGER.warning("No config entry found for fuel cost calculation")
+            return
+        
+        entry = entries[0]
+        aircraft_list = entry.data.get("aircraft", [])
+        aircraft = None
+        for ac in aircraft_list:
+            if ac.get("reg", "").replace("-", "_").upper() == aircraft_reg:
+                aircraft = ac
+                break
+        
+        if not aircraft:
+            _LOGGER.warning("Aircraft %s not found", aircraft_reg)
+            return
+        
+        # Get fuel config
+        fuel_config = aircraft.get("fuel", {})
+        burn_rate = fuel_config.get("burn_rate", 0)
+        burn_rate_unit = fuel_config.get("burn_rate_unit", "liters")
+        
+        if burn_rate <= 0:
+            _LOGGER.warning("Aircraft %s has no fuel burn rate configured", aircraft_reg)
+            return
+        
+        # Convert burn rate to liters/hour
+        burn_rate_liters = convert_fuel_volume(burn_rate, from_unit=burn_rate_unit, to_unit="liters")
+        
+        # Calculate fuel used and cost
+        fuel_used = burn_rate_liters * flight_time
+        total_cost = fuel_used * fuel_price
+        
+        _LOGGER.info(
+            "Fuel cost for %s: %.2f liters (%.2f hours @ %.2f L/h) = %.2f",
+            aircraft_reg,
+            fuel_used,
+            flight_time,
+            burn_rate_liters,
+            total_cost
+        )
+        
+        # Fire event with results
+        hass.bus.async_fire(
+            f"{DOMAIN}_fuel_cost_calculated",
+            {
+                "aircraft_reg": aircraft_reg,
+                "flight_time_hours": flight_time,
+                "fuel_used_liters": round(fuel_used, 2),
+                "fuel_price_per_liter": fuel_price,
+                "total_cost": round(total_cost, 2),
+            }
+        )
+    
+    async def handle_estimate_trip_fuel(call: ServiceCall) -> None:
+        """Service to estimate fuel required for a trip.
+        
+        Service data:
+            - aircraft_reg: Aircraft registration
+            - departure_icao: Departure ICAO code
+            - destination_icao: Destination ICAO code
+            - distance_nm: Distance in nautical miles
+            - cruise_speed_kts: Cruise speed in knots
+        """
+        from .utils.units import convert_fuel_volume, calculate_fuel_endurance
+        from .const import DEFAULT_FUEL_RESERVE_MINUTES
+        
+        aircraft_reg = call.data.get("aircraft_reg", "").upper().replace("-", "_")
+        departure = call.data.get("departure_icao", "").upper()
+        destination = call.data.get("destination_icao", "").upper()
+        distance_nm = call.data.get("distance_nm", 0)
+        cruise_speed = call.data.get("cruise_speed_kts", 100)
+        
+        # Find aircraft config
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            return
+        
+        entry = entries[0]
+        aircraft_list = entry.data.get("aircraft", [])
+        aircraft = None
+        for ac in aircraft_list:
+            if ac.get("reg", "").replace("-", "_").upper() == aircraft_reg:
+                aircraft = ac
+                break
+        
+        if not aircraft:
+            _LOGGER.warning("Aircraft %s not found", aircraft_reg)
+            return
+        
+        # Get fuel config
+        fuel_config = aircraft.get("fuel", {})
+        burn_rate = fuel_config.get("burn_rate", 0)
+        burn_rate_unit = fuel_config.get("burn_rate_unit", "liters")
+        tank_capacity = fuel_config.get("tank_capacity", 0)
+        tank_capacity_unit = fuel_config.get("tank_capacity_unit", "liters")
+        
+        if burn_rate <= 0:
+            _LOGGER.warning("Aircraft %s has no fuel burn rate configured", aircraft_reg)
+            return
+        
+        # Calculate flight time
+        flight_time_hours = distance_nm / cruise_speed if cruise_speed > 0 else 0
+        
+        # Convert burn rate to liters
+        burn_rate_liters = convert_fuel_volume(burn_rate, from_unit=burn_rate_unit, to_unit="liters")
+        
+        # Calculate fuel required
+        fuel_required = burn_rate_liters * flight_time_hours
+        
+        # Get reserve from settings
+        settings = entry.data.get("settings", {})
+        fuel_settings = settings.get("fuel", {})
+        reserve_minutes = fuel_settings.get("reserve_minutes", DEFAULT_FUEL_RESERVE_MINUTES)
+        reserve_fuel = burn_rate_liters * (reserve_minutes / 60.0)
+        
+        # Total fuel needed
+        total_fuel_required = fuel_required + reserve_fuel
+        
+        # Check if aircraft has enough fuel capacity
+        capacity_liters = convert_fuel_volume(tank_capacity, from_unit=tank_capacity_unit, to_unit="liters")
+        sufficient = total_fuel_required <= capacity_liters
+        
+        _LOGGER.info(
+            "Trip fuel estimate %s → %s: %.2f nm, %.2f hours, %.2f L required (inc %.0f min reserve)",
+            departure,
+            destination,
+            distance_nm,
+            flight_time_hours,
+            total_fuel_required,
+            reserve_minutes
+        )
+        
+        # Fire event with results
+        hass.bus.async_fire(
+            f"{DOMAIN}_trip_fuel_estimated",
+            {
+                "aircraft_reg": aircraft_reg,
+                "departure": departure,
+                "destination": destination,
+                "distance_nm": distance_nm,
+                "flight_time_hours": round(flight_time_hours, 2),
+                "fuel_required_liters": round(fuel_required, 2),
+                "reserve_fuel_liters": round(reserve_fuel, 2),
+                "total_fuel_required_liters": round(total_fuel_required, 2),
+                "tank_capacity_liters": round(capacity_liters, 2),
+                "sufficient_capacity": sufficient,
+            }
+        )
 
     # Register all services
     await _register_service(
@@ -435,6 +645,24 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             vol.Optional("method", default="automatic"): vol.In(["automatic", "manual"]),
         })
     )
+    await _register_service(
+        hass, "calculate_fuel_cost", handle_calculate_fuel_cost,
+        vol.Schema({
+            vol.Required("aircraft_reg"): str,
+            vol.Required("flight_time_hours"): cv.positive_float,
+            vol.Required("fuel_price_per_liter"): cv.positive_float,
+        })
+    )
+    await _register_service(
+        hass, "estimate_trip_fuel", handle_estimate_trip_fuel,
+        vol.Schema({
+            vol.Required("aircraft_reg"): str,
+            vol.Required("departure_icao"): str,
+            vol.Required("destination_icao"): str,
+            vol.Required("distance_nm"): cv.positive_float,
+            vol.Required("cruise_speed_kts"): cv.positive_float,
+        })
+    )
 
     return True
 
@@ -458,6 +686,61 @@ async def _register_service(
     )
     if inspect.isawaitable(result):
         await result
+
+
+async def _migrate_fuel_config(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Add fuel structure to existing aircraft and airfield configs.
+    
+    CRITICAL: Ensures backward compatibility. All fuel fields default to safe
+    values that don't break existing installations. Sensors are only created
+    when burn_rate > 0.
+    
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry to migrate
+    """
+    from .const import FUEL_TYPE_AVGAS, FUEL_UNIT_LITERS, DEFAULT_FUEL_RESERVE_MINUTES
+    
+    needs_update = False
+    new_data = dict(entry.data)
+    
+    # Migrate aircraft configs
+    aircraft_list = new_data.get("aircraft", [])
+    for aircraft in aircraft_list:
+        if "fuel" not in aircraft:
+            aircraft["fuel"] = {
+                "type": FUEL_TYPE_AVGAS,  # Safe default for most GA aircraft
+                "burn_rate": 0.0,  # User must configure (0 = no fuel sensors created)
+                "burn_rate_unit": FUEL_UNIT_LITERS,
+                "tank_capacity": 0.0,
+                "tank_capacity_unit": FUEL_UNIT_LITERS,
+                "notes": ""
+            }
+            needs_update = True
+    
+    # Migrate airfield configs
+    airfield_list = new_data.get("airfields", [])
+    for airfield in airfield_list:
+        if "fuel_services" not in airfield:
+            airfield["fuel_services"] = []  # No fuel available by default
+            needs_update = True
+    
+    # Add fuel preferences to global settings if missing
+    settings = new_data.setdefault("settings", {})
+    if "fuel" not in settings:
+        settings["fuel"] = {
+            "volume_unit": FUEL_UNIT_LITERS,
+            "burn_rate_unit": FUEL_UNIT_LITERS,
+            "price_display_unit": FUEL_UNIT_LITERS,
+            "reserve_minutes": DEFAULT_FUEL_RESERVE_MINUTES,
+            "enable_price_tracking": False,
+            "price_staleness_days": 30
+        }
+        needs_update = True
+    
+    if needs_update:
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        _LOGGER.info("Migrated fuel configuration with backward-compatible defaults")
 
 
 async def _migrate_to_integrations(
@@ -506,8 +789,9 @@ async def _migrate_to_integrations(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Hangar Assistant from a config entry."""
-    # Migrate OWM settings to integrations namespace if needed
+    # Run all migrations (order matters: integrations first, then fuel)
     await _migrate_to_integrations(hass, entry)
+    await _migrate_fuel_config(hass, entry)
 
     dashboard_info = entry.data.get(
         "dashboard_info",

@@ -4,7 +4,113 @@
       "user": {
         "title": "Bienvenido a Hangar Assistant",
         "description": "Hangar Assistant ayuda con seguridad de vuelo, cálculos de rendimiento y cumplimiento CAP 1590B. \n\nPulsa **Enviar** para instalar la integración. Añade aeronaves y aeródromos después con **Configurar** en la tarjeta de integración."
+      },
+      "welcome": {
+        "title": "¡Bienvenido a Hangar Assistant!",
+        "description": "La integración completa de seguridad y operaciones aéreas para Home Assistant.\n\n**Lo que puede hacer:**\n• Supervisar condiciones del aeródromo (meteorología, altitud de densidad)\n• Seguir límites de rendimiento y márgenes de seguridad de la aeronave\n• Recibir briefings prevuelo generados por IA\n• Recibir alertas de condiciones de vuelo inseguras\n• Calcular costos de combustible y planificación de viajes\n• Gestionar peso y balance\n• Registrar vuelos y mantenimiento\n\n**Pasos de configuración:**\n{setup_steps}\n\n**Tiempo estimado:** {estimated_time}",
+        "data": {
+          "start_wizard": "Iniciar configuración guiada"
+        }
+      },
+      "general_settings": {
+        "title": "Ajustes generales",
+        "description": "{step_description}\n\n**Progreso:** {progress}",
+        "data": {
+          "language": "Idioma del sistema",
+          "unit_preference": "Preferencia de unidades (aviación usa pies/nudos, SI usa metros/km/h)",
+          "sensor_cache_ttl_seconds": "TTL de caché de sensor (segundos)"
+        }
+      },
+      "api_integrations": {
+        "title": "Integraciones externas (Opcional)",
+        "description": "Configure APIs externas para funcionalidad mejorada. Todas son opcionales pero recomendadas.\n\n**Progreso:** {progress}\n\n**Integraciones disponibles:**\n• {checkwx_info}\n• {owm_info}\n• {notams_info}\n\n{recommendation}",
+        "data": {
+          "configure_checkwx": "Configurar CheckWX (METAR/TAF gratuitos)",
+          "configure_owm": "Configurar OpenWeatherMap (Pronósticos de pago)",
+          "skip": "Omitir configuración de API (Configurar más tarde)"
+        }
+      },
+      "checkwx_setup": {
+        "title": "Configuración API CheckWX",
+        "description": "CheckWX proporciona datos meteorológicos de aviación gratuitos en todo el mundo.\n\n**Costo:** {cost}\n\n**Instrucciones de configuración:**\n{instructions}\n\n**Datos proporcionados:**\n• Observaciones METAR actuales\n• Pronósticos TAF de terminal\n• Información de estaciones",
+        "data": {
+          "api_key": "Clave API CheckWX",
+          "metar_enabled": "Activar datos METAR",
+          "taf_enabled": "Activar datos TAF",
+          "station_enabled": "Activar información de estación",
+          "metar_cache_minutes": "Duración de caché METAR",
+          "taf_cache_minutes": "Duración de caché TAF"
+        }
+      },
+      "owm_setup": {
+        "title": "Configuración API OpenWeatherMap",
+        "description": "OpenWeatherMap proporciona pronósticos meteorológicos profesionales y alertas.\n\n**Costo:** {pricing}\n{warning}\n\n**Recomendación:** {recommendation}\n\n**Registro:** {signup_url}",
+        "data": {
+          "api_key": "Clave API OpenWeatherMap",
+          "cache_enabled": "Activar caché de datos",
+          "update_interval": "Intervalo de actualización",
+          "cache_ttl": "Vida útil de caché"
+        }
+      },
+      "add_airfield": {
+        "title": "Añadir su primer aeródromo",
+        "description": "Configure su aeródromo de base o aeropuerto más utilizado.\n\n**Progreso:** {progress}\n\n**Código ICAO:** {icao_help}\n{checkwx_available}\n\n**Ejemplo:** {example}",
+        "data": {
+          "icao": "Código ICAO (4 letras)",
+          "name": "Nombre del aeródromo",
+          "latitude": "Latitud (opcional)",
+          "longitude": "Longitud (opcional)",
+          "elevation_m": "Elevación (metros AMSL)"
+        }
+      },
+      "add_hangar": {
+        "title": "Añadir hangar (Opcional)",
+        "description": "{optional_notice}\n\n**Progreso:** {progress}\n\n{hangar_help}",
+        "data": {
+          "name": "Nombre del hangar",
+          "temp_sensor": "Sensor de temperatura",
+          "humidity_sensor": "Sensor de humedad",
+          "skip": "Omitir configuración de hangar"
+        }
+      },
+      "add_aircraft": {
+        "title": "Añadir su primera aeronave",
+        "description": "Configure su aeronave con plantillas de rendimiento opcionales.\n\n**Progreso:** {progress}\n\n**Matrícula:** {reg_help}\n{template_hint}\n\n**Plantillas disponibles:** {templates_available}",
+        "data": {
+          "registration": "Matrícula de aeronave",
+          "aircraft_type": "Tipo de aeronave (Plantilla)",
+          "type_manual": "Tipo de aeronave (Entrada manual)"
+        }
+      },
+      "link_sensors": {
+        "title": "Vincular sensores meteorológicos (Opcional)",
+        "description": "{optional_notice}\n\n**Progreso:** {progress}\n\n{sensor_help}",
+        "data": {
+          "temp_sensor": "Sensor de temperatura",
+          "humidity_sensor": "Sensor de humedad",
+          "pressure_sensor": "Sensor de presión (Altímetro)",
+          "wind_speed_sensor": "Sensor de velocidad del viento",
+          "wind_direction_sensor": "Sensor de dirección del viento"
+        }
+      },
+      "install_dashboard": {
+        "title": "Instalar panel Glass Cockpit",
+        "description": "{completion}\n\n**Progreso:** {progress}\n\n{dashboard_info}\n\n**Funciones:**\n{features}",
+        "data": {
+          "method": "Método de instalación"
+        }
       }
+    },
+    "error": {
+      "invalid_icao": "El código ICAO debe tener exactamente 4 letras mayúsculas (p. ej. EGHP, KJFK)",
+      "invalid_registration": "Formato de matrícula inválido. Ejemplos: EC-ABC (España), G-ABCD (UK), N12345 (EE.UU.)",
+      "invalid_api_key": "Formato de clave API inválido. Verifique su clave e intente de nuevo.",
+      "name_required": "El nombre es obligatorio",
+      "api_test_failed": "No se pudo conectar con la API. Verifique su clave y conexión a Internet.",
+      "connection_failed": "Conexión fallida. Por favor verifique su clave API.",
+      "icao_not_found": "Código ICAO no encontrado en la base de datos de CheckWX",
+      "auto_populate_failed": "Autocompletado fallido. Por favor ingrese los datos manualmente.",
+      "no_api_configured": "Ninguna API configurada para autocompletado. Configure CheckWX primero."
     },
     "abort": {
       "already_configured": "Hangar Assistant ya está configurado."
@@ -191,7 +297,11 @@
           "baseline_roll": "Rodaje base SL (m)",
           "baseline_50ft": "Base a 50 ft SL (m)",
           "hangar": "Hangar (opcional)",
-          "linked_airfield": "Aeródromo Vinculado (si no hay hangar)"
+          "linked_airfield": "Aeródromo Vinculado (si no hay hangar)",
+          "fuel_type": "Tipo de Combustible",
+          "fuel_burn_rate": "Consumo de Combustible (litros/hora)",
+          "fuel_tank_capacity": "Capacidad del Tanque (litros)",
+          "fuel_volume_unit": "Unidad de Volumen de Combustible"
         }
       },
       "aircraft_manage": {
@@ -214,7 +324,11 @@
           "baseline_roll": "Rodaje base SL (m)",
           "baseline_50ft": "Base a 50 ft SL (m)",
           "hangar": "Hangar (opcional)",
-          "linked_airfield": "Aeródromo Vinculado (si no hay hangar)"
+          "linked_airfield": "Aeródromo Vinculado (si no hay hangar)",
+          "fuel_type": "Tipo de Combustible",
+          "fuel_burn_rate": "Consumo de Combustible (litros/hora)",
+          "fuel_tank_capacity": "Capacidad del Tanque (litros)",
+          "fuel_volume_unit": "Unidad de Volumen de Combustible"
         }
       },
       "aircraft_delete": {

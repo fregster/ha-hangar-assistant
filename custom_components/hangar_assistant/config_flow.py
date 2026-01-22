@@ -388,20 +388,42 @@ class HangarAssistantConfigFlow(
                 errors["api_key"] = "invalid_api_key"
                 _LOGGER.warning("CheckWX API key validation failed: %s", error_msg)
             else:
-                # Store configuration (don't test yet - will test when fetching airfield data)
-                self.wizard_state.api_configs["checkwx"] = {
-                    "enabled": True,
-                    "api_key": api_key,
-                    "metar_enabled": user_input.get("metar_enabled", True),
-                    "taf_enabled": user_input.get("taf_enabled", True),
-                    "station_enabled": user_input.get("station_enabled", True),
-                    "metar_cache_minutes": user_input.get("metar_cache_minutes", 30),
-                    "taf_cache_minutes": user_input.get("taf_cache_minutes", 360),
-                }
-                _LOGGER.info("CheckWX API configured successfully")
+                # Test API connection with a simple station query
+                from .utils.checkwx_client import CheckWXClient
                 
-                # Return to integrations menu (user can configure more APIs)
-                return await self.async_step_api_integrations()
+                try:
+                    # Use a well-known ICAO (KJFK) to test connection
+                    test_client = CheckWXClient(
+                        api_key=api_key,
+                        hass=self.hass,
+                        cache_enabled=False  # Don't cache test request
+                    )
+                    
+                    # Quick station info test (doesn't count heavily against rate limit)
+                    test_result = await test_client.get_station_info("KJFK")
+                    
+                    if test_result is None:
+                        errors["api_key"] = "invalid_api_key"
+                        _LOGGER.warning("CheckWX API test failed: No data returned")
+                    else:
+                        # Success - store configuration
+                        self.wizard_state.api_configs["checkwx"] = {
+                            "enabled": True,
+                            "api_key": api_key,
+                            "metar_enabled": user_input.get("metar_enabled", True),
+                            "taf_enabled": user_input.get("taf_enabled", True),
+                            "station_enabled": user_input.get("station_enabled", True),
+                            "metar_cache_minutes": user_input.get("metar_cache_minutes", 30),
+                            "taf_cache_minutes": user_input.get("taf_cache_minutes", 360),
+                        }
+                        _LOGGER.info("CheckWX API configured and tested successfully")
+                        
+                        # Return to integrations menu (user can configure more APIs)
+                        return await self.async_step_api_integrations()
+                
+                except Exception as e:
+                    errors["api_key"] = "cannot_connect"
+                    _LOGGER.error("CheckWX API test connection failed: %s", e)
         
         # Build cache interval options
         metar_cache_options = [
@@ -1651,6 +1673,21 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                     float(user_input["baseline_roll"]) * 0.3048, 2)
                 user_input["baseline_50ft"] = round(
                     float(user_input["baseline_50ft"]) * 0.3048, 2)
+            
+            # Process fuel configuration
+            fuel_type = user_input.pop("fuel_type", "AVGAS")
+            fuel_burn_rate = user_input.pop("fuel_burn_rate", 0.0)
+            fuel_tank_capacity = user_input.pop("fuel_tank_capacity", 0.0)
+            fuel_volume_unit = user_input.pop("fuel_volume_unit", "liters")
+            
+            user_input["fuel"] = {
+                "type": fuel_type,
+                "burn_rate": float(fuel_burn_rate),
+                "burn_rate_unit": fuel_volume_unit,
+                "tank_capacity": float(fuel_tank_capacity),
+                "tank_capacity_unit": fuel_volume_unit,
+                "notes": ""
+            }
 
             fleet.append(user_input)
             new_data["aircraft"] = fleet
@@ -1743,6 +1780,37 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 )
             ),
             vol.Required("ifr_capable", default=False): selector.BooleanSelector(),
+            
+            # Fuel configuration section
+            vol.Required("fuel_type", default="AVGAS"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="AVGAS", label="AVGAS (Aviation Gasoline)"),
+                        selector.SelectOptionDict(value="MOGAS", label="MOGAS (Motor Gasoline)"),
+                        selector.SelectOptionDict(value="JET_A", label="JET-A (Kerosene)"),
+                        selector.SelectOptionDict(value="JET_B", label="JET-B (Wide-cut)"),
+                        selector.SelectOptionDict(value="DIESEL", label="Diesel"),
+                        selector.SelectOptionDict(value="NONE", label="No Fuel (Glider/Electric)"),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Required("fuel_burn_rate", default=0.0): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=500, step=0.5, unit_of_measurement="L/h")
+            ),
+            vol.Required("fuel_tank_capacity", default=0.0): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=2000, step=1, unit_of_measurement="L")
+            ),
+            vol.Required("fuel_volume_unit", default="liters"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="liters", label="Liters"),
+                        selector.SelectOptionDict(value="gallons", label="US Gallons"),
+                        selector.SelectOptionDict(value="gallons_imperial", label="Imperial Gallons"),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
         })
 
     async def async_step_aircraft_manage(self, user_input=None):
@@ -1805,6 +1873,21 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                     user_input["baseline_roll"] * 0.3048, 2)
                 user_input["baseline_50ft"] = round(
                     user_input["baseline_50ft"] * 0.3048, 2)
+            
+            # Process fuel configuration
+            fuel_type = user_input.pop("fuel_type", ac.get("fuel", {}).get("type", "AVGAS"))
+            fuel_burn_rate = user_input.pop("fuel_burn_rate", ac.get("fuel", {}).get("burn_rate", 0.0))
+            fuel_tank_capacity = user_input.pop("fuel_tank_capacity", ac.get("fuel", {}).get("tank_capacity", 0.0))
+            fuel_volume_unit = user_input.pop("fuel_volume_unit", ac.get("fuel", {}).get("burn_rate_unit", "liters"))
+            
+            user_input["fuel"] = {
+                "type": fuel_type,
+                "burn_rate": float(fuel_burn_rate),
+                "burn_rate_unit": fuel_volume_unit,
+                "tank_capacity": float(fuel_tank_capacity),
+                "tank_capacity_unit": fuel_volume_unit,
+                "notes": ac.get("fuel", {}).get("notes", "")
+            }
 
             fleet[index] = user_input
             new_data["aircraft"] = fleet
@@ -1877,6 +1960,37 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                             selector.SelectOptionDict(value="ft", label="Feet"),
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN
+                
+                # Fuel configuration section
+                vol.Required("fuel_type", default=ac.get("fuel", {}).get("type", "AVGAS")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="AVGAS", label="AVGAS (Aviation Gasoline)"),
+                            selector.SelectOptionDict(value="MOGAS", label="MOGAS (Motor Gasoline)"),
+                            selector.SelectOptionDict(value="JET_A", label="JET-A (Kerosene)"),
+                            selector.SelectOptionDict(value="JET_B", label="JET-B (Wide-cut)"),
+                            selector.SelectOptionDict(value="DIESEL", label="Diesel"),
+                            selector.SelectOptionDict(value="NONE", label="No Fuel (Glider/Electric)"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required("fuel_burn_rate", default=ac.get("fuel", {}).get("burn_rate", 0.0)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=500, step=0.5, unit_of_measurement="L/h")
+                ),
+                vol.Required("fuel_tank_capacity", default=ac.get("fuel", {}).get("tank_capacity", 0.0)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=2000, step=1, unit_of_measurement="L")
+                ),
+                vol.Required("fuel_volume_unit", default=ac.get("fuel", {}).get("burn_rate_unit", "liters")): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="liters", label="Liters"),
+                            selector.SelectOptionDict(value="gallons", label="US Gallons"),
+                            selector.SelectOptionDict(value="gallons_imperial", label="Imperial Gallons"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                     )
                 ),
                 vol.Optional("hangar", default=ac.get("hangar", "")): selector.SelectSelector(

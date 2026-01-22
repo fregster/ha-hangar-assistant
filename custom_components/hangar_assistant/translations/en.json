@@ -292,7 +292,11 @@
           "baseline_roll": "Baseline SL Ground Roll (m)",
           "baseline_50ft": "Baseline SL 50ft Distance (m)",
           "hangar": "Hangar (optional)",
-          "linked_airfield": "Linked Airfield (if no hangar)"
+          "linked_airfield": "Linked Airfield (if no hangar)",
+          "fuel_type": "Fuel Type",
+          "fuel_burn_rate": "Fuel Burn Rate (liters/hour)",
+          "fuel_tank_capacity": "Fuel Tank Capacity (liters)",
+          "fuel_volume_unit": "Fuel Volume Unit"
         }
       },
       "aircraft_manage": {
@@ -315,7 +319,11 @@
           "baseline_roll": "Baseline SL Ground Roll (m)",
           "baseline_50ft": "Baseline SL 50ft Distance (m)",
           "hangar": "Hangar (optional)",
-          "linked_airfield": "Linked Airfield (if no hangar)"
+          "linked_airfield": "Linked Airfield (if no hangar)",
+          "fuel_type": "Fuel Type",
+          "fuel_burn_rate": "Fuel Burn Rate (liters/hour)",
+          "fuel_tank_capacity": "Fuel Tank Capacity (liters)",
+          "fuel_volume_unit": "Fuel Volume Unit"
         }
       },
       "aircraft_delete": {

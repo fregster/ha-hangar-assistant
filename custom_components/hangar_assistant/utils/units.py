@@ -180,3 +180,150 @@ def get_weight_unit(preference: str = "aviation") -> str:
         Unit string: 'lbs' for aviation, 'kg' for SI
     """
     return "lbs" if preference == "aviation" else "kg"
+
+
+# Fuel volume conversion factors
+LITERS_TO_US_GALLONS = 0.264172
+LITERS_TO_IMPERIAL_GALLONS = 0.219969
+US_GALLONS_TO_LITERS = 3.78541
+IMPERIAL_GALLONS_TO_LITERS = 4.54609
+
+
+def convert_fuel_volume(
+        value: Optional[float],
+        from_unit: str = "liters",
+        to_unit: str = "liters") -> Optional[float]:
+    """Convert fuel volume between liters and gallons.
+
+    Args:
+        value: Volume value to convert
+        from_unit: Source unit ('liters', 'gallons', 'gallons_imperial')
+        to_unit: Target unit ('liters', 'gallons', 'gallons_imperial')
+
+    Returns:
+        Converted value, or None if input is None
+    """
+    if value is None:
+        return None
+
+    # Normalize from_unit
+    if from_unit == "gallons":
+        from_unit = "gallons_us"
+
+    # Normalize to_unit
+    if to_unit == "gallons":
+        to_unit = "gallons_us"
+
+    # If same unit, return as-is
+    if from_unit == to_unit:
+        return value
+
+    # Convert to liters first (common base)
+    if from_unit == "liters":
+        value_liters = value
+    elif from_unit == "gallons_us":
+        value_liters = value * US_GALLONS_TO_LITERS
+    elif from_unit == "gallons_imperial":
+        value_liters = value * IMPERIAL_GALLONS_TO_LITERS
+    else:
+        # Unknown unit, return as-is
+        return value
+
+    # Convert from liters to target unit
+    if to_unit == "liters":
+        return value_liters
+    elif to_unit == "gallons_us":
+        return value_liters * LITERS_TO_US_GALLONS
+    elif to_unit == "gallons_imperial":
+        return value_liters * LITERS_TO_IMPERIAL_GALLONS
+    else:
+        # Unknown unit, return liters
+        return value_liters
+
+
+def get_fuel_volume_unit(preference: str = "aviation") -> str:
+    """Get the unit string for fuel volume display.
+
+    Args:
+        preference: Unit preference ('aviation' or 'si')
+
+    Returns:
+        Unit string: 'gal' for aviation (US gallons), 'L' for SI (liters)
+    """
+    return "gal" if preference == "aviation" else "L"
+
+
+def get_fuel_burn_rate_unit(preference: str = "aviation") -> str:
+    """Get the unit string for fuel burn rate display.
+
+    Args:
+        preference: Unit preference ('aviation' or 'si')
+
+    Returns:
+        Unit string: 'gal/h' for aviation, 'L/h' for SI
+    """
+    return "gal/h" if preference == "aviation" else "L/h"
+
+
+def calculate_fuel_weight(
+        volume: float,
+        fuel_type: str,
+        volume_unit: str = "liters") -> float:
+    """Calculate fuel weight from volume.
+
+    Args:
+        volume: Fuel volume
+        fuel_type: Type of fuel (AVGAS, MOGAS, JET_A, etc.)
+        volume_unit: Unit of volume ('liters', 'gallons', 'gallons_imperial')
+
+    Returns:
+        Fuel weight in kilograms
+    """
+    from ..const import FUEL_DENSITY, FUEL_TYPE_AVGAS
+
+    # Convert to liters first
+    volume_liters = convert_fuel_volume(volume, from_unit=volume_unit, to_unit="liters")
+    if volume_liters is None:
+        return 0.0
+
+    # Get density (default to AVGAS if unknown type)
+    density_data = FUEL_DENSITY.get(fuel_type, FUEL_DENSITY[FUEL_TYPE_AVGAS])
+    kg_per_liter = density_data["kg_per_liter"]
+
+    return volume_liters * kg_per_liter
+
+
+def calculate_fuel_endurance(
+        tank_capacity: float,
+        burn_rate: float,
+        volume_unit: str = "liters",
+        reserve_minutes: int = 30) -> float:
+    """Calculate fuel endurance in hours.
+
+    Args:
+        tank_capacity: Total usable fuel capacity
+        burn_rate: Fuel burn rate per hour
+        volume_unit: Unit of volume ('liters', 'gallons', 'gallons_imperial')
+        reserve_minutes: Reserve fuel time in minutes (default: 30)
+
+    Returns:
+        Endurance in hours (excluding reserve)
+    """
+    if burn_rate <= 0:
+        return 0.0
+
+    # Ensure both in same units (convert to liters)
+    capacity_liters = convert_fuel_volume(tank_capacity, from_unit=volume_unit, to_unit="liters")
+    burn_rate_liters = convert_fuel_volume(burn_rate, from_unit=volume_unit, to_unit="liters")
+
+    if capacity_liters is None or burn_rate_liters is None:
+        return 0.0
+
+    # Total endurance
+    total_hours = capacity_liters / burn_rate_liters
+
+    # Subtract reserve
+    reserve_hours = reserve_minutes / 60.0
+    usable_hours = max(0.0, total_hours - reserve_hours)
+
+    return usable_hours

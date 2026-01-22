@@ -54,3 +54,85 @@ install_dashboard:
           options:
             - automatic
             - manual
+
+calculate_fuel_cost:
+  name: Calculate Fuel Cost
+  description: Calculate the fuel cost for a flight based on aircraft burn rate, flight time, and fuel price.
+  fields:
+    aircraft_reg:
+      name: Aircraft Registration
+      description: Aircraft registration (e.g., G-ABCD)
+      required: true
+      example: G-ABCD
+      selector:
+        text:
+    flight_time_hours:
+      name: Flight Time
+      description: Flight time in hours
+      required: true
+      example: 2.5
+      selector:
+        number:
+          min: 0.1
+          max: 20
+          step: 0.1
+          unit_of_measurement: hours
+    fuel_price_per_liter:
+      name: Fuel Price
+      description: Fuel price per liter (or gallon if using gallons)
+      required: true
+      example: 2.45
+      selector:
+        number:
+          min: 0.1
+          max: 20
+          step: 0.01
+          unit_of_measurement: currency/unit
+
+estimate_trip_fuel:
+  name: Estimate Trip Fuel
+  description: Estimate fuel required for a trip between two airfields, including reserve.
+  fields:
+    aircraft_reg:
+      name: Aircraft Registration
+      description: Aircraft registration (e.g., G-ABCD)
+      required: true
+      example: G-ABCD
+      selector:
+        text:
+    departure_icao:
+      name: Departure ICAO
+      description: Departure airfield ICAO code (e.g., EGHP)
+      required: true
+      example: EGHP
+      selector:
+        text:
+    destination_icao:
+      name: Destination ICAO
+      description: Destination airfield ICAO code (e.g., EGKA)
+      required: true
+      example: EGKA
+      selector:
+        text:
+    distance_nm:
+      name: Distance
+      description: Distance in nautical miles
+      required: true
+      example: 45
+      selector:
+        number:
+          min: 1
+          max: 5000
+          step: 1
+          unit_of_measurement: nm
+    cruise_speed_kts:
+      name: Cruise Speed
+      description: Cruise speed in knots
+      required: true
+      example: 110
+      selector:
+        number:
+          min: 30
+          max: 500
+          step: 1
+          unit_of_measurement: kt

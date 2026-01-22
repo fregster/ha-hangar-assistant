@@ -85,6 +85,10 @@ async def async_setup_entry(
     integrations = entry.data.get("integrations", {})
     notam_config = integrations.get("notams", {})
     notam_enabled = notam_config.get("enabled", False)
+    
+    # Check if CheckWX integration is enabled
+    checkwx_config = integrations.get("checkwx", {})
+    checkwx_enabled = checkwx_config.get("enabled", False)
 
     for airfield in airfields:
         entities.extend([
@@ -111,7 +115,18 @@ async def async_setup_entry(
         # Add NOTAM sensor if integration is enabled
         if notam_enabled:
             entities.append(
-                AirfieldNOTAMSensor(
+                AirfieldNOT
+        
+        # Add CheckWX sensors if integration is enabled and airfield has ICAO
+        if checkwx_enabled and airfield.get("icao"):
+            if checkwx_config.get("metar_enabled", True):
+                entities.append(MetarSensor(hass, airfield, global_settings))
+            
+            if checkwx_config.get("taf_enabled", True):
+                entities.append(TafSensor(hass, airfield, global_settings))
+            
+            if checkwx_config.get("station_enabled", True):
+                entities.append(StationInfoSensor(hass, airfield, global_settings))AMSensor(
                     hass,
                     airfield,
                     global_settings,
@@ -128,6 +143,16 @@ async def async_setup_entry(
                 aircraft,
                 linked_airfield,
                 global_settings))
+        
+        # Add fuel sensors if fuel burn rate is configured
+        fuel_config = aircraft.get("fuel", {})
+        burn_rate = fuel_config.get("burn_rate", 0.0)
+        if burn_rate > 0:
+            entities.extend([
+                FuelBurnRateSensor(hass, aircraft, global_settings),
+                FuelEnduranceSensor(hass, aircraft, global_settings),
+                FuelWeightSensor(hass, aircraft, global_settings),
+            ])
 
     # 3. Process Pilots from the list
     for pilot in entry.data.get("pilots", []):
@@ -1999,3 +2024,716 @@ class AirfieldNOTAMSensor(HangarSensorBase):
                 self._config.get("name"),
                 e)
             # Keep existing cached data
+
+
+class FuelBurnRateSensor(HangarSensorBase):
+    """Fuel burn rate sensor for aircraft.
+    
+    Displays the aircraft's fuel consumption rate in user's preferred units
+    (liters/hour or gallons/hour). Only created if burn_rate > 0 in config.
+    
+    Inputs (from aircraft config):
+        - fuel.burn_rate: Burn rate value
+        - fuel.burn_rate_unit: Unit (liters, gallons, gallons_imperial)
+        - fuel.type: Fuel type (AVGAS, MOGAS, etc.)
+    
+    Outputs:
+        - native_value: Burn rate in user's preferred units
+        - Attributes: burn_rate_liters_per_hour, burn_rate_gallons_per_hour,
+                     fuel_type, tank_capacity
+    
+    Used by:
+        - Dashboard fuel status cards
+        - Trip fuel calculations
+        - Cost estimations
+    """
+    
+    _attr_icon = "mdi:fuel"
+    
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        from .utils.units import get_fuel_burn_rate_unit
+        self._attr_native_unit_of_measurement = get_fuel_burn_rate_unit(self._unit_preference)
+    
+    @property
+    def name(self) -> str:
+        return f"{self._config.get('reg', 'Aircraft')} Fuel Burn Rate"
+    
+    @property
+    def native_value(self) -> float | None:
+        """Return fuel burn rate in user's preferred units."""
+        from .utils.units import convert_fuel_volume
+        
+        fuel_config = self._config.get("fuel", {})
+        burn_rate = fuel_config.get("burn_rate", 0.0)
+        burn_rate_unit = fuel_config.get("burn_rate_unit", "liters")
+        
+        if burn_rate <= 0:
+            return None
+        
+        # Convert to user's preferred unit
+        if self._unit_preference == "aviation":
+            # Convert to gallons/hour
+            return convert_fuel_volume(burn_rate, from_unit=burn_rate_unit, to_unit="gallons")
+        else:
+            # Convert to liters/hour
+            return convert_fuel_volume(burn_rate, from_unit=burn_rate_unit, to_unit="liters")
+    
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return additional attributes."""
+        from .utils.units import convert_fuel_volume
+        
+        attrs = super().extra_state_attributes
+        fuel_config = self._config.get("fuel", {})
+        burn_rate = fuel_config.get("burn_rate", 0.0)
+        burn_rate_unit = fuel_config.get("burn_rate_unit", "liters")
+        tank_capacity = fuel_config.get("tank_capacity", 0.0)
+        tank_capacity_unit = fuel_config.get("tank_capacity_unit", "liters")
+        
+        # Convert burn rate to both units for reference
+        burn_rate_liters = convert_fuel_volume(burn_rate, from_unit=burn_rate_unit, to_unit="liters")
+        burn_rate_gallons = convert_fuel_volume(burn_rate, from_unit=burn_rate_unit, to_unit="gallons")
+        
+        # Convert tank capacity to both units
+        capacity_liters = convert_fuel_volume(tank_capacity, from_unit=tank_capacity_unit, to_unit="liters")
+        capacity_gallons = convert_fuel_volume(tank_capacity, from_unit=tank_capacity_unit, to_unit="gallons")
+        
+        attrs.update({
+            "fuel_type": fuel_config.get("type", "AVGAS"),
+            "burn_rate_liters_per_hour": round(burn_rate_liters, 2) if burn_rate_liters else 0,
+            "burn_rate_gallons_per_hour": round(burn_rate_gallons, 2) if burn_rate_gallons else 0,
+            "tank_capacity_liters": round(capacity_liters, 2) if capacity_liters else 0,
+            "tank_capacity_gallons": round(capacity_gallons, 2) if capacity_gallons else 0,
+        })
+        
+        return attrs
+
+
+class FuelEnduranceSensor(HangarSensorBase):
+    """Fuel endurance sensor for aircraft.
+    
+    Calculates flight time available on full tanks, accounting for reserve fuel.
+    Only created if burn_rate > 0 in config.
+    
+    Inputs (from aircraft config):
+        - fuel.tank_capacity: Total usable fuel
+        - fuel.burn_rate: Fuel consumption rate
+        - fuel.tank_capacity_unit: Unit of capacity
+        - fuel.burn_rate_unit: Unit of burn rate
+    
+    Outputs:
+        - native_value: Endurance in hours (excluding reserve)
+        - Attributes: endurance_with_reserve, total_endurance, reserve_minutes
+    
+    Used by:
+        - Dashboard fuel cards
+        - Trip planning calculations
+    """
+    
+    _attr_icon = "mdi:clock-outline"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = "h"
+    
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+    
+    @property
+    def name(self) -> str:
+        return f"{self._config.get('reg', 'Aircraft')} Fuel Endurance"
+    
+    @property
+    def native_value(self) -> float | None:
+        """Return fuel endurance in hours."""
+        from .utils.units import calculate_fuel_endurance
+        from .const import DEFAULT_FUEL_RESERVE_MINUTES
+        
+        fuel_config = self._config.get("fuel", {})
+        tank_capacity = fuel_config.get("tank_capacity", 0.0)
+        burn_rate = fuel_config.get("burn_rate", 0.0)
+        volume_unit = fuel_config.get("tank_capacity_unit", "liters")
+        
+        if burn_rate <= 0 or tank_capacity <= 0:
+            return None
+        
+        # Get reserve from global settings
+        settings = self._global_settings or {}
+        fuel_settings = settings.get("fuel", {})
+        reserve_minutes = fuel_settings.get("reserve_minutes", DEFAULT_FUEL_RESERVE_MINUTES)
+        
+        endurance = calculate_fuel_endurance(
+            tank_capacity,
+            burn_rate,
+            volume_unit,
+            reserve_minutes
+        )
+        
+        return round(endurance, 2) if endurance else None
+    
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return additional attributes."""
+        from .utils.units import calculate_fuel_endurance
+        from .const import DEFAULT_FUEL_RESERVE_MINUTES
+        
+        attrs = super().extra_state_attributes
+        fuel_config = self._config.get("fuel", {})
+        tank_capacity = fuel_config.get("tank_capacity", 0.0)
+        burn_rate = fuel_config.get("burn_rate", 0.0)
+        volume_unit = fuel_config.get("tank_capacity_unit", "liters")
+        
+        # Get reserve from global settings
+        settings = self._global_settings or {}
+        fuel_settings = settings.get("fuel", {})
+        reserve_minutes = fuel_settings.get("reserve_minutes", DEFAULT_FUEL_RESERVE_MINUTES)
+        
+        # Calculate endurance with and without reserve
+        total_endurance = calculate_fuel_endurance(tank_capacity, burn_rate, volume_unit, reserve_minutes=0)
+        usable_endurance = calculate_fuel_endurance(tank_capacity, burn_rate, volume_unit, reserve_minutes)
+        
+        attrs.update({
+            "total_endurance_hours": round(total_endurance, 2) if total_endurance else 0,
+            "usable_endurance_hours": round(usable_endurance, 2) if usable_endurance else 0,
+            "reserve_minutes": reserve_minutes,
+        })
+        
+        return attrs
+
+
+class FuelWeightSensor(HangarSensorBase):
+    """Fuel weight sensor for aircraft.
+    
+    Calculates weight of full fuel load based on fuel type density.
+    Used for weight & balance calculations.
+    
+    Inputs (from aircraft config):
+        - fuel.tank_capacity: Total usable fuel
+        - fuel.type: Fuel type (determines density)
+        - fuel.tank_capacity_unit: Unit of capacity
+    
+    Outputs:
+        - native_value: Fuel weight in user's preferred units (kg or lbs)
+        - Attributes: weight_kg, weight_lbs, volume_liters, fuel_type, density
+    
+    Used by:
+        - Weight & balance calculations
+        - Performance adjustments
+        - Dashboard weight displays
+    """
+    
+    _attr_icon = "mdi:weight"
+    _attr_device_class = SensorDeviceClass.WEIGHT
+    
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        from .utils.units import get_weight_unit
+        self._attr_native_unit_of_measurement = get_weight_unit(self._unit_preference)
+    
+    @property
+    def name(self) -> str:
+        return f"{self._config.get('reg', 'Aircraft')} Fuel Weight"
+    
+    @property
+    def native_value(self) -> float | None:
+        """Return fuel weight in user's preferred units."""
+        from .utils.units import calculate_fuel_weight, convert_weight
+        
+        fuel_config = self._config.get("fuel", {})
+        tank_capacity = fuel_config.get("tank_capacity", 0.0)
+        tank_capacity_unit = fuel_config.get("tank_capacity_unit", "liters")
+        fuel_type = fuel_config.get("type", "AVGAS")
+        
+        if tank_capacity <= 0:
+            return None
+        
+        # Calculate weight in kg
+        weight_kg = calculate_fuel_weight(tank_capacity, fuel_type, tank_capacity_unit)
+        
+        # Convert to user's preferred unit
+        weight = convert_weight(weight_kg, from_pounds=False, to_preference=self._unit_preference)
+        
+        return round(weight, 2) if weight else None
+    
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return additional attributes."""
+        from .utils.units import calculate_fuel_weight, convert_weight, convert_fuel_volume
+        from .const import FUEL_DENSITY
+        
+        attrs = super().extra_state_attributes
+        fuel_config = self._config.get("fuel", {})
+        tank_capacity = fuel_config.get("tank_capacity", 0.0)
+        tank_capacity_unit = fuel_config.get("tank_capacity_unit", "liters")
+        fuel_type = fuel_config.get("type", "AVGAS")
+        
+        # Calculate weight in kg
+        weight_kg = calculate_fuel_weight(tank_capacity, fuel_type, tank_capacity_unit)
+        weight_lbs = convert_weight(weight_kg, from_pounds=False, to_preference="aviation")
+        
+        # Convert volume to liters for reference
+        volume_liters = convert_fuel_volume(tank_capacity, from_unit=tank_capacity_unit, to_unit="liters")
+        
+        # Get density
+        density_data = FUEL_DENSITY.get(fuel_type, {})
+        
+        attrs.update({
+            "fuel_type": fuel_type,
+            "volume_liters": round(volume_liters, 2) if volume_liters else 0,
+            "weight_kg": round(weight_kg, 2) if weight_kg else 0,
+            "weight_lbs": round(weight_lbs, 2) if weight_lbs else 0,
+            "density_kg_per_liter": density_data.get("kg_per_liter", 0),
+        })
+        
+        return attrs
+class MetarSensor(HangarSensorBase):
+    """Sensor for CheckWX METAR (current weather observations).
+    
+    Displays current aviation weather in METAR format with decoded data.
+    State shows flight category (VFR/MVFR/IFR/LIFR), attributes contain
+    all weather parameters.
+    
+    Inputs:
+        - airfield: Airfield config with ICAO code
+        - global_settings: CheckWX API configuration
+    
+    Outputs:
+        - State: Flight category (VFR, MVFR, IFR, LIFR)
+        - Attributes: temperature, dewpoint, wind, visibility, clouds, barometer
+    
+    Used by:
+        - AI briefing generation
+        - Dashboard weather displays
+        - Flight planning calculations
+    
+    Update Interval:
+        - 30 minutes default (configurable per CheckWX config)
+        - Uses cached data if API unavailable
+    """
+    
+    _attr_icon = "mdi:weather-partly-cloudy"
+    
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        self._metar_data = None
+        self._last_update = None
+        
+        # Get CheckWX configuration
+        self._integrations = global_settings.get("integrations", {}) if global_settings else {}
+        self._checkwx_config = self._integrations.get("checkwx", {})
+        self._update_interval_minutes = self._checkwx_config.get("metar_cache_minutes", 30)
+        
+        # Initialize CheckWX client
+        self._client = None
+        if self._checkwx_config.get("enabled") and self._checkwx_config.get("api_key"):
+            from .utils.checkwx_client import CheckWXClient
+            self._client = CheckWXClient(
+                api_key=self._checkwx_config["api_key"],
+                hass=hass,
+                cache_enabled=True,
+                metar_cache_minutes=self._checkwx_config.get("metar_cache_minutes", 15)
+            )
+    
+    @property
+    def name(self) -> str:
+        return f"{self._config.get('name', 'Airfield')} METAR"
+    
+    @property
+    def native_value(self) -> str | None:
+        """Return flight category as state."""
+        if self._metar_data:
+            return self._metar_data.get("flight_category", "UNKNOWN")
+        return None
+    
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return METAR data as attributes."""
+        attrs = super().extra_state_attributes
+        
+        if self._metar_data:
+            # Temperature
+            temp_data = self._metar_data.get("temperature", {})
+            attrs["temperature_celsius"] = temp_data.get("celsius")
+            attrs["temperature_fahrenheit"] = temp_data.get("fahrenheit")
+            
+            # Dewpoint
+            dp_data = self._metar_data.get("dewpoint", {})
+            attrs["dewpoint_celsius"] = dp_data.get("celsius")
+            attrs["dewpoint_fahrenheit"] = dp_data.get("fahrenheit")
+            
+            # Wind
+            wind_data = self._metar_data.get("wind", {})
+            attrs["wind_degrees"] = wind_data.get("degrees")
+            attrs["wind_speed_kts"] = wind_data.get("speed_kts")
+            attrs["wind_speed_kph"] = wind_data.get("speed_kph")
+            attrs["wind_gust_kts"] = wind_data.get("gust_kts")
+            
+            # Barometer
+            baro_data = self._metar_data.get("barometer", {})
+            attrs["barometer_hpa"] = baro_data.get("hpa")
+            attrs["barometer_inhg"] = baro_data.get("hg")
+            
+            # Visibility
+            vis_data = self._metar_data.get("visibility", {})
+            attrs["visibility_miles"] = vis_data.get("miles")
+            attrs["visibility_meters"] = vis_data.get("meters")
+            
+            # Clouds
+            clouds = self._metar_data.get("clouds", [])
+            attrs["clouds"] = clouds
+            attrs["cloud_layers"] = len(clouds)
+            
+            # Ceiling
+            ceiling_data = self._metar_data.get("ceiling", {})
+            attrs["ceiling_feet"] = ceiling_data.get("feet")
+            attrs["ceiling_meters"] = ceiling_data.get("meters")
+            
+            # Humidity
+            humidity_data = self._metar_data.get("humidity", {})
+            attrs["humidity_percent"] = humidity_data.get("percent")
+            
+            # Observation time
+            attrs["observed"] = self._metar_data.get("observed")
+            
+            # Raw METAR text
+            attrs["raw_metar"] = self._metar_data.get("raw_text")
+            
+            # ICAO
+            attrs["icao"] = self._metar_data.get("icao")
+            
+            # Last update timestamp
+            attrs["last_update"] = self._last_update.isoformat() if self._last_update else None
+        
+        attrs["update_interval_minutes"] = self._update_interval_minutes
+        
+        return attrs
+    
+    async def async_update(self) -> None:
+        """Fetch latest METAR data from CheckWX."""
+        if not self._client:
+            _LOGGER.debug("CheckWX client not configured for METAR sensor")
+            return
+        
+        icao = self._config.get("icao")
+        if not icao or len(icao) != 4:
+            _LOGGER.warning("Invalid ICAO code for METAR sensor: %s", icao)
+            return
+        
+        try:
+            # Fetch METAR (uses cache if within TTL)
+            metar_data = await self._client.get_metar(icao, decoded=True)
+            
+            if metar_data:
+                self._metar_data = metar_data
+                self._last_update = dt_util.utcnow()
+                _LOGGER.debug("METAR updated for %s: %s", icao, metar_data.get("flight_category"))
+            else:
+                _LOGGER.warning("No METAR data returned for %s", icao)
+        
+        except Exception as e:
+            _LOGGER.error("Error fetching METAR for %s: %s", icao, e)
+
+
+# ==============================================================================
+# CheckWX TAF Sensor
+# ==============================================================================
+
+class TafSensor(HangarSensorBase):
+    """Sensor for CheckWX TAF (Terminal Aerodrome Forecast).
+    
+    Displays aviation weather forecast in TAF format with decoded periods.
+    State shows validity period, attributes contain forecast periods with
+    change indicators (FM, BECMG, TEMPO, PROB).
+    
+    Inputs:
+        - airfield: Airfield config with ICAO code
+        - global_settings: CheckWX API configuration
+    
+    Outputs:
+        - State: Validity period (e.g., "Valid 22/12:00Z to 23/12:00Z")
+        - Attributes: issued time, forecast periods array, raw TAF text
+    
+    Used by:
+        - AI briefing generation
+        - Flight planning (future conditions)
+        - Dashboard forecast displays
+    
+    Update Interval:
+        - 6 hours default (TAFs issued every 6 hours)
+        - Uses cached data if API unavailable
+    """
+    
+    _attr_icon = "mdi:weather-partly-rainy"
+    
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        self._taf_data = None
+        self._last_update = None
+        
+        # Get CheckWX configuration
+        self._integrations = global_settings.get("integrations", {}) if global_settings else {}
+        self._checkwx_config = self._integrations.get("checkwx", {})
+        self._update_interval_minutes = self._checkwx_config.get("taf_cache_minutes", 360)
+        
+        # Initialize CheckWX client
+        self._client = None
+        if self._checkwx_config.get("enabled") and self._checkwx_config.get("api_key"):
+            from .utils.checkwx_client import CheckWXClient
+            self._client = CheckWXClient(
+                api_key=self._checkwx_config["api_key"],
+                hass=hass,
+                cache_enabled=True,
+                taf_cache_minutes=self._checkwx_config.get("taf_cache_minutes", 360)
+            )
+    
+    @property
+    def name(self) -> str:
+        return f"{self._config.get('name', 'Airfield')} TAF"
+    
+    @property
+    def native_value(self) -> str | None:
+        """Return validity period as state."""
+        if self._taf_data:
+            timestamp = self._taf_data.get("timestamp", {})
+            from_time = timestamp.get("from", "")
+            to_time = timestamp.get("to", "")
+            
+            if from_time and to_time:
+                # Format: "Valid 22/12:00Z to 23/12:00Z"
+                from_dt = datetime.fromisoformat(from_time.replace("Z", "+00:00"))
+                to_dt = datetime.fromisoformat(to_time.replace("Z", "+00:00"))
+                
+                return f"Valid {from_dt.strftime('%d/%H:%M')}Z to {to_dt.strftime('%d/%H:%M')}Z"
+        
+        return None
+    
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return TAF data as attributes."""
+        attrs = super().extra_state_attributes
+        
+        if self._taf_data:
+            # Timestamp info
+            timestamp = self._taf_data.get("timestamp", {})
+            attrs["issued"] = timestamp.get("issued")
+            attrs["valid_from"] = timestamp.get("from")
+            attrs["valid_to"] = timestamp.get("to")
+            
+            # Forecast periods
+            forecast = self._taf_data.get("forecast", [])
+            attrs["forecast_periods"] = forecast
+            attrs["period_count"] = len(forecast)
+            
+            # Raw TAF text
+            attrs["raw_taf"] = self._taf_data.get("raw_text")
+            
+            # ICAO
+            attrs["icao"] = self._taf_data.get("icao")
+            
+            # Last update timestamp
+            attrs["last_update"] = self._last_update.isoformat() if self._last_update else None
+        
+        attrs["update_interval_minutes"] = self._update_interval_minutes
+        
+        return attrs
+    
+    async def async_update(self) -> None:
+        """Fetch latest TAF data from CheckWX."""
+        if not self._client:
+            _LOGGER.debug("CheckWX client not configured for TAF sensor")
+            return
+        
+        icao = self._config.get("icao")
+        if not icao or len(icao) != 4:
+            _LOGGER.warning("Invalid ICAO code for TAF sensor: %s", icao)
+            return
+        
+        try:
+            # Fetch TAF (uses cache if within TTL)
+            taf_data = await self._client.get_taf(icao, decoded=True)
+            
+            if taf_data:
+                self._taf_data = taf_data
+                self._last_update = dt_util.utcnow()
+                _LOGGER.debug("TAF updated for %s", icao)
+            else:
+                _LOGGER.warning("No TAF data returned for %s", icao)
+        
+        except Exception as e:
+            _LOGGER.error("Error fetching TAF for %s: %s", icao, e)
+
+
+# ==============================================================================
+# CheckWX Station Info Sensor
+# ==============================================================================
+
+class StationInfoSensor(HangarSensorBase):
+    """Sensor for CheckWX station/airport information.
+    
+    Displays airport station data including name, location, elevation, and
+    sunrise/sunset times. State shows airport name, attributes contain all
+    geographic and time data.
+    
+    Inputs:
+        - airfield: Airfield config with ICAO code
+        - global_settings: CheckWX API configuration
+    
+    Outputs:
+        - State: Airport name (e.g., "John F Kennedy International Airport")
+        - Attributes: elevation, coordinates, sunrise/sunset, timezone
+    
+    Used by:
+        - Auto-population service (pre-fill airfield data)
+        - Dashboard location displays
+        - Timezone calculations
+    
+    Update Interval:
+        - 7 days (station info changes rarely)
+        - Heavily cached to preserve API rate limit
+    """
+    
+    _attr_icon = "mdi:airport"
+    
+    def __init__(self, hass: HomeAssistant, config: dict, global_settings: dict | None = None):
+        super().__init__(hass, config, global_settings)
+        self._station_data = None
+        self._suntimes_data = None
+        self._last_update = None
+        
+        # Get CheckWX configuration
+        self._integrations = global_settings.get("integrations", {}) if global_settings else {}
+        self._checkwx_config = self._integrations.get("checkwx", {})
+        
+        # Initialize CheckWX client
+        self._client = None
+        if self._checkwx_config.get("enabled") and self._checkwx_config.get("api_key"):
+            from .utils.checkwx_client import CheckWXClient
+            self._client = CheckWXClient(
+                api_key=self._checkwx_config["api_key"],
+                hass=hass,
+                cache_enabled=True,
+                station_cache_minutes=10080  # 7 days
+            )
+    
+    @property
+    def name(self) -> str:
+        return f"{self._config.get('name', 'Airfield')} Station Info"
+    
+    @property
+    def native_value(self) -> str | None:
+        """Return airport name as state."""
+        if self._station_data:
+            return self._station_data.get("name", "Unknown Airport")
+        return None
+    
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return station information as attributes."""
+        attrs = super().extra_state_attributes
+        
+        if self._station_data:
+            # Basic info
+            attrs["icao"] = self._station_data.get("icao")
+            attrs["iata"] = self._station_data.get("iata")
+            attrs["airport_name"] = self._station_data.get("name")
+            attrs["city"] = self._station_data.get("city")
+            attrs["airport_type"] = self._station_data.get("type")
+            
+            # Country
+            country = self._station_data.get("country", {})
+            attrs["country_code"] = country.get("code")
+            attrs["country_name"] = country.get("name")
+            
+            # Elevation
+            elevation = self._station_data.get("elevation", {})
+            attrs["elevation_feet"] = elevation.get("feet")
+            attrs["elevation_meters"] = elevation.get("meters")
+            
+            # Coordinates
+            latitude = self._station_data.get("latitude", {})
+            longitude = self._station_data.get("longitude", {})
+            attrs["latitude"] = latitude.get("decimal")
+            attrs["longitude"] = longitude.get("decimal")
+            
+            # Geometry (for mapping)
+            geometry = self._station_data.get("geometry", {})
+            attrs["geometry_type"] = geometry.get("type")
+            attrs["coordinates"] = geometry.get("coordinates")
+        
+        # Sunrise/sunset times
+        if self._suntimes_data:
+            local_times = self._suntimes_data.get("local", {})
+            attrs["sunrise_local"] = local_times.get("sunrise")
+            attrs["sunset_local"] = local_times.get("sunset")
+            attrs["dawn_local"] = local_times.get("dawn")
+            attrs["dusk_local"] = local_times.get("dusk")
+            
+            utc_times = self._suntimes_data.get("utc", {})
+            attrs["sunrise_utc"] = utc_times.get("sunrise")
+            attrs["sunset_utc"] = utc_times.get("sunset")
+            
+            timezone = self._suntimes_data.get("timezone", {})
+            attrs["timezone_id"] = timezone.get("tzid")
+        
+        # Last update timestamp
+        attrs["last_update"] = self._last_update.isoformat() if self._last_update else None
+        
+        return attrs
+    
+    async def async_update(self) -> None:
+        """Fetch station info and sunrise/sunset from CheckWX."""
+        if not self._client:
+            _LOGGER.debug("CheckWX client not configured for station info sensor")
+            return
+        
+        icao = self._config.get("icao")
+        if not icao or len(icao) != 4:
+            _LOGGER.warning("Invalid ICAO code for station info sensor: %s", icao)
+            return
+        
+        try:
+            # Fetch station info (heavily cached - 7 days)
+            station_data = await self._client.get_station_info(icao)
+            
+            if station_data:
+                self._station_data = station_data
+                _LOGGER.debug("Station info updated for %s", icao)
+            else:
+                _LOGGER.warning("No station data returned for %s", icao)
+            
+            # Fetch sunrise/sunset times (cached 12 hours)
+            suntimes_data = await self._client.get_sunrise_sunset(icao)
+            
+            if suntimes_data:
+                self._suntimes_data = suntimes_data
+                _LOGGER.debug("Sunrise/sunset updated for %s", icao)
+            
+            self._last_update = dt_util.utcnow()
+        
+        except Exception as e:
+            _LOGGER.error("Error fetching station info for %s: %s", icao, e)
+
+
+# ==============================================================================
+# Registration in async_setup_entry()
+# ==============================================================================
+
+# Add to airfield loop in async_setup_entry():
+"""
+    # Check if CheckWX integration is enabled
+    checkwx_config = integrations.get("checkwx", {})
+    checkwx_enabled = checkwx_config.get("enabled", False)
+    
+    for airfield in airfields:
+        # ... existing sensors ...
+        
+        # Add CheckWX sensors if integration is enabled and airfield has ICAO
+        if checkwx_enabled and airfield.get("icao"):
+            if checkwx_config.get("metar_enabled", True):
+                entities.append(MetarSensor(hass, airfield, global_settings))
+            
+            if checkwx_config.get("taf_enabled", True):
+                entities.append(TafSensor(hass, airfield, global_settings))
+            
+            if checkwx_config.get("station_enabled", True):
+                entities.append(StationInfoSensor(hass, airfield, global_settings))
+"""

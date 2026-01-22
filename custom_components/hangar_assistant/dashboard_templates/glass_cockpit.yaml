@@ -642,6 +642,89 @@ views:
               aircraft detected' }} m
             icon: mdi:tree
             icon_color: green
+      - cards:
+          - type: heading
+            heading: Fuel Management
+            heading_style: title
+            icon: mdi:gas-station
+          - type: markdown
+            content: >
+              ### Fuel Status
+
+              Monitor fuel consumption, endurance, and weight for your selected aircraft.
+          - type: custom:mushroom-template-card
+            primary: Fuel Burn Rate
+            secondary: >-
+              {% set helper_aircraft =
+              states('select.hangar_assistant_aircraft_selector') if
+              'select.hangar_assistant_aircraft_selector' in states else '' %}
+              {% set helper_aircraft = '' if helper_aircraft in
+              ['unknown','unavailable',''] else helper_aircraft %} {% set
+              detected_aircraft = states.sensor |
+              selectattr('entity_id','search','_fuel_burn_rate$') |
+              map(attribute='entity_id') | list %} {% set auto_aircraft =
+              detected_aircraft[0].replace('sensor.','').replace('_fuel_burn_rate','')
+              if detected_aircraft else '' %} {% set a = helper_aircraft or
+              auto_aircraft %} {% if a %}{{ states('sensor.' ~ a ~
+              '_fuel_burn_rate') }} {{ state_attr('sensor.' ~ a ~
+              '_fuel_burn_rate', 'unit_of_measurement') }}{% else %}No fuel data
+              configured{% endif %}
+            icon: mdi:speedometer
+            icon_color: blue
+          - type: custom:mushroom-template-card
+            primary: Fuel Endurance
+            secondary: >-
+              {% set helper_aircraft =
+              states('select.hangar_assistant_aircraft_selector') if
+              'select.hangar_assistant_aircraft_selector' in states else '' %}
+              {% set helper_aircraft = '' if helper_aircraft in
+              ['unknown','unavailable',''] else helper_aircraft %} {% set
+              detected_aircraft = states.sensor |
+              selectattr('entity_id','search','_fuel_endurance$') |
+              map(attribute='entity_id') | list %} {% set auto_aircraft =
+              detected_aircraft[0].replace('sensor.','').replace('_fuel_endurance','')
+              if detected_aircraft else '' %} {% set a = helper_aircraft or
+              auto_aircraft %} {% if a %}{% set hours = states('sensor.' ~ a ~
+              '_fuel_endurance') | float %} {{ hours | round(2) }} hours ({{
+              (hours * 60) | int }} minutes) - includes 30min reserve{% else %}No
+              fuel data configured{% endif %}
+            icon: mdi:clock-time-four-outline
+            icon_color: orange
+          - type: custom:mushroom-template-card
+            primary: Fuel Weight
+            secondary: >-
+              {% set helper_aircraft =
+              states('select.hangar_assistant_aircraft_selector') if
+              'select.hangar_assistant_aircraft_selector' in states else '' %}
+              {% set helper_aircraft = '' if helper_aircraft in
+              ['unknown','unavailable',''] else helper_aircraft %} {% set
+              detected_aircraft = states.sensor |
+              selectattr('entity_id','search','_fuel_weight$') |
+              map(attribute='entity_id') | list %} {% set auto_aircraft =
+              detected_aircraft[0].replace('sensor.','').replace('_fuel_weight','')
+              if detected_aircraft else '' %} {% set a = helper_aircraft or
+              auto_aircraft %} {% if a %}{{ states('sensor.' ~ a ~
+              '_fuel_weight') }} kg ({{ state_attr('sensor.' ~ a ~
+              '_fuel_weight', 'fuel_type') }}){% else %}No fuel data
+              configured{% endif %}
+            icon: mdi:weight-kilogram
+            icon_color: red
+          - type: markdown
+            content: >
+              ### Fuel Services
+
+
+              **Calculate Trip Fuel**
+
+              Use Developer Tools → Services → hangar_assistant.estimate_trip_fuel
+
+
+              **Calculate Fuel Cost**
+
+              Use Developer Tools → Services → hangar_assistant.calculate_fuel_cost
+
+
+              *Services provide detailed fuel planning with reserves and cost estimates.*
   - title: Compliance & Logs
     icon: mdi:file-document-outline
     type: sections

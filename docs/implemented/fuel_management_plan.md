@@ -1,9 +1,48 @@
-# Fuel Management System - Implementation Plan
+# Fuel Management System Implementation
 
-**Document Version**: 1.0  
-**Date**: 21 January 2026  
-**Status**: Planning Phase  
+**Status**: ✅ IMPLEMENTED - Released in v2601.4.0 (22 January 2026)  
+**Original Planning Date**: 21 January 2026  
+**Location**: Moved from `docs/planning/` to `docs/implemented/`  
 **Priority**: ⭐⭐⭐⭐ HIGH
+
+---
+
+## Quick Links
+
+- **Implementation**: 
+  - Sensors: [`custom_components/hangar_assistant/sensor.py`](../../custom_components/hangar_assistant/sensor.py) (FuelEnduranceSensor, FuelWeightSensor, lines 2113-2280)
+  - Services: [`custom_components/hangar_assistant/services.yaml`](../../custom_components/hangar_assistant/services.yaml) (fuel estimation services)
+  - Utils: [`custom_components/hangar_assistant/utils/units.py`](../../custom_components/hangar_assistant/utils/units.py) (fuel type density tables)
+- **Testing**: [`tests/test_fuel_calculations.py`](../../tests/test_fuel_calculations.py)
+- **Documentation**:
+  - User Guide: [docs/features/fuel_management.md](../features/fuel_management.md)
+  - Technical Details: [docs/implemented/fuel_management_technical.md](fuel_management_technical.md)
+- **Translations**: `translations/{en,de,es,fr}.json` (fuel-related sensor names and attributes)
+
+## Implementation Summary
+
+✅ Aircraft fuel configuration data model (type, burn_rate, tank_capacity, volume_unit)  
+✅ FuelEnduranceSensor - calculates flight duration based on burn rate and tank capacity  
+✅ FuelWeightSensor - calculates fuel weight with density correction by fuel type  
+✅ Fuel type support (AVGAS 100LL, Jet-A, Mogas, Unleaded, Diesel, Electric)  
+✅ Multi-unit volume display (liters, US gallons, Imperial gallons)  
+✅ Automatic VFR reserve calculation (30 minutes)  
+✅ Fuel density tables with temperature correction support  
+✅ Integration with weight & balance calculations  
+✅ Services for fuel cost and trip estimation  
+✅ Comprehensive test suite (test_fuel_calculations.py)  
+✅ User documentation with configuration examples  
+✅ Translations (en/de/es/fr)  
+✅ 100% backward compatible (sensors only created if fuel data present)  
+
+**Completion Date:** 22 January 2026  
+**Implementation Time:** Completed in v2601.4.0 release  
+
+**Note**: Original planning document preserved below for reference. Technical implementation details available in [fuel_management_technical.md](fuel_management_technical.md).
+
+---
+
+# Original Planning Document
 
 ---
 

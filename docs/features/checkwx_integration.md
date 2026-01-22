@@ -662,7 +662,7 @@ cards:
 - **[Glass Cockpit Dashboard](glass_cockpit_dashboard.md)**: Visualizing CheckWX sensors in dashboard
 
 **Planning & Development**:
-- **[CheckWX Integration Plan](../planning/CHECKWX_INTEGRATION_PLAN.md)**: Technical planning document (developer-focused)
+- **[CheckWX Integration Plan](../implemented/checkwx_integration_plan.md)**: Original planning document (developer-focused, now implemented)
 
 **External Resources**:
 - **[CheckWX Official Documentation](https://api.checkwx.com/documentation/)**: API reference and technical details

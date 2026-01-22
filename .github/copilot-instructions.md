@@ -1314,6 +1314,149 @@ Before: "Dashboard installation spawns background task with 2s delay"
 After: "Dashboard installs automatically in the background - you can continue using Home Assistant"
 ```
 
+### Planning Document Lifecycle Management
+
+**CRITICAL PRINCIPLE**: Planning documents in `docs/planning/` are valuable historical records but become obsolete once features are implemented. Maintain a clean separation between active planning and completed implementations.
+
+**File Naming Convention:**
+- Planning documents: `{feature_name}_plan.md` (lowercase with underscores)
+- Technical documentation: `{feature_name}_technical.md` (lowercase with underscores)
+- Examples: `checkwx_integration_plan.md`, `setup_wizard_technical.md`, `fuel_management_plan.md`
+
+**Upon completing development of a planned feature:**
+
+1. **Move to implemented folder** (REQUIRED for completed features):
+   - Move file from `docs/planning/` to `docs/implemented/`
+   - Rename to follow convention: `{feature_name}_plan.md`
+   - Update status from "Planning Phase" to "✅ IMPLEMENTED - Released in v{version}"
+   - Add "Quick Links" section with paths to implementation files
+   - Add "Implementation Summary" with checkmarks showing completed components
+   - Include link to feature documentation and release notes
+   - Preserve original planning content for reference (historical value)
+   - Example: `docs/implemented/checkwx_integration_plan.md`
+
+2. **Create technical documentation** (if missing from features):
+   - Check if `docs/features/` has comprehensive user documentation
+   - If technical implementation details are valuable, create `docs/implemented/{feature_name}_technical.md`
+   - Follow naming convention: lowercase with underscores
+   - Include: architecture decisions, data models, API patterns, performance considerations
+   - Link from user documentation to technical docs for advanced users
+   - Example: `docs/implemented/fuel_management_technical.md`
+
+3. **Delete planning document** (rare, only if truly obsolete):
+   - Remove file if planning details are fully superseded by feature docs
+   - Only delete if original planning has no historical or reference value
+   - Git history preserves deleted files if needed later
+
+**Implemented document header pattern:**
+```markdown
+# Feature Name Integration
+
+**Status**: ✅ IMPLEMENTED - Released in v2602.1.0 (22 January 2026)  
+**Original Planning Date**: [Original date]  
+**Location**: Moved from `docs/planning/` to `docs/implemented/`
+
+## Quick Links
+- **Implementation**: 
+  - Core: `custom_components/hangar_assistant/utils/feature_client.py`
+  - Sensors: `custom_components/hangar_assistant/sensor.py` (lines X-Y)
+  - Config Flow: `custom_components/hangar_assistant/config_flow.py` (lines X-Y)
+- **Testing**: `tests/test_feature_client.py`
+- **Documentation**:
+  - User Guide: [docs/features/feature_integration.md](../features/feature_integration.md)
+  - Technical Details: [docs/implemented/feature_name_technical.md](feature_name_technical.md)
+  - Release Notes: [docs/releases/RELEASE_NOTES_{version}.md](../releases/RELEASE_NOTES_{version}.md)
+- **Translations**: `translations/{en,de,es,fr}.json` (config.step.feature_*)
+
+## Implementation Summary
+✅ Core client implementation with caching  
+✅ Sensor entities created  
+✅ Config flow integration  
+✅ Comprehensive test suite (25+ tests, XX% coverage)  
+✅ User documentation (troubleshooting, FAQ, best practices)  
+✅ Translations (en/de/es/fr)  
+✅ Release notes  
+✅ Backward compatible (existing installs unaffected)  
+
+**Note**: Original planning document preserved below for reference. Technical implementation details available in [feature_name_technical.md](feature_name_technical.md).
+
+---
+
+# Original Planning Document
+
+[Original planning content...]
+```
+
+**Technical documentation pattern:**
+```markdown
+# Feature Name - Technical Implementation
+
+**Related Documents**:
+- User Guide: [docs/features/feature_name.md](../features/feature_name.md)
+- Planning Document: [docs/implemented/feature_name_plan.md](feature_name_plan.md)
+
+## Architecture Overview
+[Technical architecture details...]
+
+## Data Models
+[Data structures and schemas...]
+
+## Implementation Details
+[Code patterns and key methods...]
+
+## Performance Considerations
+[Optimization strategies...]
+```
+
+**Why preserve planning documents in implemented folder:**
+- Historical reference for design decisions
+- Context for future refactoring
+- Lessons learned for similar features
+- Audit trail for development process
+- Understanding of alternatives considered
+- Architecture documentation for complex features
+
+**Folder organization:**
+- `docs/planning/` - Active planning for future features (keep clean)
+- `docs/implemented/` - Completed features with consistent naming:
+  - `{feature_name}_plan.md` - Original planning document
+  - `{feature_name}_technical.md` - Technical implementation details
+- `docs/features/` - User-facing feature documentation (pilots)
+- `docs/development/` - Developer workflow and architecture decisions
+
+**Example file structure:**
+```
+docs/implemented/
+├── checkwx_integration_plan.md
+├── fuel_management_plan.md
+├── fuel_management_technical.md
+├── setup_wizard_plan.md
+└── setup_wizard_technical.md
+```
+
+**When to delete instead of move:**
+- Planning was minimal (< 1 page) or fully superseded
+- Implementation deviated significantly from plan (document misleading)
+- Planning document adds no value beyond feature docs
+- Maintenance burden outweighs historical value
+
+**Verification checklist:**
+- [ ] Planning document moved to `docs/implemented/` with updated header
+- [ ] File renamed to `{feature_name}_plan.md` format
+- [ ] Technical documentation created as `{feature_name}_technical.md` if needed
+- [ ] Feature documentation in `docs/features/` is comprehensive
+- [ ] Release notes reference the completed feature
+- [ ] No broken links to/from moved document (update relative paths)
+- [ ] `docs/planning/` folder only contains active/future plans
+- [ ] `docs/planning/` folder only contains active/future plans
+
+**Verification checklist:**
+- [ ] Planning document status updated or file deleted
+- [ ] Feature documentation in `docs/features/` is comprehensive
+- [ ] Release notes reference the completed feature
+- [ ] No broken links to/from planning document
+- [ ] Git history preserves planning even if deleted
+
 ## Entity Implementation Patterns
 - **Safety Alerts**: `HangarMasterSafetyAlert` (Binary Sensor, class `SAFETY`) triggers if weather data > 30 mins old or Carb Risk is "Serious Risk".
 - **File Management**: PDFs stored in `hass.config.path("www/hangar/")`. `manual_cleanup` service handles deletion.

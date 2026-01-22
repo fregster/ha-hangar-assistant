@@ -155,7 +155,7 @@ For each airfield with an ICAO code, three new sensors are created:
 - **Translations:** English, German, Spanish, French (complete)
 
 ### Developer Documentation
-- **Planning Document:** `docs/planning/CHECKWX_INTEGRATION_PLAN.md`
+- **Planning Document:** `docs/implemented/checkwx_integration_plan.md`
 - **API Client:** `custom_components/hangar_assistant/utils/checkwx_client.py` (fully documented)
 - **Test Suite:** `tests/test_checkwx_client.py` (comprehensive docstrings)
 

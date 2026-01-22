@@ -502,6 +502,25 @@ When you select "Automatic" dashboard installation:
 - [Sensor Reference](../ENTITY_DESCRIPTIONS.md) - Complete sensor list and descriptions
 - [Automation Examples](../HANGAR_AUTOMATION_EXAMPLES.md) - Pre-flight automation ideas
 
+## Technical Details (Advanced)
+
+<details>
+<summary>Click to expand technical implementation details</summary>
+
+For developers and advanced users interested in the underlying architecture of the Setup Wizard, comprehensive technical documentation is available covering:
+
+- **State Management**: SetupWizardState dataclass and progress tracking
+- **Flow Sequence**: Complete step-by-step implementation details (async_step_* methods)
+- **Data Model**: How wizard data maps to config entry structure
+- **Background Task Management**: Dashboard installation async task pattern
+- **Validation Logic**: Real-time input validation and API connection testing
+- **Integration Points**: How the wizard triggers entity creation
+- **Performance Considerations**: Template caching and memory management
+
+**Read the technical documentation**: [docs/implemented/setup_wizard_technical.md](../implemented/setup_wizard_technical.md)
+
+</details>
+
 ---
 
 ## Version History

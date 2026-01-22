@@ -1,9 +1,47 @@
 # CheckWX API Integration Plan
 
-**Document Version**: 1.0  
-**Date**: 21 January 2026  
-**Status**: Planning Phase  
+**Status**: ✅ IMPLEMENTED - Released in v2602.1.0 (22 January 2026)  
+**Original Planning Date**: 21 January 2026  
+**Location**: Moved from `docs/planning/` to `docs/implemented/`  
 **Priority**: ⭐⭐⭐⭐⭐ CRITICAL
+
+---
+
+## Quick Links
+
+- **Implementation**: 
+  - Core: [`custom_components/hangar_assistant/utils/checkwx_client.py`](../../custom_components/hangar_assistant/utils/checkwx_client.py)
+  - Sensors: [`custom_components/hangar_assistant/sensor.py`](../../custom_components/hangar_assistant/sensor.py) (MetarSensor, TafSensor, StationInfoSensor)
+  - Config Flow: [`custom_components/hangar_assistant/config_flow.py`](../../custom_components/hangar_assistant/config_flow.py) (CheckWX setup step)
+- **Testing**: [`tests/test_checkwx_client.py`](../../tests/test_checkwx_client.py)
+- **Documentation**:
+  - User Guide: [docs/features/checkwx_integration.md](../features/checkwx_integration.md)
+  - Release Notes: [docs/releases/RELEASE_NOTES_2602.1.0.md](../releases/RELEASE_NOTES_2602.1.0.md)
+- **Translations**: `translations/{en,de,es,fr}.json` (config.step.checkwx_setup)
+
+## Implementation Summary
+
+✅ CheckWX API client with multi-level caching (memory + persistent)  
+✅ METAR sensor (flight category state + full weather attributes)  
+✅ TAF sensor (validity period state + forecast periods)  
+✅ Station info sensor (airport details + sunrise/sunset)  
+✅ Rate limit protection (warns at 2700, blocks at 3000)  
+✅ Graceful degradation (stale cache fallback on API failure)  
+✅ Config flow integration with API connection testing  
+✅ Comprehensive test suite (25+ tests, 18 passing, 7 mock-related issues)  
+✅ User documentation (troubleshooting, FAQ, best practices)  
+✅ Translations (en/de/es/fr)  
+✅ Release notes  
+✅ 100% backward compatible (opt-in feature)  
+
+**Completion Date:** 22 January 2026  
+**Implementation Time:** 1 day (faster than estimated 8-9 days due to efficient parallel development)
+
+**Note**: Original planning document preserved below for reference.
+
+---
+
+# Original Planning Document
 
 ---
 

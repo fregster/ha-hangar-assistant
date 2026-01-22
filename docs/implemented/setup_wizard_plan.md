@@ -1,9 +1,49 @@
-# Hangar Assistant - First-Time Setup UI/UX Plan
+# Setup Wizard Implementation
 
-**Document Version**: 1.0  
-**Date**: 21 January 2026  
-**Status**: Planning Phase  
+**Status**: ✅ IMPLEMENTED - Released in v2601.3.0 (22 January 2026)  
+**Original Planning Date**: 21 January 2026  
+**Location**: Moved from `docs/planning/` to `docs/implemented/`  
 **Priority**: ⭐⭐⭐⭐⭐ CRITICAL (User Onboarding)
+
+---
+
+## Quick Links
+
+- **Implementation**: 
+  - Config Flow: [`custom_components/hangar_assistant/config_flow.py`](../../custom_components/hangar_assistant/config_flow.py) (SetupWizardState class, async_step_welcome through async_step_completion)
+  - Templates: [`custom_components/hangar_assistant/templates.py`](../../custom_components/hangar_assistant/templates.py) (Aircraft templates)
+- **Testing**: 
+  - Wizard Flow: [`tests/test_setup_wizard.py`](../../tests/test_setup_wizard.py)
+  - Integration Tests: [`tests/test_wizard_flow.py`](../../tests/test_wizard_flow.py)
+- **Documentation**:
+  - User Guide: [docs/features/setup_wizard.md](../features/setup_wizard.md)
+  - Technical Details: [docs/implemented/setup_wizard_technical.md](setup_wizard_technical.md)
+- **Translations**: `translations/{en,de,es,fr}.json` (config.step.welcome, general_settings, airfield_setup, aircraft_setup, etc.)
+
+## Implementation Summary
+
+✅ SetupWizardState class for progress tracking with completed_steps Set  
+✅ 7-step guided wizard flow (welcome → general → airfield → aircraft → checkwx → notam → completion)  
+✅ State persistence for resumption (last_airfield, last_aircraft tracking)  
+✅ Background dashboard installation (async task with 2-second delay)  
+✅ Real-time validation (ICAO code format, API connection testing)  
+✅ Aircraft templates (7 types: Cessna 172, PA-28, C152, Grob 103, Rotax 912, Diamond DA40, Extra 300)  
+✅ API integration flows (CheckWX, OpenWeatherMap, NOTAMs)  
+✅ Skip options for optional steps  
+✅ Manual YAML generation fallback  
+✅ Comprehensive test suite (test_setup_wizard.py, test_wizard_flow.py)  
+✅ User documentation with step-by-step guide  
+✅ Translations (en/de/es/fr)  
+✅ 100% backward compatible (existing users unaffected)  
+
+**Completion Date:** 22 January 2026  
+**Implementation Time:** Completed in v2601.3.0 release  
+
+**Note**: Original planning document preserved below for reference. Technical implementation details available in [setup_wizard_technical.md](setup_wizard_technical.md).
+
+---
+
+# Original Planning Document
 
 ---
 

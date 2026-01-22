@@ -571,6 +571,26 @@ Sensors are only created when `burn_rate > 0`, ensuring existing aircraft withou
 - [Glass Cockpit Dashboard](glass_cockpit_dashboard.md) - Add fuel cards to your dashboard
 - [Services Documentation](/custom_components/hangar_assistant/services.yaml) - Full service specifications
 
+## Technical Details (Advanced)
+
+<details>
+<summary>Click to expand technical implementation details</summary>
+
+For developers and advanced users interested in the fuel management system architecture, comprehensive technical documentation is available covering:
+
+- **Data Model**: Aircraft fuel configuration structure and defaults
+- **Sensor Implementation**: FuelEnduranceSensor and FuelWeightSensor class details
+- **Calculation Formulas**: Mathematical formulas for endurance, weight, and reserves
+- **Fuel Type Density Tables**: Density values for all supported fuel types
+- **Unit Conversion System**: Multi-unit volume and weight conversions
+- **Service Architecture**: Fuel cost estimation and trip planning services
+- **Integration Points**: Weight & balance, performance calculations, AI briefing
+- **Performance Optimization**: State caching and formula complexity analysis
+
+**Read the technical documentation**: [docs/implemented/fuel_management_technical.md](../implemented/fuel_management_technical.md)
+
+</details>
+
 ---
 
 ## Version History

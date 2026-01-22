@@ -1957,3 +1957,89 @@ To ensure a consistent, high-quality multilingual UI, follow these rules:
 - **Deep key completeness**: Ensure each non-English pack contains all keys present in the English pack (including nested `options.step.*.*.data` and `menu_options`). A unit test must verify deep key parity across all packs.
 - **When generating new content with AI**: Default to English phrasing, then translate into the available language packs where possible. Keep aviation terminology clear and consistent across languages.
 - **Review and QA**: After changing translations, run `pytest` to confirm deep key completeness and that config flows render without placeholders.
+
+### Automated Translation via Background Agent
+
+**When to use automated translation:**
+- Adding new translation keys across multiple language files
+- Updating existing translations after English source changes
+- Completing partial translations with missing keys
+- Initial translation of new features
+
+**Pattern for invoking translation agent:**
+
+Use `runSubagent` tool to delegate translation work to a background agent. The agent should:
+1. Read the English source (`translations/en.json`)
+2. Identify missing or outdated keys in target language files
+3. Translate keys to German, Spanish, and French
+4. Update translation files with proper JSON structure
+5. Validate with `pytest tests/test_json_validation.py` and `pytest tests/test_languages.py`
+
+**Example agent invocation:**
+```python
+# When you need translations updated
+await runSubagent(
+    description="Translate new keys to all languages",
+    prompt="""
+    Task: Update all translation files with new English keys
+    
+    1. Read translations/en.json to get the source English text
+    2. Identify new keys that need translation:
+       - Compare en.json with de.json, es.json, fr.json
+       - Find keys present in en.json but missing in other files
+    
+    3. Translate the missing keys:
+       - German (de.json): Professional aviation German
+       - Spanish (es.json): Professional aviation Spanish  
+       - French (fr.json): Professional aviation French
+       - Preserve aviation terminology (ICAO codes, units, etc.)
+       - Keep formatting consistent (e.g., "(e.g., EGHP)")
+    
+    4. Update each translation file:
+       - Add new keys in the same nested structure as en.json
+       - Maintain alphabetical order within each section
+       - Preserve existing translations (only add/update changed keys)
+    
+    5. Validate changes:
+       - Run: pytest tests/test_json_validation.py -q
+       - Run: pytest tests/test_languages.py -q
+       - Ensure all tests pass before completing
+    
+    Context:
+    - English source: custom_components/hangar_assistant/translations/en.json
+    - Target files: translations/de.json, translations/es.json, translations/fr.json
+    - Aviation context: Use standard aviation terminology across languages
+    - Quality standard: Professional pilot-facing translations
+    
+    Expected Result:
+    All translation files updated with new keys, tests passing, ready for commit.
+    """
+)
+```
+
+**Translation agent requirements:**
+- **Aviation context awareness**: Agent must understand aviation terminology and preserve it correctly
+- **JSON structure preservation**: Maintain deep nesting, alphabetical order, no duplicates
+- **Quality validation**: Run tests before completing (json_validation, languages, deep key parity)
+- **Existing translation preservation**: Only add/update changed keys, don't replace entire files
+- **Professional tone**: Translations must match the professional pilot-facing style
+
+**Validation checklist after automated translation:**
+- [ ] All tests pass: `pytest tests/test_json_validation.py tests/test_languages.py -q`
+- [ ] Deep key parity verified (all en.json keys present in de/es/fr)
+- [ ] No English placeholders in non-English files (except documented temporary ones)
+- [ ] Aviation terminology preserved correctly in all languages
+- [ ] JSON structure valid (no duplicates, proper nesting)
+- [ ] Alphabetical order maintained within sections
+
+**When NOT to use automated translation:**
+- ❌ Nuanced error messages requiring cultural context
+- ❌ Marketing copy or documentation (use feature docs in English only)
+- ❌ Aviation regulatory text requiring legal precision (keep English, link to official translations)
+- ❌ Initial feature development (translate manually to ensure accuracy first time)
+
+**Best practices:**
+- Review agent translations for aviation accuracy before committing
+- Test config flows in each language after automated translation
+- Document any aviation terms that should NOT be translated
+- Use agent for bulk updates, manual review for critical user-facing text

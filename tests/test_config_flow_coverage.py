@@ -138,7 +138,7 @@ class TestHangarOptionsFlowHandlerAirfieldAdd:
 
         result = await handler.async_step_airfield_add(user_input=new_airfield)
 
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
         mock_hass.config_entries.async_update_entry.assert_called_once()
 
     async def test_airfield_add_appends_to_list(
@@ -217,7 +217,7 @@ class TestHangarOptionsFlowHandlerAirfieldEdit:
             user_input=updated_airfield
         )
 
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
         mock_hass.config_entries.async_update_entry.assert_called_once()
 
 
@@ -270,7 +270,7 @@ class TestHangarOptionsFlowHandlerAircraftAdd:
             user_input=new_aircraft
         )
 
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
         mock_hass.config_entries.async_update_entry.assert_called_once()
 
     async def test_aircraft_add_appends_to_fleet(
@@ -342,7 +342,7 @@ class TestHangarOptionsFlowHandlerAircraftEdit:
             user_input=updated_aircraft
         )
 
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
         mock_hass.config_entries.async_update_entry.assert_called_once()
 
     async def test_aircraft_edit_preserves_registration(

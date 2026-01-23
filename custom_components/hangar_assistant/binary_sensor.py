@@ -182,6 +182,7 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         self._freshness_id = f"sensor.{self._id_slug}_weather_data_age"
         self._carb_id = f"sensor.{self._id_slug}_carb_risk"
         self._cloud_base_id = f"sensor.{self._id_slug}_cloud_base"
+        self._ai_briefing_id = f"sensor.{self._id_slug}_ai_pre_flight_briefing"
 
     def _parse_freshness_minutes(self, state) -> int | None:
         """Convert the freshness sensor state to integer minutes if available."""
@@ -214,7 +215,8 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [
-                    self._freshness_id, self._carb_id, self._cloud_base_id], _update_state))
+                    self._freshness_id, self._carb_id, self._cloud_base_id,
+                    self._ai_briefing_id], _update_state))
 
     @property
     def name(self) -> str:
@@ -266,6 +268,21 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
             if freshness_minutes > 15:
                 return True  # ALERT: Moderate icing risk with uncertain data
 
+        # 5. Check AI Briefing Age (> 2 hours = ALERT)
+        ai_briefing_state = self.hass.states.get(self._ai_briefing_id)
+        if ai_briefing_state and ai_briefing_state.attributes:
+            last_updated_str = ai_briefing_state.attributes.get("last_updated")
+            if last_updated_str:
+                try:
+                    from homeassistant.util import dt as dt_util
+                    last_updated = dt_util.parse_datetime(last_updated_str)
+                    if last_updated:
+                        age_hours = (dt_util.utcnow() - last_updated).total_seconds() / 3600
+                        if age_hours > 2:
+                            return True  # ALERT: AI briefing is stale (> 2 hours old)
+                except (ValueError, TypeError):
+                    pass
+
         return False
 
     @property
@@ -273,10 +290,30 @@ class HangarMasterSafetyAlert(BinarySensorEntity):
         """Return True if an alert condition exists for THIS airfield."""
         return self._is_unsafe()
 
+    def _get_ai_briefing_age_hours(self) -> float | None:
+        """Get the age of the AI briefing in hours."""
+        ai_briefing_state = self.hass.states.get(self._ai_briefing_id)
+        if ai_briefing_state and ai_briefing_state.attributes:
+            last_updated_str = ai_briefing_state.attributes.get("last_updated")
+            if last_updated_str:
+                try:
+                    from homeassistant.util import dt as dt_util
+                    last_updated = dt_util.parse_datetime(last_updated_str)
+                    if last_updated:
+                        return (dt_util.utcnow() - last_updated).total_seconds() / 3600
+                except (ValueError, TypeError):
+                    pass
+        return None
+
     @property
     def extra_state_attributes(self):
         """Provide detailed reasons for the alert state."""
         active_reasons = []
+        
+        # Check AI briefing age
+        ai_age = self._get_ai_briefing_age_hours()
+        if ai_age and ai_age > 2:
+            active_reasons.append(f"AI briefing is {ai_age:.1f} hours old (update recommended)")
 
         # 1. Stale Weather Data
         f_state = self.hass.states.get(self._freshness_id)

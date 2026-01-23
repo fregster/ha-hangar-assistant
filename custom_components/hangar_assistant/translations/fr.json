@@ -130,6 +130,7 @@
           "aircraft": "Ajouter ou modifier un aéronef",
           "pilot": "Ajouter ou modifier un pilote",
           "briefing": "Ajouter ou modifier des briefings automatiques",
+          "integrations": "Intégrations externes",
           "global_config": "Configuration globale"
         }
       },
@@ -155,11 +156,6 @@
           "default_dashboard_airfield": "Aérodrome par défaut du tableau de bord",
           "default_dashboard_aircraft": "Aéronef par défaut du tableau de bord",
           "cache_ttl_seconds": "TTL du cache des capteurs (secondes)",
-          "openweathermap_api_key": "Clé API OpenWeatherMap (facultatif)",
-          "openweathermap_enabled": "Activer l'intégration OpenWeatherMap",
-          "openweathermap_cache_enabled": "Activer la mise en cache des données OWM (Protection contre les limites de débit)",
-          "openweathermap_update_interval": "Intervalle de mise à jour OWM (minutes)",
-          "openweathermap_cache_ttl": "Durée de vie du cache OWM (minutes)",
           "notam_default_radius_nm": "Rayon NOTAM par défaut (nm)"
         }
       },
@@ -184,6 +180,7 @@
           "runways": "Pistes disponibles (ex. 03, 21)",
           "primary_runway": "Piste principale (ex. 21)",
           "runway_length": "Longueur piste principale (m)",
+          "tracking_zone_radius_nm": "Rayon de zone de suivi (nm, 0 = désactivé)",
           "temp_sensor": "Capteur température extérieure",
           "dp_sensor": "Capteur point de rosée",
           "pressure_sensor": "Capteur pression/altimètre",
@@ -218,6 +215,7 @@
           "runways": "Pistes disponibles",
           "primary_runway": "Piste principale",
           "runway_length": "Longueur piste principale (m)",
+          "tracking_zone_radius_nm": "Rayon de zone de suivi (nm, 0 = désactivé)",
           "temp_sensor": "Capteur température extérieure",
           "dp_sensor": "Capteur point de rosée",
           "pressure_sensor": "Capteur pression/altimètre",

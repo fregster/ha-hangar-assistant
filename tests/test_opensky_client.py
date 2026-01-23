@@ -89,6 +89,26 @@ def opensky_config_authenticated():
 
 
 @pytest.fixture
+def opensky_config_client_credentials():
+    """Create OpenSky configuration using client credential JSON.
+    
+    Provides:
+        - Client credential dict with client_id and client_secret
+        - Treated as authenticated (4000 credits/day)
+        - 30-second cache TTL
+    
+    Returns:
+        Dict: Configuration for OpenSkyClient initialisation
+    """
+    return {
+        "credentials": {
+            "client_id": "fregster-api-client",
+            "client_secret": "K0EFSnHi9Z7kwgOgUEqqEbvmfMqqsz5g",
+        }
+    }
+
+
+@pytest.fixture
 def opensky_sample_response():
     """Create sample OpenSky API response for testing.
     
@@ -220,6 +240,34 @@ class TestOpenSkyClientInitialization:
         assert client._username == "test@example.com"
         assert client._password == "testpass"
         assert client._auth is not None
+        assert client._daily_limit == 4000
+        assert client.priority == 2
+
+    def test_init_client_credentials(self, mock_hass, opensky_config_client_credentials):
+        """Test client initialisation with client credential JSON.
+        
+        Validates:
+            - Client treats client_id/client_secret as authenticated
+            - Daily limit set to 4000 credits
+            - BasicAuth uses client_id/client_secret
+            - Username/password remain unset to avoid mixed modes
+        
+        Expected Result:
+            Authenticated client using client credential pair with correct limits
+        """
+        client = OpenSkyClient(mock_hass, opensky_config_client_credentials)
+
+        assert client._is_authenticated is True
+        assert client._auth_mode == "client_credentials"
+        assert client._credentials == {
+            "client_id": "fregster-api-client",
+            "client_secret": "K0EFSnHi9Z7kwgOgUEqqEbvmfMqqsz5g",
+        }
+        assert client._username is None
+        assert client._password is None
+        assert client._auth is not None
+        assert client._auth.login == "fregster-api-client"
+        assert client._auth.password == "K0EFSnHi9Z7kwgOgUEqqEbvmfMqqsz5g"
         assert client._daily_limit == 4000
         assert client.priority == 2
 

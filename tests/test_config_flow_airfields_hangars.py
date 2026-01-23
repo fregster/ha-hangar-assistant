@@ -105,7 +105,7 @@ async def test_airfield_edit_converts_feet_to_metres():
     updated = handler.hass.config_entries.async_update_entry.call_args.kwargs["data"]
     updated_airfield = updated["airfields"][0]
 
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     assert pytest.approx(updated_airfield["runway_length"], rel=0.001) == 304.8
     assert pytest.approx(updated_airfield["elevation"], rel=0.001) == 91.44
 
@@ -190,4 +190,4 @@ async def test_dashboard_recreate_calls_builder():
     args, kwargs = mock_create.call_args
     assert kwargs["force_rebuild"] is True
     assert kwargs["reason"] == "options_flow"
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"

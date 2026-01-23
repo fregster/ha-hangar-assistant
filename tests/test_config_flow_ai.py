@@ -168,7 +168,7 @@ def test_ai_config_saves_without_custom_prompt(mock_entry_with_ai):
     import asyncio
     result = asyncio.run(handler.async_step_ai(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Verify async_update_entry was called
     mock_hass.config_entries.async_update_entry.assert_called_once()
     call_args = mock_hass.config_entries.async_update_entry.call_args
@@ -211,7 +211,7 @@ def test_ai_config_saves_with_custom_prompt(mock_entry_with_custom_prompt):
     import asyncio
     result = asyncio.run(handler.async_step_ai(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Verify async_update_entry was called
     mock_hass.config_entries.async_update_entry.assert_called_once()
     call_args = mock_hass.config_entries.async_update_entry.call_args
@@ -252,7 +252,7 @@ def test_ai_config_toggles_custom_prompt_on(mock_entry_with_ai):
     import asyncio
     result = asyncio.run(handler.async_step_ai(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     call_args = mock_hass.config_entries.async_update_entry.call_args
     updated_data = call_args.kwargs["data"]
     
@@ -293,7 +293,7 @@ def test_ai_config_toggles_custom_prompt_off(mock_entry_with_custom_prompt):
     import asyncio
     result = asyncio.run(handler.async_step_ai(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     call_args = mock_hass.config_entries.async_update_entry.call_args
     updated_data = call_args.kwargs["data"]
     

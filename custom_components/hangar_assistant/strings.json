@@ -131,6 +131,7 @@
           "aircraft": "Add Aircraft",
           "pilot": "Add Pilot (PIC)",
           "briefing": "Automated Briefings",
+          "integrations": "External Integrations",
           "global_config": "Global Configuration"
         }
       },
@@ -156,12 +157,7 @@
           "cache_ttl_seconds": "Sensor Cache TTL (seconds)",
           "notam_default_radius_nm": "Default NOTAM Radius (nm)",
           "default_dashboard_airfield": "Default Dashboard Airfield",
-          "default_dashboard_aircraft": "Default Dashboard Aircraft",
-          "openweathermap_api_key": "OpenWeatherMap API Key (optional)",
-          "openweathermap_enabled": "Enable OpenWeatherMap Integration",
-          "openweathermap_cache_enabled": "Enable OWM Data Caching",
-          "openweathermap_update_interval": "OWM Update Interval (minutes)",
-          "openweathermap_cache_ttl": "OWM Cache Lifetime (minutes)"
+          "default_dashboard_aircraft": "Default Dashboard Aircraft"
         }
       },
       "airfield": {
@@ -185,6 +181,7 @@
           "runways": "Available Runways (e.g., 09, 27)",
           "primary_runway": "Primary Runway",
           "runway_length": "Primary Runway Length (m)",
+          "tracking_zone_radius_nm": "Tracking Zone Radius (nm, 0 = Disabled)",
           "temp_sensor": "Temperature Sensor",
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",
@@ -221,6 +218,7 @@
           "runways": "Available Runways (e.g., 09, 27)",
           "primary_runway": "Primary Runway",
           "runway_length": "Primary Runway Length (m)",
+          "tracking_zone_radius_nm": "Tracking Zone Radius (nm, 0 = Disabled)",
           "temp_sensor": "Temperature Sensor",
           "dp_sensor": "Dew Point Sensor",
           "pressure_sensor": "Pressure (Altimeter) Sensor",

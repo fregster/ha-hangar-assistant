@@ -31,6 +31,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timedelta, UTC
+from concurrent.futures import Future as ConcurrentFuture
 from unittest.mock import MagicMock, patch, mock_open, AsyncMock
 import pytest
 
@@ -350,6 +351,27 @@ class TestXMLParsing:
 class TestCaching:
     """Test NOTAM cache read/write functionality."""
 
+    @pytest.mark.asyncio
+    async def test_run_io_handles_concurrent_future(self, notam_client):
+        """_run_io should await concurrent futures from executor jobs.
+
+        Some Home Assistant installations may return a concurrent.futures.Future
+        from async_add_executor_job. This test ensures the helper unwraps and
+        awaits it so callers receive the resolved value rather than a Future,
+        preventing logging format errors in cache age calculations.
+        """
+
+        future = ConcurrentFuture()
+        future.set_result(3)
+
+        hass = MagicMock()
+        hass.async_add_executor_job = MagicMock(return_value=future)
+        notam_client.hass = hass
+
+        result = await notam_client._run_io(lambda: 1)
+
+        assert result == 3
+
     def test_write_and_read_cache(self, notam_client, tmp_path):
         """Test writing cache and reading it back returns same data."""
         # Override cache path to use temp directory
@@ -448,6 +470,27 @@ class TestCaching:
 
 class TestFetchNOTAMs:
     """Test NOTAM fetching with network and cache fallback."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_handles_missing_helpers_gracefully(self, notam_client, tmp_path):
+        """Fetch should fail gracefully when hass.helpers is absent.
+
+        Some HA test rigs may provide a bare hass without helpers; the client
+        should log and return an empty list without throwing.
+        """
+        from pathlib import Path
+
+        notam_client.cache_dir = Path(str(tmp_path))
+        notam_client.cache_file = Path(str(tmp_path / "notams.json"))
+
+        # Remove helpers attribute to simulate minimal hass
+        if hasattr(notam_client.hass, "helpers"):
+            delattr(notam_client.hass, "helpers")
+
+        notams, is_stale = await notam_client.fetch_notams()
+
+        assert notams == []
+        assert is_stale is True
 
     @pytest.mark.asyncio
     async def test_fetch_with_fresh_cache(self, notam_client, tmp_path):

@@ -18,6 +18,10 @@ lovelace:
 
 Then reload dashboards (Settings → Dashboards → three-dots → Reload Resources) or restart Home Assistant.
 
+## Required custom cards
+- **auto-entities**: Install via HACS → Frontend → search "Auto Entities". Ensure the resource `/hacsfiles/auto-entities/auto-entities.js` is added as a module. If you see the error **"Custom element doesn't exist: auto-entities"**, this card is missing.
+- **Mushroom**: Needed for the standard UI cards used in the template.
+
 ## Option B: UI dashboard
 1) Settings → Dashboards → **Add Dashboard**
 2) Title: **Hangar Assistant**, Icon: `mdi:airplane`, Show in sidebar: On

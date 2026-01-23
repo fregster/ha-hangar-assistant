@@ -156,7 +156,7 @@ class TestUnitStrings:
     
     def test_weight_units(self):
         """Test weight unit strings."""
-        assert get_weight_unit("aviation") == "lbs"
+        assert get_weight_unit("aviation") == "lb"
         assert get_weight_unit("si") == "kg"
 
 

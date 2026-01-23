@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import datetime
 import re
 from typing import Any, Dict, Optional, Set
 import voluptuous as vol
@@ -15,6 +17,7 @@ from .const import (
     UNIT_PREFERENCE_SI,
     DEFAULT_UNIT_PREFERENCE,
     DEFAULT_SENSOR_CACHE_TTL_SECONDS,
+    DEFAULT_TRACKING_ZONE_RADIUS_NM,
     SETUP_WIZARD_VERSION,
     SETUP_WIZARD_ENABLED,
     WELCOME_TITLE,
@@ -24,6 +27,8 @@ from .const import (
     UK_REG_PATTERN,
     US_REG_PATTERN,
     EU_REG_PATTERN,
+    CONF_OPENSKY_CLIENT_ID,
+    CONF_OPENSKY_CLIENT_SECRET,
 )
 from .utils.i18n import get_available_languages, get_distance_unit_options, get_action_options, get_unit_preference_options
 from .validation import (
@@ -958,6 +963,12 @@ class HangarAssistantConfigFlow(
         # Add airfield
         if self.wizard_state.airfield_data:
             airfield = self.wizard_state.airfield_data.copy()
+
+            # Apply default tracking zone radius for wizard-created airfields
+            airfield.setdefault(
+                "tracking_zone_radius_nm",
+                DEFAULT_TRACKING_ZONE_RADIUS_NM,
+            )
             
             # Add sensor links if provided
             for sensor_type, entity_id in (self.wizard_state.sensor_links or {}).items():
@@ -1049,6 +1060,21 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
         """Return the selected UI language (default 'en')."""
         return self._entry_data().get("settings", {}).get("language", "en")
 
+    def _integrations_dict(self) -> dict:
+        """Return integrations section as a safe dict.
+
+        Older or corrupted configs might store a non-dict value under
+        "integrations". This helper normalises that to an empty dict so
+        menu rendering never raises.
+        """
+        integrations = self._entry_data().get("integrations", {})
+        return integrations if isinstance(integrations, dict) else {}
+
+    def _get_integration_config(self, key: str) -> dict:
+        """Return a specific integration config block as a dict."""
+        block = self._integrations_dict().get(key, {})
+        return block if isinstance(block, dict) else {}
+
     async def async_step_init(self, _user_input=None):
         """Main configuration menu."""
         return self.async_show_menu(
@@ -1059,7 +1085,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 "aircraft",
                 "pilot",
                 "briefing",
-                "integrations",
+                "external_integrations",
                 "global_config"])
 
     async def async_step_global_config(self, _user_input=None):
@@ -1069,6 +1095,276 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             menu_options=["settings", "ai", "retention", "dashboard"]
         )
 
+    async def async_step_external_integrations(self, user_input=None):
+        """Configure external integrations (Weather, NOTAMs, ADS-B sources).
+
+        Provides simple toggles and credential/URL fields for all external data sources.
+        Stored under entry.data["integrations"] with sensible defaults and backward
+        compatibility for existing installs.
+        
+        Weather: OpenWeatherMap (paid), CheckWX (free METAR/TAF)
+        NOTAMs: UK NATS PIB XML feed (free)
+        ADS-B: dump1090, OpenSky, ADSBExchange, OGN, FlightAware, FlightRadar24
+        """
+        errors: dict[str, str] = {}
+        def _parse_opensky_credentials(raw_value: Any, existing: dict) -> tuple[dict, Optional[str]]:
+            """Parse OpenSky credential JSON from file upload or text input.
+
+            Accepts either a file selector payload (dict) or a raw JSON string.
+            Returns a tuple of (credentials_dict, error_code). Credentials are
+            normalised to client_id/client_secret keys and reuses existing
+            credentials if parsing fails so we never discard valid secrets.
+            """
+
+            def _existing_safe() -> dict:
+                return existing if isinstance(existing, dict) else {}
+
+            if raw_value in (None, ""):
+                return _existing_safe(), None
+
+            candidate = raw_value
+            if isinstance(raw_value, dict):
+                candidate = (
+                    raw_value.get("content")
+                    or raw_value.get("file")
+                    or raw_value.get("data")
+                    or raw_value.get("path")
+                )
+
+            if isinstance(candidate, (bytes, bytearray)):
+                candidate = candidate.decode("utf-8")
+
+            if not isinstance(candidate, str):
+                return _existing_safe(), "invalid_credentials_json"
+
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                return _existing_safe(), "invalid_credentials_json"
+
+            client_id = str(
+                parsed.get("clientId")
+                or parsed.get("client_id")
+                or parsed.get("clientID")
+                or ""
+            ).strip()
+            client_secret = str(
+                parsed.get("clientSecret")
+                or parsed.get("client_secret")
+                or parsed.get("clientSECRET")
+                or ""
+            ).strip()
+
+            if not client_id or not client_secret:
+                return _existing_safe(), "missing_credentials_fields"
+
+            return {
+                CONF_OPENSKY_CLIENT_ID: client_id,
+                CONF_OPENSKY_CLIENT_SECRET: client_secret,
+            }, None
+
+        if user_input is not None:
+            new_data = self._entry_data()
+            integrations = self._integrations_dict().copy()
+
+            # Weather integrations
+            owm_existing = self._get_integration_config("openweathermap")
+            checkwx_existing = self._get_integration_config("checkwx")
+            notam_existing = self._get_integration_config("notams")
+
+            integrations["openweathermap"] = {
+                "enabled": user_input.get("owm_enabled", False),
+                "api_key": user_input.get("owm_api_key", ""),
+                "consecutive_failures": owm_existing.get("consecutive_failures", 0),
+                "last_error": owm_existing.get("last_error"),
+                "last_success": owm_existing.get("last_success"),
+            }
+
+            integrations["checkwx"] = {
+                "enabled": user_input.get("checkwx_enabled", False),
+                "api_key": user_input.get("checkwx_api_key", ""),
+                "metar_enabled": user_input.get("checkwx_metar_enabled", True),
+                "taf_enabled": user_input.get("checkwx_taf_enabled", True),
+                "station_enabled": user_input.get("checkwx_station_enabled", True),
+                "consecutive_failures": checkwx_existing.get("consecutive_failures", 0),
+                "last_error": checkwx_existing.get("last_error"),
+            }
+
+            integrations["notams"] = {
+                "enabled": user_input.get("notam_enabled", True),
+                "url": user_input.get("notam_url", "https://pibs.nats.co.uk/operational/pibs/PIB.xml"),
+                "consecutive_failures": notam_existing.get("consecutive_failures", 0),
+                "last_error": notam_existing.get("last_error"),
+                "last_update": notam_existing.get("last_update"),
+                "stale_cache_allowed": notam_existing.get("stale_cache_allowed", True),
+            }
+
+            # ADS-B integrations
+            dump1090_existing = self._get_integration_config("dump1090")
+            opensky_existing = self._get_integration_config("opensky")
+            opensky_credentials_existing = (
+                opensky_existing.get("credentials", {})
+                if isinstance(opensky_existing, dict)
+                else {}
+            )
+            credentials_source = (
+                user_input.get("opensky_credentials_file")
+                if user_input.get("opensky_credentials_file") not in (None, "")
+                else user_input.get("opensky_credentials_json")
+            )
+            opensky_credentials, credentials_error = _parse_opensky_credentials(
+                credentials_source,
+                opensky_credentials_existing,
+            )
+            if credentials_error:
+                errors["opensky_credentials_file"] = credentials_error
+
+            adsb_existing = self._get_integration_config("adsbexchange")
+            ogn_existing = self._get_integration_config("ogn")
+            flightaware_existing = self._get_integration_config("flightaware")
+            flightradar_existing = self._get_integration_config("flightradar24")
+
+            integrations["dump1090"] = {
+                "enabled": user_input.get("dump1090_enabled", False),
+                "url": user_input.get("dump1090_url", "http://localhost:8080"),
+                "consecutive_failures": dump1090_existing.get("consecutive_failures", 0),
+                "last_error": dump1090_existing.get("last_error"),
+            }
+
+            integrations["opensky"] = {
+                "enabled": user_input.get("opensky_enabled", False),
+                "username": user_input.get("opensky_username", ""),
+                "password": user_input.get("opensky_password", ""),
+                "credentials": opensky_credentials,
+                "consecutive_failures": opensky_existing.get("consecutive_failures", 0),
+                "last_error": opensky_existing.get("last_error"),
+            }
+
+            integrations["adsbexchange"] = {
+                "enabled": user_input.get("adsb_enabled", False),
+                "api_key": user_input.get("adsb_api_key", ""),
+                "consecutive_failures": adsb_existing.get("consecutive_failures", 0),
+                "last_error": adsb_existing.get("last_error"),
+            }
+
+            integrations["ogn"] = {
+                "enabled": user_input.get("ogn_enabled", False),
+                "api_key": user_input.get("ogn_api_key", ""),
+                "consecutive_failures": ogn_existing.get("consecutive_failures", 0),
+                "last_error": ogn_existing.get("last_error"),
+            }
+
+            integrations["flightaware"] = {
+                "enabled": user_input.get("flightaware_enabled", False),
+                "api_key": user_input.get("flightaware_api_key", ""),
+                "consecutive_failures": flightaware_existing.get("consecutive_failures", 0),
+                "last_error": flightaware_existing.get("last_error"),
+            }
+
+            integrations["flightradar24"] = {
+                "enabled": user_input.get("flightradar_enabled", False),
+                "api_key": user_input.get("flightradar_api_key", ""),
+                "consecutive_failures": flightradar_existing.get("consecutive_failures", 0),
+                "last_error": flightradar_existing.get("last_error"),
+            }
+
+            if not errors:
+                new_data["integrations"] = integrations
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+                return self.async_abort(reason="configuration_updated")
+
+        integrations = self._integrations_dict()
+        owm = self._get_integration_config("openweathermap")
+        checkwx = self._get_integration_config("checkwx")
+        notams = self._get_integration_config("notams")
+        dump1090 = self._get_integration_config("dump1090")
+        opensky = self._get_integration_config("opensky")
+        adsb = self._get_integration_config("adsbexchange")
+        ogn = self._get_integration_config("ogn")
+        flightaware = self._get_integration_config("flightaware")
+        flightradar = self._get_integration_config("flightradar24")
+
+        # Backward compat: fall back to settings if integrations block missing
+        settings = self._entry_data().get("settings", {})
+        if not owm:
+            owm = {
+                "enabled": settings.get("openweathermap_enabled", False),
+                "api_key": settings.get("openweathermap_api_key", ""),
+            }
+        if not checkwx:
+            checkwx = {"enabled": False, "api_key": "", "metar_enabled": True, "taf_enabled": True, "station_enabled": True}
+        if not notams:
+            notams = {
+                "enabled": True if not integrations else False,
+                "url": "https://pibs.nats.co.uk/operational/pibs/PIB.xml",
+            }
+        if not dump1090:
+            dump1090 = {"enabled": False, "url": "http://localhost:8080"}
+        if not opensky:
+            opensky = {"enabled": False, "username": "", "password": "", "credentials": {}}
+        if not adsb:
+            adsb = {"enabled": False, "api_key": ""}
+        if not ogn:
+            ogn = {"enabled": False, "api_key": ""}
+        if not flightaware:
+            flightaware = {"enabled": False, "api_key": ""}
+        if not flightradar:
+            flightradar = {"enabled": False, "api_key": ""}
+
+        schema_dict = {
+            # Weather integrations (free: CheckWX, paid: OWM)
+            vol.Optional("checkwx_enabled", default=checkwx.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("checkwx_api_key", default=checkwx.get("api_key", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional("checkwx_metar_enabled", default=checkwx.get("metar_enabled", True)): selector.BooleanSelector(),
+            vol.Optional("checkwx_taf_enabled", default=checkwx.get("taf_enabled", True)): selector.BooleanSelector(),
+            vol.Optional("checkwx_station_enabled", default=checkwx.get("station_enabled", True)): selector.BooleanSelector(),
+            vol.Optional("owm_enabled", default=owm.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("owm_api_key", default=owm.get("api_key", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional("notam_enabled", default=notams.get("enabled", True)): selector.BooleanSelector(),
+            vol.Optional("notam_url", default=notams.get(
+                "url", "https://pibs.nats.co.uk/operational/pibs/PIB.xml")): selector.TextSelector(),
+            # ADS-B integrations (free: dump1090 local, OpenSky, OGN; paid: others)
+            vol.Optional("dump1090_enabled", default=dump1090.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("dump1090_url", default=dump1090.get("url", "http://localhost:8080")): selector.TextSelector(),
+            vol.Optional("opensky_enabled", default=opensky.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("opensky_username", default=opensky.get("username", "")): selector.TextSelector(),
+            vol.Optional("opensky_password", default=opensky.get("password", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional("opensky_credentials_file"): selector.FileSelector(
+                selector.FileSelectorConfig(accept="application/json")
+            ),
+            vol.Optional("opensky_credentials_json", default=""): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True, type=selector.TextSelectorType.TEXT)
+            ),
+            vol.Optional("adsb_enabled", default=adsb.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("adsb_api_key", default=adsb.get("api_key", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional("ogn_enabled", default=ogn.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("ogn_api_key", default=ogn.get("api_key", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional("flightaware_enabled", default=flightaware.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("flightaware_api_key", default=flightaware.get("api_key", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional("flightradar_enabled", default=flightradar.get("enabled", False)): selector.BooleanSelector(),
+            vol.Optional("flightradar_api_key", default=flightradar.get("api_key", "")): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+        }
+
+        return self.async_show_form(
+            step_id="external_integrations",
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+        )
+
     async def async_step_settings(self, user_input=None):
         """Configure global system settings."""
         if user_input is not None:
@@ -1076,7 +1372,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["settings"] = user_input
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         settings = self._entry_data().get("settings", {})
 
@@ -1147,17 +1443,6 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         mode=selector.SelectSelectorMode.DROPDOWN
                     )
                 ),
-                vol.Optional("openweathermap_api_key", default=settings.get("openweathermap_api_key", "")): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
-                vol.Optional("openweathermap_enabled", default=settings.get("openweathermap_enabled", False)): selector.BooleanSelector(),
-                vol.Optional("openweathermap_cache_enabled", default=settings.get("openweathermap_cache_enabled", True)): selector.BooleanSelector(),
-                vol.Optional("openweathermap_update_interval", default=settings.get("openweathermap_update_interval", 10)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=5, max=60, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min")
-                ),
-                vol.Optional("openweathermap_cache_ttl", default=settings.get("openweathermap_cache_ttl", 10)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=5, max=60, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min")
-                ),
             })
         )
 
@@ -1216,11 +1501,17 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 user_input["elevation"] = round(
                     user_input["elevation"] * 0.3048, 2)
 
+            # Ensure tracking zone radius always stored with default when missing
+            user_input["tracking_zone_radius_nm"] = user_input.get(
+                "tracking_zone_radius_nm",
+                DEFAULT_TRACKING_ZONE_RADIUS_NM,
+            )
+
             airfields.append(user_input)
             new_data["airfields"] = airfields
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="airfield_add",
@@ -1258,6 +1549,15 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                     step=1,
                     mode=selector.NumberSelectorMode.SLIDER,
                     unit_of_measurement="m"
+                )
+            ),
+            vol.Optional("tracking_zone_radius_nm", default=DEFAULT_TRACKING_ZONE_RADIUS_NM): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=25,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                    unit_of_measurement="nm"
                 )
             ),
             vol.Optional("temp_sensor"): selector.EntitySelector(
@@ -1344,11 +1644,17 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 user_input["elevation"] = round(
                     user_input["elevation"] * 0.3048, 2)
 
+            # Ensure tracking zone radius has a stored default
+            user_input["tracking_zone_radius_nm"] = user_input.get(
+                "tracking_zone_radius_nm",
+                DEFAULT_TRACKING_ZONE_RADIUS_NM,
+            )
+
             airfields[index] = user_input
             new_data["airfields"] = airfields
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="airfield_edit",
@@ -1381,6 +1687,18 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                         step=1,
                         mode=selector.NumberSelectorMode.SLIDER,
                         unit_of_measurement="m"
+                    )
+                ),
+                vol.Optional(
+                    "tracking_zone_radius_nm",
+                    default=airfield.get("tracking_zone_radius_nm", DEFAULT_TRACKING_ZONE_RADIUS_NM),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=25,
+                        step=1,
+                        mode=selector.NumberSelectorMode.SLIDER,
+                        unit_of_measurement="nm",
                     )
                 ),
                 vol.Optional("temp_sensor", default=airfield.get("temp_sensor")): selector.EntitySelector(
@@ -1427,7 +1745,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 new_data["airfields"] = airfields
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="airfield_delete",
@@ -1494,7 +1812,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.info(
                     "First hangar added. Users can optionally migrate aircraft to hangars.")
 
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="hangar_add",
@@ -1582,7 +1900,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["hangars"] = hangars
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         airfields = [
             a.get(
@@ -1628,7 +1946,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 new_data["hangars"] = hangars
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="hangar_delete",
@@ -1712,7 +2030,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["aircraft"] = fleet
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="aircraft_add",
@@ -1912,7 +2230,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["aircraft"] = fleet
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         airfields = [
             a.get(
@@ -2039,7 +2357,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 new_data["aircraft"] = fleet
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="aircraft_delete",
@@ -2080,7 +2398,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["pilots"] = pilots
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="pilot_add",
@@ -2150,7 +2468,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["pilots"] = new_pilots
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="pilot_edit",
@@ -2184,7 +2502,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 new_data["pilots"] = new_pilots
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="pilot_delete",
@@ -2210,7 +2528,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["ai_assistant"] = user_input
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         ai_config = self._entry_data().get("ai_assistant", {})
         use_custom = ai_config.get("use_custom_system_prompt", False)
@@ -2264,7 +2582,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["briefings"] = briefings
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         # Get existing airfields, aircraft, and pilots for selection
         airfields = [
@@ -2375,7 +2693,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
             new_data["briefings"] = new_briefings
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         # Get existing airfields, aircraft, and pilots for selection
         airfields = [
@@ -2463,7 +2781,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 new_data["briefings"] = new_briefings
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         return self.async_show_form(
             step_id="briefing_delete",
@@ -2515,7 +2833,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                 )
             if user_input.get("fire_setup_event", False):
                 self.hass.bus.async_fire("hangar_assistant_dashboard_setup")
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         # Get current dashboard info
         dashboard_info = self._entry_data().get("dashboard_info", {})
@@ -2549,7 +2867,7 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                     "retention_months", 7)}
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
+            return self.async_abort(reason="configuration_updated")
 
         retention_config = self._entry_data().get("retention", {})
 
@@ -2563,181 +2881,3 @@ class HangarOptionsFlowHandler(config_entries.OptionsFlow):
                             "retention_months", 7)): selector.NumberSelector(
                                 selector.NumberSelectorConfig(
                                     min=1, max=120, step=1, unit_of_measurement="months")), }))
-
-    # ========== Integrations Menu ==========
-
-    async def async_step_integrations(self, _user_input=None):
-        """Sub-menu for external integrations."""
-        return self.async_show_menu(
-            step_id="integrations",
-            menu_options=["integrations_openweathermap", "integrations_notams"]
-        )
-
-    async def async_step_integrations_openweathermap(self, user_input=None):
-        """Configure OpenWeatherMap integration."""
-        if user_input is not None:
-            new_data = self._entry_data()
-            if "integrations" not in new_data:
-                new_data["integrations"] = {}
-
-            new_data["integrations"]["openweathermap"] = {
-                "enabled": user_input.get(
-                    "enabled",
-                    False),
-                "api_key": user_input.get(
-                    "api_key",
-                    ""),
-                "cache_enabled": user_input.get(
-                    "cache_enabled",
-                    True),
-                "update_interval": user_input.get(
-                    "update_interval",
-                    10),
-                "cache_ttl": user_input.get(
-                    "cache_ttl",
-                    10),
-                "consecutive_failures": new_data.get(
-                    "integrations",
-                    {}).get(
-                    "openweathermap",
-                    {}).get(
-                    "consecutive_failures",
-                    0),
-                "last_error": new_data.get(
-                    "integrations",
-                    {}).get(
-                    "openweathermap",
-                    {}).get("last_error"),
-                "last_success": new_data.get(
-                    "integrations",
-                    {}).get(
-                    "openweathermap",
-                    {}).get("last_success")}
-
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
-
-        # Get current OWM config (check both locations for backward compat)
-        integrations = self._entry_data().get("integrations", {})
-        owm_config = integrations.get("openweathermap", {})
-
-        # If not in integrations, check old settings location
-        if not owm_config:
-            settings = self._entry_data().get("settings", {})
-            owm_config = {
-                "enabled": settings.get("openweathermap_enabled", False),
-                "api_key": settings.get("openweathermap_api_key", ""),
-                "cache_enabled": settings.get("openweathermap_cache_enabled", True),
-                "update_interval": settings.get("openweathermap_update_interval", 10),
-                "cache_ttl": settings.get("openweathermap_cache_ttl", 10)
-            }
-
-        # Build interval options
-        interval_options = [
-            selector.SelectOptionDict(value=5, label="5 minutes"),
-            selector.SelectOptionDict(value=10, label="10 minutes"),
-            selector.SelectOptionDict(value=15, label="15 minutes"),
-            selector.SelectOptionDict(value=30, label="30 minutes"),
-            selector.SelectOptionDict(value=60, label="60 minutes")
-        ]
-
-        ttl_options = [
-            selector.SelectOptionDict(value=5, label="5 minutes"),
-            selector.SelectOptionDict(value=10, label="10 minutes"),
-            selector.SelectOptionDict(value=15, label="15 minutes"),
-            selector.SelectOptionDict(value=30, label="30 minutes")
-        ]
-
-        return self.async_show_form(
-            step_id="integrations_openweathermap",
-            data_schema=vol.Schema({
-                vol.Required("enabled", default=owm_config.get("enabled", False)): selector.BooleanSelector(),
-                vol.Optional("api_key", default=owm_config.get("api_key", "")): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
-                vol.Optional("cache_enabled", default=owm_config.get("cache_enabled", True)): selector.BooleanSelector(),
-                vol.Optional("update_interval", default=owm_config.get("update_interval", 10)): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=interval_options, mode=selector.SelectSelectorMode.DROPDOWN)
-                ),
-                vol.Optional("cache_ttl", default=owm_config.get("cache_ttl", 10)): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=ttl_options, mode=selector.SelectSelectorMode.DROPDOWN)
-                ),
-            })
-        )
-
-    async def async_step_integrations_notams(self, user_input=None):
-        """Configure NOTAM integration."""
-        if user_input is not None:
-            new_data = self._entry_data()
-            if "integrations" not in new_data:
-                new_data["integrations"] = {}
-
-            new_data["integrations"]["notams"] = {
-                "enabled": user_input.get(
-                    "enabled",
-                    True),
-                "update_time": user_input.get(
-                    "update_time",
-                    "02:00"),
-                "cache_days": user_input.get(
-                    "cache_days",
-                    7),
-                "consecutive_failures": new_data.get(
-                    "integrations",
-                    {}).get(
-                        "notams",
-                        {}).get(
-                            "consecutive_failures",
-                            0),
-                "last_error": new_data.get(
-                    "integrations",
-                    {}).get(
-                    "notams",
-                    {}).get("last_error"),
-                "last_update": new_data.get(
-                    "integrations",
-                    {}).get(
-                    "notams",
-                    {}).get("last_update"),
-                "stale_cache_allowed": True}
-
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=new_data)
-            return self.async_create_entry(data=self._entry_options())
-
-        # Get current NOTAM config
-        integrations = self._entry_data().get("integrations", {})
-        notam_config = integrations.get("notams", {
-            "enabled": False,  # Default off for existing installs
-            "update_time": "02:00",
-            "cache_days": 7
-        })
-
-        # Check if this is a new install (no existing integrations)
-        is_new_install = not integrations
-        if is_new_install:
-            # Enable by default for new installs
-            notam_config["enabled"] = True
-
-        # Build cache retention options
-        cache_options = [
-            selector.SelectOptionDict(value=1, label="1 day"),
-            selector.SelectOptionDict(value=3, label="3 days"),
-            selector.SelectOptionDict(value=7, label="7 days"),
-            selector.SelectOptionDict(value=14, label="14 days"),
-            selector.SelectOptionDict(value=30, label="30 days")
-        ]
-
-        return self.async_show_form(
-            step_id="integrations_notams", data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "enabled", default=notam_config.get(
-                            "enabled", False)): selector.BooleanSelector(), vol.Optional(
-                        "update_time", default=notam_config.get(
-                            "update_time", "02:00")): selector.TimeSelector(), vol.Optional(
-                                "cache_days", default=notam_config.get(
-                                    "cache_days", 7)): selector.SelectSelector(
-                                        selector.SelectSelectorConfig(
-                                            options=cache_options, mode=selector.SelectSelectorMode.DROPDOWN)), }))

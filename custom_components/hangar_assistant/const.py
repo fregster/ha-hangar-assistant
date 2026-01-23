@@ -37,8 +37,14 @@ DEFAULT_SATURATION_SPREAD_C = 3
 # Sensor value caching (performance optimization)
 DEFAULT_SENSOR_CACHE_TTL_SECONDS = 60  # 1 minute default cache TTL
 
+# AI briefing caching (token conservation & rate limiting)
+DEFAULT_AI_BRIEFING_CACHE_TTL_SECONDS = 3600  # 1 hour default (prevents token exhaustion)
+DEFAULT_AI_BRIEFING_MIN_INTERVAL_SECONDS = 60  # Minimum 1 minute between requests
+DEFAULT_AI_BRIEFING_STALE_HOURS = 2  # Alert if briefing older than 2 hours
+
 # NOTAM filtering defaults
 DEFAULT_NOTAM_RADIUS_NM = 50  # Default radius for NOTAM filtering
+DEFAULT_TRACKING_ZONE_RADIUS_NM = 6  # Default tracking zone radius per airfield (nm)
 
 # Unit preferences
 UNIT_PREFERENCE_AVIATION = "aviation"  # Feet, knots, pounds
@@ -174,6 +180,9 @@ CONF_DUMP1090_TIMEOUT = "dump1090_timeout"
 CONF_OPENSKY_ENABLED = "opensky_enabled"
 CONF_OPENSKY_USERNAME = "opensky_username"
 CONF_OPENSKY_PASSWORD = "opensky_password"
+CONF_OPENSKY_CREDENTIALS = "opensky_credentials"  # Client credential JSON (client_id/client_secret)
+CONF_OPENSKY_CLIENT_ID = "client_id"
+CONF_OPENSKY_CLIENT_SECRET = "client_secret"
 CONF_OPENSKY_RATE_LIMIT_ANONYMOUS = "opensky_rate_limit_anonymous"
 CONF_OPENSKY_RATE_LIMIT_AUTH = "opensky_rate_limit_auth"
 

@@ -177,6 +177,11 @@ class TestExceptionHandlingQuality:
     @pytest.mark.asyncio
     async def test_ai_briefing_retry_retries_on_no_response(self):
         """Test that briefing retry attempts multiple times on no response."""
+        # Clear cache state from previous tests
+        from custom_components.hangar_assistant import _AI_BRIEFING_CACHE, _AI_BRIEFING_LAST_REQUEST
+        _AI_BRIEFING_CACHE.clear()
+        _AI_BRIEFING_LAST_REQUEST.clear()
+        
         mock_hass = MagicMock()
         mock_hass.services.async_call = AsyncMock(return_value=None)
 
@@ -184,7 +189,7 @@ class TestExceptionHandlingQuality:
             result = await _request_ai_briefing_with_retry(
                 mock_hass,
                 "conversation.openai",
-                "test_airfield",
+                "unique_test_airfield_1",
                 "test prompt"
             )
 
@@ -195,7 +200,14 @@ class TestExceptionHandlingQuality:
     @pytest.mark.asyncio
     async def test_ai_briefing_retry_succeeds_with_valid_response(self):
         """Test that briefing retry succeeds with valid response."""
+        # Clear cache state from previous tests
+        from custom_components.hangar_assistant import _AI_BRIEFING_CACHE, _AI_BRIEFING_LAST_REQUEST
+        _AI_BRIEFING_CACHE.clear()
+        _AI_BRIEFING_LAST_REQUEST.clear()
+        
         mock_hass = MagicMock()
+        mock_hass.bus = MagicMock()
+        mock_hass.bus.async_fire = MagicMock()
         mock_hass.services.async_call = AsyncMock(
             return_value={
                 "response": {
@@ -211,7 +223,7 @@ class TestExceptionHandlingQuality:
         result = await _request_ai_briefing_with_retry(
             mock_hass,
             "conversation.openai",
-            "test_airfield",
+            "unique_test_airfield_2",
             "test prompt"
         )
 
@@ -378,6 +390,11 @@ class TestAsyncAwaitHygiene:
     @pytest.mark.asyncio
     async def test_ai_briefing_retry_awaits_service_call(self):
         """Test that retry function awaits the service call."""
+        # Clear cache state from previous tests
+        from custom_components.hangar_assistant import _AI_BRIEFING_CACHE, _AI_BRIEFING_LAST_REQUEST
+        _AI_BRIEFING_CACHE.clear()
+        _AI_BRIEFING_LAST_REQUEST.clear()
+        
         mock_hass = MagicMock()
         mock_hass.services.async_call = AsyncMock(return_value=None)
 
@@ -387,7 +404,7 @@ class TestAsyncAwaitHygiene:
             result = await _request_ai_briefing_with_retry(
                 mock_hass,
                 "test_agent",
-                "test_airfield",
+                "unique_test_airfield_3",
                 "test"
             )
 

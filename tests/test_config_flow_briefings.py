@@ -182,7 +182,7 @@ def test_briefing_add_creates_new_briefing(mock_entry_no_briefings):
     import asyncio
     result = asyncio.run(handler.async_step_briefing_add(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Verify async_update_entry was called
     mock_hass.config_entries.async_update_entry.assert_called_once()
     # Verify briefing was added (check the call args)
@@ -302,7 +302,7 @@ def test_briefing_edit_updates_existing_briefing(mock_entry_with_briefings):
     import asyncio
     result = asyncio.run(handler.async_step_briefing_edit(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Verify async_update_entry was called
     mock_hass.config_entries.async_update_entry.assert_called_once()
     # Verify briefing was updated (check the call args)
@@ -346,7 +346,7 @@ def test_briefing_delete_confirms_and_removes_briefing(mock_entry_with_briefings
     import asyncio
     result = asyncio.run(handler.async_step_briefing_delete(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Verify async_update_entry was called
     mock_hass.config_entries.async_update_entry.assert_called_once()
     # Verify briefing was deleted (check the call args)
@@ -385,7 +385,7 @@ def test_briefing_delete_cancels_without_confirmation(mock_entry_with_briefings)
     import asyncio
     result = asyncio.run(handler.async_step_briefing_delete(user_input))
     
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # When confirmation is False, async_update_entry should NOT be called
     mock_hass.config_entries.async_update_entry.assert_not_called()
 

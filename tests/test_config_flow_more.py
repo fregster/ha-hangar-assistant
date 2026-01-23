@@ -41,7 +41,7 @@ async def test_ai_prompt_save_updates_entry():
         "custom_system_prompt": "Custom prompt here",
     }
     result = await handler.async_step_ai(user_input=user_input)
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Ensure update_entry called with ai_assistant data
     args, kwargs = handler.hass.config_entries.async_update_entry.call_args
     updated_entry, = args
@@ -96,7 +96,7 @@ async def test_airfield_add_validation_errors_then_success_with_conversions():
         "runway_length": 1640.4,  # 500 m in ft before conversion
     }
     result = await handler.async_step_airfield_add(user_input=good_input)
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Validate conversion applied in update call
     args, kwargs = handler.hass.config_entries.async_update_entry.call_args
     data = kwargs["data"]
@@ -136,6 +136,6 @@ async def test_dashboard_recreate_calls_async_create_dashboard():
     # Make executor job awaitable to avoid real I/O during dashboard creation
     handler.hass.async_add_executor_job = AsyncMock(return_value=True)
     result = await handler.async_step_dashboard(user_input={"recreate_dashboard": True})
-    assert result["type"] == "create_entry"
+    assert result["type"] == "abort"
     # Ensure creation attempted
     assert handler.hass.async_add_executor_job.await_count == 1

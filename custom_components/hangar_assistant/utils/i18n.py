@@ -67,8 +67,8 @@ def get_available_languages() -> List[Tuple[str, str]]:
         "fr": "Français",
     }
 
-    # Get the path to the translations directory
-    translations_dir = Path(__file__).parent / "translations"
+    # Get the path to the translations directory (sibling to utils)
+    translations_dir = Path(__file__).resolve().parent.parent / "translations"
 
     available_langs = []
     for lang_file in sorted(translations_dir.glob("*.json")):

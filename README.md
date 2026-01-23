@@ -63,6 +63,12 @@ Every airfield you add creates a **Master Safety Alert**. This sensor will turn 
 ## �📊 Dashboard Integration
 We recommend using the **Mushroom Card** pack or the **Pilot's Dashboard YAML** provided in our documentation to create a dedicated aviation tab in your Home Assistant.
 
+### Dashboard dependencies (custom cards)
+- **auto-entities** (custom card by thomasloven) 013 required for the ADS-B and dynamic lists in the supplied dashboards. Install via HACS 013 Frontend 013 search for "Auto Entities" and ensure the resource `/hacsfiles/auto-entities/auto-entities.js` is loaded as a module. If you see **"Custom element doesn't exist: auto-entities"**, this card is missing.
+- **Mushroom** cards pack for the standard UI components.
+
+Tip: after installing custom cards, reload dashboard resources (Settings 013 Dashboards 013 three dots 013 Reload Resources) or restart Home Assistant.
+
 ---
 
 ## 🛡️ Legal & Privacy

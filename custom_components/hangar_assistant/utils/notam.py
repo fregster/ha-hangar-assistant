@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from concurrent.futures import Future as ConcurrentFuture
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -89,6 +90,11 @@ class NOTAMClient:
         self.cache_dir = cache_root
         self.cache_file = self.cache_dir / "notams.json"
 
+    def _helpers_available(self) -> bool:
+        """Return True when Home Assistant aiohttp helpers are ready."""
+        helpers = getattr(self.hass, "helpers", None)
+        return bool(helpers) and hasattr(helpers, "aiohttp_client")
+
     async def _run_io(self, func):
         """Run blocking I/O safely even when hass mock lacks executor."""
         runner = getattr(self.hass, "async_add_executor_job", None)
@@ -99,6 +105,8 @@ class NOTAMClient:
             result = runner(func)
             if asyncio.iscoroutine(result):
                 return await result
+            if asyncio.isfuture(result) or isinstance(result, ConcurrentFuture):
+                return await asyncio.wrap_future(result)
             return result
 
         loop = asyncio.get_running_loop()
@@ -121,6 +129,25 @@ class NOTAMClient:
         cached = await self._read_cache()
         if cached:
             return cached, False
+
+        # If HA helpers are not available (early startup), fall back to cache quietly
+        if not self._helpers_available():
+            _LOGGER.warning(
+                "Home Assistant helpers not ready; using cached NOTAMs if available")
+            await self._increment_failure_counter("helpers_missing")
+
+            if cached:
+                return cached, True
+
+            stale_cache = await self._read_stale_cache()
+            if stale_cache:
+                cache_age = await self._get_cache_age_hours()
+                _LOGGER.warning(
+                    "Using stale NOTAM cache (%d hours old) while helpers initialise",
+                    cache_age)
+                return stale_cache, True
+
+            return [], True
 
         # Try fetching fresh data
         try:
@@ -168,7 +195,11 @@ class NOTAMClient:
         Raises:
             Exception: On network or parsing errors
         """
-        session = self.hass.helpers.aiohttp_client.async_get_clientsession()
+        helpers = getattr(self.hass, "helpers", None)
+        if helpers is None or not hasattr(helpers, "aiohttp_client"):
+            raise RuntimeError("helpers_missing")
+
+        session = helpers.aiohttp_client.async_get_clientsession()
 
         async with session.get(NATS_PIB_URL, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
             if response.status == 200:
@@ -488,9 +519,8 @@ class NOTAMClient:
 
         result = await self._run_io(_read_sync)
         if result:
-            _LOGGER.debug(
-                "NOTAM cache hit (age: %d hours)",
-                await self._get_cache_age_hours())
+            cache_age = await self._get_cache_age_hours()
+            _LOGGER.debug("NOTAM cache hit (age: %d hours)", cache_age)
         else:
             _LOGGER.debug("NOTAM cache miss or expired")
         return result

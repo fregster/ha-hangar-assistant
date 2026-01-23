@@ -16,7 +16,7 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS, DEFAULT_DASHBOARD_VERSION, DEFAULT_NOTAM_RADIUS_NM
+from .const import DOMAIN, PLATFORMS, DEFAULT_RETENTION_MONTHS, DEFAULT_DASHBOARD_VERSION, DEFAULT_NOTAM_RADIUS_NM, DEFAULT_AI_BRIEFING_CACHE_TTL_SECONDS, DEFAULT_AI_BRIEFING_MIN_INTERVAL_SECONDS
 from .utils.qcode_parser import parse_qcode, sort_notams_by_criticality, get_criticality_emoji, NOTAMCriticality
 from .utils.forecast_analysis import (
     calculate_sunset_sunrise,
@@ -33,6 +33,13 @@ _TEMPLATE_MODIFIED_TIME: float | None = None
 # Backwards-compatible aliases for performance tests
 _dashboard_template_cache = _DASHBOARD_TEMPLATE_CACHE
 _dashboard_template_mtime = _TEMPLATE_MODIFIED_TIME
+
+# AI briefing cache to prevent token exhaustion (rate limiting)
+# Key: airfield_name, Value: (briefing_text, timestamp)
+_AI_BRIEFING_CACHE: dict[str, tuple[str, float]] = {}
+_AI_BRIEFING_CACHE_TTL_SECONDS = DEFAULT_AI_BRIEFING_CACHE_TTL_SECONDS
+_AI_BRIEFING_LAST_REQUEST: dict[str, float] = {}  # Track last request time per airfield
+_AI_BRIEFING_MIN_INTERVAL_SECONDS = DEFAULT_AI_BRIEFING_MIN_INTERVAL_SECONDS
 
 
 def _load_integration_version() -> str:
@@ -307,8 +314,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 "⚠️ Dashboard rebuild completed but may not have created/updated the file")
 
     async def handle_refresh_ai_briefings(call: ServiceCall) -> None:
-        """Service to manually refresh AI pre-flight briefings."""
+        """Service to manually refresh AI pre-flight briefings.
+        
+        Manual refresh clears cache to ensure fresh briefings.
+        Use when conditions have changed significantly or for immediate updates.
+        """
         _LOGGER.info("Manual AI briefing refresh requested")
+        
+        # Clear cache to force fresh generation
+        _AI_BRIEFING_CACHE.clear()
+        _AI_BRIEFING_LAST_REQUEST.clear()
+        _LOGGER.debug("Cleared AI briefing cache for forced refresh")
+        
         entries = hass.config_entries.async_entries(DOMAIN)
         for entry in entries:
             await async_generate_all_ai_briefings(hass, entry)
@@ -1333,6 +1350,11 @@ async def _request_ai_briefing_with_retry(
 ) -> bool:
     """Request AI briefing for an airfield with exponential backoff retry.
 
+    Implements rate limiting to prevent token exhaustion:
+    - Checks cache for recent briefings (default: 15 minutes TTL)
+    - Prevents duplicate requests within minimum interval
+    - Reuses cached briefings when valid
+
     Attempts to call the conversation.process service up to 3 times with
     exponential backoff on failure. Fires hangar_assistant_ai_briefing event
     on success.
@@ -1348,8 +1370,60 @@ async def _request_ai_briefing_with_retry(
     """
     import asyncio
 
+    # Check cache first to prevent excessive API calls
+    current_time = time.time()
+    if airfield_name in _AI_BRIEFING_CACHE:
+        cached_text, cached_time = _AI_BRIEFING_CACHE[airfield_name]
+        age_seconds = current_time - cached_time
+        
+        # Always return cached briefing if available (briefing shows its generation time)
+        # Only fetch new briefing if minimum interval has passed
+        _LOGGER.debug(
+            "Using cached AI briefing for %s (age: %.1f minutes)",
+            airfield_name,
+            age_seconds / 60
+        )
+        # Fire event with cached data
+        hass.bus.async_fire("hangar_assistant_ai_briefing", {
+            "airfield_name": airfield_name,
+            "text": cached_text
+        })
+        
+        # If cache is recent (< TTL), don't make new request
+        if age_seconds < _AI_BRIEFING_CACHE_TTL_SECONDS:
+            return True
+    
+    # Check minimum request interval to prevent rapid-fire calls
+    if airfield_name in _AI_BRIEFING_LAST_REQUEST:
+        last_request = _AI_BRIEFING_LAST_REQUEST[airfield_name]
+        time_since_last = current_time - last_request
+        min_interval = _AI_BRIEFING_MIN_INTERVAL_SECONDS
+        
+        if time_since_last < min_interval:
+            _LOGGER.warning(
+                "AI briefing request for %s blocked: only %.1f seconds since last request (minimum: %d seconds)",
+                airfield_name,
+                time_since_last,
+                min_interval
+            )
+            return False
+    
+    # Record request time
+    _AI_BRIEFING_LAST_REQUEST[airfield_name] = current_time
+
     MAX_RETRIES = 3
     BACKOFF_SECONDS = 60
+
+    def _emit_failure(reason: str) -> None:
+        """Notify listeners that briefing generation failed."""
+        hass.bus.async_fire(
+            "hangar_assistant_ai_briefing_failure",
+            {
+                "airfield_name": airfield_name,
+                "error": reason,
+                "status": "unavailable",
+            },
+        )
 
     for retry in range(MAX_RETRIES):
         try:
@@ -1373,6 +1447,15 @@ async def _request_ai_briefing_with_retry(
             if result and "response" in result:
                 try:
                     response_text = result["response"]["speech"]["plain"]["speech"]
+                    
+                    # Cache the successful response
+                    _AI_BRIEFING_CACHE[airfield_name] = (response_text, time.time())
+                    _LOGGER.debug(
+                        "Cached AI briefing for %s (TTL: %d minutes)",
+                        airfield_name,
+                        _AI_BRIEFING_CACHE_TTL_SECONDS // 60
+                    )
+                    
                     # Fire event that the sensors are listening for
                     hass.bus.async_fire("hangar_assistant_ai_briefing", {
                         "airfield_name": airfield_name,
@@ -1402,10 +1485,9 @@ async def _request_ai_briefing_with_retry(
                         wait_time)
                     await asyncio.sleep(wait_time)
                 else:
-                    _LOGGER.error(
-                        "AI briefing failed for %s after %d attempts",
-                        airfield_name,
-                        MAX_RETRIES)
+                    reason = f"No response from AI agent after {MAX_RETRIES} attempts"
+                    _LOGGER.error("AI briefing failed for %s: %s", airfield_name, reason)
+                    _emit_failure(reason)
                     return False
         except Exception as e:
             _LOGGER.error(
@@ -1423,12 +1505,12 @@ async def _request_ai_briefing_with_retry(
                     wait_time)
                 await asyncio.sleep(wait_time)
             else:
-                _LOGGER.error(
-                    "AI briefing failed for %s after %d attempts",
-                    airfield_name,
-                    MAX_RETRIES)
+                reason = f"Error after {MAX_RETRIES} attempts: {e}"
+                _LOGGER.error("AI briefing failed for %s: %s", airfield_name, reason)
+                _emit_failure(reason)
                 return False
 
+    _emit_failure("Unknown AI briefing failure")
     return False
 
 

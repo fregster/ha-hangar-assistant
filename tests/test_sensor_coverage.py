@@ -448,6 +448,31 @@ class TestAIBriefingSensor:
 
         assert sensor._attr_icon == "mdi:robot"
 
+    def test_sensor_marks_unavailable_on_failure(self, mock_hass):
+        """Test sensor switches to Unavailable when AI briefing fails.
+        
+        Validates failure handling path used when API limits are exceeded.
+        
+        Validation:
+            - status set to "Unavailable"
+            - error message preserved in attributes
+        
+        Expected Result:
+            Sensor exposes clear unavailable state with diagnostic text
+            prompting user action or retry once limits reset.
+        """
+        config = {"name": "Test Airfield"}
+        sensor = AIBriefingSensor(mock_hass, config)
+
+        sensor.async_write_ha_state = MagicMock()
+
+        sensor.async_mark_unavailable("API limit exceeded")
+
+        assert sensor.native_value == "Unavailable"
+        attrs = sensor.extra_state_attributes
+        assert attrs.get("status") == "Unavailable"
+        assert "API limit exceeded" in attrs.get("error", "")
+
 
 class TestDensityAltitudeBanner:
     """Test suite for density altitude warning banners.

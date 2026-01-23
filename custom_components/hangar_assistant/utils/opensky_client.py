@@ -88,6 +88,8 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     ADSB_PRIORITY_OPENSKY,
+    CONF_OPENSKY_CLIENT_ID,
+    CONF_OPENSKY_CLIENT_SECRET,
     DEFAULT_OPENSKY_ANONYMOUS_CREDITS_PER_DAY,
     DEFAULT_OPENSKY_AUTH_CREDITS_PER_DAY,
 )
@@ -140,9 +142,43 @@ class OpenSkyClient(ADSBClientBase):
             config: Configuration dictionary with optional 'username' and 'password'
         """
         # Determine if authenticated (affects cache TTL and rate limits)
+        credentials = config.get("credentials") if isinstance(config, dict) else {}
+        client_id = None
+        client_secret = None
+        if isinstance(credentials, dict):
+            client_id = credentials.get(CONF_OPENSKY_CLIENT_ID) or credentials.get("clientId")
+            client_secret = credentials.get(CONF_OPENSKY_CLIENT_SECRET) or credentials.get("clientSecret")
+
         username = config.get("username")
         password = config.get("password")
-        self._is_authenticated = bool(username and password)
+        self._credentials: Dict[str, Optional[str]] = {}
+        self._auth_mode = "anonymous"
+        self._is_authenticated = False
+
+        auth_username: Optional[str] = None
+        auth_password: Optional[str] = None
+
+        if client_id and client_secret:
+            self._is_authenticated = True
+            self._auth_mode = "client_credentials"
+            auth_username = str(client_id)
+            auth_password = str(client_secret)
+            self._credentials = {
+                CONF_OPENSKY_CLIENT_ID: auth_username,
+                CONF_OPENSKY_CLIENT_SECRET: auth_password,
+            }
+            self._username = None
+            self._password = None
+        elif username and password:
+            self._is_authenticated = True
+            self._auth_mode = "basic"
+            auth_username = username
+            auth_password = password
+            self._username = username
+            self._password = password
+        else:
+            self._username = None
+            self._password = None
         
         # Set cache TTL based on authentication (authenticated = faster updates)
         cache_ttl = 30 if self._is_authenticated else 60
@@ -172,12 +208,12 @@ class OpenSkyClient(ADSBClientBase):
         
         # Build authentication
         self._auth = None
-        if self._is_authenticated:
-            self._auth = aiohttp.BasicAuth(self._username, self._password)
+        if self._is_authenticated and auth_username and auth_password:
+            self._auth = aiohttp.BasicAuth(auth_username, auth_password)
         
         _LOGGER.debug(
             "Initialised OpenSky Network client: %s (priority=%d, limit=%d credits/day)",
-            "authenticated" if self._is_authenticated else "anonymous",
+            self._auth_mode,
             self.priority,
             self._daily_limit
         )

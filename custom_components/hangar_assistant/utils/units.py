@@ -177,9 +177,9 @@ def get_weight_unit(preference: str = "aviation") -> str:
         preference: Unit preference ('aviation' or 'si')
 
     Returns:
-        Unit string: 'lbs' for aviation, 'kg' for SI
+        Unit string: 'lb' for aviation, 'kg' for SI
     """
-    return "lbs" if preference == "aviation" else "kg"
+    return "lb" if preference == "aviation" else "kg"
 
 
 # Fuel volume conversion factors

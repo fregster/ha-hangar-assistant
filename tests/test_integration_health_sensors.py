@@ -32,6 +32,7 @@ from custom_components.hangar_assistant.binary_sensor import (
     IntegrationHealthSensor,
     NOTAMStalenessWarning,
 )
+from custom_components.hangar_assistant.sensor import IntegrationStatusSensor
 
 
 @pytest.fixture
@@ -138,6 +139,40 @@ def critical_config_entry():
                 "last_error": "Network timeout",
                 "last_update": (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat(),
             }
+        }
+    }
+    return entry
+
+
+@pytest.fixture
+def status_config_entry():
+    """Create a config entry for per-integration status sensors.
+
+    Provides scenarios covering enabled/disabled and failure states for
+    OpenWeatherMap and NOTAM integrations so that the status sensor state
+    transitions can be validated deterministically.
+
+    Returns:
+        MagicMock: Config entry with integration metadata
+    """
+    entry = MagicMock()
+    entry.data = {
+        "integrations": {
+            "openweathermap": {
+                "enabled": True,
+                "consecutive_failures": 0,
+                "last_success": datetime.now(timezone.utc).isoformat(),
+            },
+            "notams": {
+                "enabled": True,
+                "consecutive_failures": 2,
+                "last_error": "HTTP 500",
+                "last_update": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+            },
+            "checkwx": {
+                "enabled": False,
+                "consecutive_failures": 0,
+            },
         }
     }
     return entry
@@ -569,3 +604,213 @@ def test_notam_staleness_handles_disabled_integration(mock_hass):
     attrs = sensor.extra_state_attributes
     # When disabled, sensor returns False and attributes show no failures
     assert attrs["consecutive_failures"] == 0
+
+
+def test_integration_status_sensor_states(mock_hass, status_config_entry):
+    """Test per-integration status sensor states map to config data.
+    
+    Scenario:
+        - OpenWeatherMap enabled with zero failures → Working
+        - NOTAM enabled with failures → Problem
+        - CheckWX disabled → Disabled
+    
+    Validation:
+        - native_value reflects enabled flag and failure count
+        - Attributes expose troubleshooting details for failing integration
+    
+    Expected Result:
+        Clear status values for each integration with diagnostic attributes.
+    """
+    owm_sensor = IntegrationStatusSensor(mock_hass, status_config_entry, "openweathermap")
+    notam_sensor = IntegrationStatusSensor(mock_hass, status_config_entry, "notams")
+    checkwx_sensor = IntegrationStatusSensor(mock_hass, status_config_entry, "checkwx")
+
+    assert owm_sensor.native_value == "Working"
+    assert notam_sensor.native_value == "Problem"
+    assert checkwx_sensor.native_value == "Disabled"
+
+    notam_attrs = notam_sensor.extra_state_attributes
+    assert notam_attrs["consecutive_failures"] == 2
+    assert notam_attrs["last_error"] == "HTTP 500"
+
+
+def test_integration_status_sensor_never_succeeded(mock_hass):
+    """Test that integration shows Problem if it has never succeeded.
+    
+    Scenario:
+        - Integration enabled with zero failures
+        - last_success is None (API call has never succeeded)
+    
+    Validation:
+        - Status shows "Problem" instead of "Working"
+        - Attributes show last_success as None
+    
+    Expected Result:
+        Pilot can see at a glance that the API has never succeeded, despite
+        no recorded failures yet.
+    """
+    entry = MagicMock()
+    entry.data = {
+        "integrations": {
+            "opensky": {
+                "enabled": True,
+                "consecutive_failures": 0,
+                "last_success": None,  # Never succeeded
+            }
+        }
+    }
+    
+    sensor = IntegrationStatusSensor(mock_hass, entry, "opensky")
+    
+    assert sensor.native_value == "Problem"
+    assert sensor.extra_state_attributes["last_success"] is None
+
+
+def test_integration_status_sensor_stale_success(mock_hass):
+    """Test that integration shows Problem if last success was too long ago.
+    
+    Scenario:
+        - Integration enabled with zero failures
+        - last_success exists but is > 1 hour old
+    
+    Validation:
+        - Status shows "Problem" instead of "Working"
+        - Indicates integration may not be functioning despite no recent failures
+    
+    Expected Result:
+        Stale data is not considered "Working"; user sees potential issue.
+    """
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    
+    entry = MagicMock()
+    entry.data = {
+        "integrations": {
+            "checkwx": {
+                "enabled": True,
+                "consecutive_failures": 0,
+                "last_success": stale_time.isoformat(),  # 2 hours ago
+            }
+        }
+    }
+    
+    sensor = IntegrationStatusSensor(mock_hass, entry, "checkwx")
+    
+    assert sensor.native_value == "Problem"
+
+
+def test_integration_status_sensor_recent_success(mock_hass):
+    """Test that integration shows Working if last success was recent.
+    
+    Scenario:
+        - Integration enabled with zero failures
+        - last_success is recent (< 1 hour)
+    
+    Validation:
+        - Status shows "Working"
+    
+    Expected Result:
+        Recently-updated integration shows as healthy.
+    """
+    recent_time = datetime.now(timezone.utc) - timedelta(minutes=30)
+    
+    entry = MagicMock()
+    entry.data = {
+        "integrations": {
+            "openweathermap": {
+                "enabled": True,
+                "consecutive_failures": 0,
+                "last_success": recent_time.isoformat(),
+            }
+        }
+    }
+    
+    sensor = IntegrationStatusSensor(mock_hass, entry, "openweathermap")
+    
+    assert sensor.native_value == "Working"
+
+
+def test_integration_status_sensor_created_for_default_keys(mock_hass):
+    """Test status sensors create even when integrations dict missing keys.
+    
+    Ensures legacy installs without explicit integrations section still get
+    status sensors (defaulting to Disabled) so the device shows all states.
+    """
+    entry = MagicMock()
+    entry.data = {
+        # No integrations namespace present
+        "settings": {"openweathermap_enabled": False},
+    }
+
+    # Simulate async_setup_entry loop logic
+    created = []
+    integration_configs = entry.data.get("integrations", {}) if isinstance(entry.data, dict) else {}
+    settings_dict = entry.data.get("settings", {}) if isinstance(entry.data, dict) else {}
+    if isinstance(settings_dict, dict):
+        if "openweathermap" not in integration_configs and (
+            settings_dict.get("openweathermap_enabled") is not None
+            or settings_dict.get("openweathermap_api_key")
+        ):
+            integration_configs = {
+                **integration_configs,
+                "openweathermap": {
+                    "enabled": bool(settings_dict.get("openweathermap_enabled", False)),
+                    "consecutive_failures": 0,
+                },
+            }
+    known_integration_keys = (
+        "openweathermap",
+        "notams",
+        "checkwx",
+        "dump1090",
+        "opensky",
+        "adsbexchange",
+        "ogn",
+        "flightaware",
+        "flightradar24",
+    )
+
+    for known_key in known_integration_keys:
+        integration_configs.setdefault(known_key, {})
+
+    for integration_key, integration_config in sorted(integration_configs.items()):
+        if isinstance(integration_config, dict):
+            created.append(IntegrationStatusSensor(mock_hass, entry, integration_key))
+
+    names = {sensor._attr_unique_id for sensor in created}
+    expected = {
+        f"hangar_assistant_{key}_status" for key in known_integration_keys
+    }
+    assert expected.issubset(names)
+
+
+def test_integration_status_sensor_friendly_name_fallback(mock_hass):
+    """Test status sensor uses title-cased fallback for unknown integrations.
+    
+    Setup:
+        - Integration key not in friendly name map
+        - Integration has recent last_success
+    
+    Validation:
+        - name property title-cases the key and appends "Status"
+        - native_value returns Working when enabled with no failures and recent success
+    
+    Expected Result:
+        Unknown integrations still present readable names and states.
+    """
+    recent_time = datetime.now(timezone.utc) - timedelta(minutes=15)
+    
+    entry = MagicMock()
+    entry.data = {
+        "integrations": {
+            "custom_api": {
+                "enabled": True,
+                "consecutive_failures": 0,
+                "last_success": recent_time.isoformat(),
+            }
+        }
+    }
+
+    sensor = IntegrationStatusSensor(mock_hass, entry, "custom_api")
+
+    assert sensor._attr_name == "Custom Api Status"
+    assert sensor.native_value == "Working"

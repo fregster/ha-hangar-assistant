@@ -163,6 +163,51 @@ async def async_setup_entry(
     # 4. Add global integration health sensor
     entities.append(IntegrationHealthSensor(hass, entry, global_settings))
 
+    # 5. Add per-integration status sensors (Disabled/Working/Problem)
+    integration_configs = entry.data.get("integrations", {}) if isinstance(entry.data, dict) else {}
+
+    # Backward compatibility: derive integration configs from legacy settings when missing
+    settings_dict = entry.data.get("settings", {}) if isinstance(entry.data, dict) else {}
+    if isinstance(settings_dict, dict):
+        if "openweathermap" not in integration_configs and (
+            settings_dict.get("openweathermap_enabled") is not None
+            or settings_dict.get("openweathermap_api_key")
+        ):
+            integration_configs = {
+                **integration_configs,
+                "openweathermap": {
+                    "enabled": bool(settings_dict.get("openweathermap_enabled", False)),
+                    "consecutive_failures": 0,
+                },
+            }
+
+    # Ensure known integrations always surface a status sensor (Disabled by default)
+    known_integration_keys = (
+        "openweathermap",
+        "notams",
+        "checkwx",
+        "dump1090",
+        "opensky",
+        "adsbexchange",
+        "ogn",
+        "flightaware",
+        "flightradar24",
+    )
+
+    for known_key in known_integration_keys:
+        integration_configs.setdefault(known_key, {})
+
+    for integration_key, integration_config in sorted(integration_configs.items()):
+        # Only add sensors for dict-like integration configs
+        if isinstance(integration_config, dict):
+            entities.append(
+                IntegrationStatusSensor(
+                    hass,
+                    entry,
+                    integration_key,
+                )
+            )
+
     # Add all generated entities to the system
     async_add_entities(entities)
 
@@ -1357,6 +1402,8 @@ class AIBriefingSensor(HangarSensorBase):
         super().__init__(hass, config, global_settings)
         self._briefing_text = "Waiting for first briefing..."
         self._last_update = None
+        self._status = "Waiting"
+        self._error = None
 
     @property
     def name(self) -> str:
@@ -1364,15 +1411,16 @@ class AIBriefingSensor(HangarSensorBase):
 
     @property
     def native_value(self) -> str:
-        if self._last_update:
-            return "Ready"
-        return "Waiting"
+        return self._status
 
     @property
     def extra_state_attributes(self) -> dict:
         attrs = super().extra_state_attributes
         attrs["last_updated"] = self._last_update
         attrs["briefing"] = self._briefing_text
+        attrs["status"] = self._status
+        if self._error:
+            attrs["error"] = self._error
         return attrs
 
     async def async_added_to_hass(self) -> None:
@@ -1385,16 +1433,37 @@ class AIBriefingSensor(HangarSensorBase):
             if event.data.get("airfield_name") == self._config.get("name"):
                 self.async_update_briefing(event.data.get("text"))
 
+        @callback
+        def _handle_ai_failure(event):
+            """Update state when AI briefing fails."""
+            if event.data.get("airfield_name") == self._config.get("name"):
+                error_reason = event.data.get("error", "AI briefing unavailable")
+                self.async_mark_unavailable(error_reason)
+
         self.async_on_remove(
             self.hass.bus.async_listen(
                 "hangar_assistant_ai_briefing",
                 _handle_ai_update))
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                "hangar_assistant_ai_briefing_failure",
+                _handle_ai_failure))
 
     @callback
     def async_update_briefing(self, briefing_text: str):
         """Update the sensor state with new AI text."""
         self._briefing_text = briefing_text
         self._last_update = dt_util.now().isoformat()
+        self._status = "Ready"
+        self._error = None
+        self.async_write_ha_state()
+
+    @callback
+    def async_mark_unavailable(self, error: str | None = None) -> None:
+        """Mark the sensor as unavailable with an optional error message."""
+        self._status = "Unavailable"
+        self._error = error
+        # Do not update _last_update to avoid implying freshness
         self.async_write_ha_state()
 
 
@@ -2021,13 +2090,23 @@ class AirfieldNOTAMSensor(HangarSensorBase):
 
     async def async_update(self) -> None:
         """Fetch NOTAMs for this airfield."""
-        integrations = self._entry.data.get("integrations", {})
-        notam_config = integrations.get("notams", {})
-        cache_days = notam_config.get("cache_days", 7)
-
-        notam_client = NOTAMClient(self.hass, cache_days, self._entry)
-
         try:
+            # Safely access entry data (may be Future during initialization)
+            entry_data = self._entry.data if hasattr(self._entry, 'data') else {}
+            if not isinstance(entry_data, dict):
+                _LOGGER.debug("Entry data not ready for NOTAM fetch, skipping")
+                return
+            
+            integrations = entry_data.get("integrations", {})
+            if not isinstance(integrations, dict):
+                _LOGGER.debug("Integrations data not ready for NOTAM fetch, skipping")
+                return
+                
+            notam_config = integrations.get("notams", {})
+            cache_days = notam_config.get("cache_days", 7)
+
+            notam_client = NOTAMClient(self.hass, cache_days, self._entry)
+
             # Fetch all NOTAMs (client handles its own caching)
             all_notams, is_stale = await notam_client.fetch_notams()
 
@@ -2047,9 +2126,15 @@ class AirfieldNOTAMSensor(HangarSensorBase):
             self._cache_stats = await notam_client.get_cache_stats()
 
         except Exception as e:
+            # Get airfield name safely for error logging
+            try:
+                airfield_name = self._config.get("name", "unknown") if isinstance(self._config, dict) else "unknown"
+            except Exception:
+                airfield_name = "unknown"
+            
             _LOGGER.error(
                 "Failed to fetch NOTAMs for %s: %s",
-                self._config.get("name"),
+                airfield_name,
                 e)
             # Keep existing cached data
 
@@ -2920,4 +3005,144 @@ class IntegrationHealthSensor(SensorEntity):
         """Update sensor state (polled every 5 minutes)."""
         # State is computed from config entry data, no fetch needed
         pass
+
+
+class IntegrationStatusSensor(SensorEntity):
+    """Status sensor for a single external integration.
+
+    Provides a simple, user-friendly status for each integration listed under
+    the External Integrations menu. This allows pilots to see at a glance
+    whether a specific integration is enabled and working, or experiencing
+    problems.
+
+    State Values:
+        - "Disabled": Integration not enabled in configuration
+        - "Working": Integration enabled and no consecutive failures recorded
+        - "Problem": Integration enabled but has one or more consecutive failures
+
+    Attributes:
+        - integration: Integration key (e.g., openweathermap, notams)
+        - enabled: Boolean flag from config
+        - consecutive_failures: Number of consecutive failed calls tracked
+        - last_error: Most recent error message if available
+        - last_success: Timestamp of last successful call (if provided by client)
+        - last_update: Timestamp of last update (NOTAM-specific fallback)
+
+    Used by:
+        - Dashboard health cards
+        - Automations that announce external data outages
+        - Troubleshooting to confirm whether a given API is operating
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = True
+    _attr_icon = "mdi:cloud-check-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        integration_key: str,
+    ) -> None:
+        """Initialise per-integration status sensor.
+
+        Args:
+            hass: Home Assistant instance
+            entry: Config entry containing integration settings
+            integration_key: Key name of the integration (e.g., "openweathermap")
+        """
+        self.hass = hass
+        self._entry = entry
+        self._integration_key = integration_key
+
+        self._attr_unique_id = f"{DOMAIN}_{integration_key}_status"
+        self._attr_name = f"{self._friendly_name()} Status"
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hangar_assistant_system")},
+            name="Hangar Assistant System",
+            manufacturer="Hangar Assistant",
+            model="Integration Monitor",
+        )
+
+    def _friendly_name(self) -> str:
+        """Human-friendly name for the integration key."""
+        name_map = {
+            "openweathermap": "OpenWeatherMap",
+            "notams": "NOTAM Service",
+            "checkwx": "CheckWX",
+            "dump1090": "dump1090",
+            "opensky": "OpenSky",
+            "adsbexchange": "ADS-B Exchange",
+            "ogn": "OGN",
+            "flightaware": "FlightAware",
+            "flightradar24": "FlightRadar24",
+        }
+        if self._integration_key in name_map:
+            return name_map[self._integration_key]
+        # Title-case fallback for unknown keys
+        return self._integration_key.replace("_", " ").title()
+
+    @property
+    def native_value(self) -> str:
+        """Return status as Disabled, Working, or Problem.
+        
+        Working only shows if:
+        1. Integration is enabled
+        2. No consecutive failures recorded
+        3. Last success was within reasonable timeframe (1 hour default)
+        """
+        from datetime import datetime, timezone, timedelta
+        
+        integrations = self._entry.data.get("integrations", {})
+        config = integrations.get(self._integration_key, {}) if isinstance(integrations, dict) else {}
+
+        enabled = bool(config.get("enabled", False))
+        failures = config.get("consecutive_failures", 0) or 0
+        last_success = config.get("last_success")
+
+        if not enabled:
+            return "Disabled"
+
+        if failures > 0:
+            return "Problem"
+
+        # If never succeeded (last_success is None or "Unknown"), show Problem
+        if not last_success or last_success == "Unknown":
+            return "Problem"
+
+        # Check if last success was within 1 hour (reasonable timeframe)
+        try:
+            last_success_dt = datetime.fromisoformat(last_success.replace('Z', '+00:00'))
+            age = datetime.now(timezone.utc) - last_success_dt
+            
+            if age > timedelta(hours=1):
+                # Last success was more than 1 hour ago; likely a stale integration
+                return "Problem"
+        except (ValueError, AttributeError):
+            # Failed to parse timestamp; treat as problem
+            return "Problem"
+
+        return "Working"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return integration diagnostics for UI troubleshooting."""
+        integrations = self._entry.data.get("integrations", {})
+        config = integrations.get(self._integration_key, {}) if isinstance(integrations, dict) else {}
+
+        return {
+            "integration": self._integration_key,
+            "enabled": bool(config.get("enabled", False)),
+            "consecutive_failures": config.get("consecutive_failures", 0) or 0,
+            "last_error": config.get("last_error"),
+            # Prefer last_success but fall back to last_update where applicable (NOTAMs)
+            "last_success": config.get("last_success"),
+            "last_update": config.get("last_update"),
+        }
+
+    async def async_update(self) -> None:
+        """Refresh from config entry data (no external calls needed)."""
+        # Polling reads entry data directly; no work required here.
+        return
 

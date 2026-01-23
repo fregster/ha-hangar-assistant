@@ -1500,6 +1500,10 @@ docs/implemented/
   - Other aviation regulations and compliance standards
   - Use these files as authoritative sources when implementing rules-based features
 - **Config Flow**: `HangarAssistantConfigFlow` (single instance). `HangarOptionsFlowHandler` handles updates (`airfield`, `aircraft` menus) using `EntitySelector`.
+  - **CRITICAL GOTCHA**: In `HangarOptionsFlowHandler`, form submission MUST return `async_abort()`, NEVER `async_create_entry()`. The `async_create_entry()` method only exists in `ConfigFlowHandler` and will cause a silent exception resulting in blank error dialogs.
+  - ✅ **CORRECT** (OptionsFlowHandler): `return self.async_abort(reason="configuration_updated")`
+  - ❌ **WRONG** (OptionsFlowHandler): `return self.async_create_entry(data=...)`  Results in blank error dialog.
+  - **Safe pattern**: Always use `self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)` followed by `self.async_abort(reason="configuration_updated")` in OptionsFlowHandler.
 - **Time Tracking**: `async_track_time_change` used for briefing schedules in `__init__.py`.
 
 ### Sensor Implementation

@@ -8,8 +8,8 @@ This module tests the CheckWX aviation weather client including:
 - Async file operations for persistent cache
 
 Test Strategy:
-    - Mock aiohttp responses for all API calls
-    - Test cache behavior independently from API
+    - Mock HTTP proxy responses for all API calls
+    - Test cache behaviour independently from API
     - Verify rate limit tracking across date boundaries
     - Test failure scenarios and stale cache fallback
     - Ensure no blocking I/O in async functions
@@ -37,6 +37,7 @@ from custom_components.hangar_assistant.utils.checkwx_client import (
     RATE_LIMIT_FREE_TIER,
     RATE_LIMIT_WARNING_THRESHOLD,
 )
+from custom_components.hangar_assistant.utils.http_proxy import HttpProxyResponse
 
 
 @pytest.fixture
@@ -140,12 +141,11 @@ async def test_get_metar_invalid_icao(checkwx_client):
 
 
 @pytest.mark.asyncio
-@patch("aiohttp.ClientSession")
-async def test_get_metar_success(mock_session, checkwx_client):
+async def test_get_metar_success(checkwx_client):
     """Test successful METAR retrieval and parsing.
     
     Setup:
-        - Mock aiohttp session returns 200 with valid METAR JSON
+        - Mock HTTP proxy returns 200 with valid METAR JSON
         - METAR data includes flight category, temperature, wind, etc.
     
     Validation:
@@ -157,10 +157,7 @@ async def test_get_metar_success(mock_session, checkwx_client):
     Expected Result:
         METAR dictionary returned with all expected fields
     """
-    # Mock API response
-    mock_response = AsyncMock()
-    mock_response.status = 200
-    mock_response.json = AsyncMock(return_value={
+    metar_payload = {
         "results": 1,
         "data": [{
             "icao": "KJFK",
@@ -173,12 +170,18 @@ async def test_get_metar_success(mock_session, checkwx_client):
             "observed": "2026-01-22T12:00:00Z",
             "raw_text": "METAR KJFK 221200Z 27012KT 10SM FEW050 15/10 A2992"
         }]
-    })
+    }
     
-    mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
-    
-    # Fetch METAR
-    result = await checkwx_client.get_metar("KJFK", decoded=True)
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=200,
+            text=json.dumps(metar_payload),
+            reason="OK",
+            headers={},
+        )
+        
+        # Fetch METAR
+        result = await checkwx_client.get_metar("KJFK", decoded=True)
     
     # Validate response
     assert result is not None
@@ -193,8 +196,7 @@ async def test_get_metar_success(mock_session, checkwx_client):
 
 
 @pytest.mark.asyncio
-@patch("aiohttp.ClientSession")
-async def test_get_taf_success(mock_session, checkwx_client):
+async def test_get_taf_success(checkwx_client):
     """Test successful TAF retrieval with forecast periods.
     
     Setup:
@@ -209,9 +211,7 @@ async def test_get_taf_success(mock_session, checkwx_client):
     Expected Result:
         TAF dictionary with forecast array and validity timestamps
     """
-    mock_response = AsyncMock()
-    mock_response.status = 200
-    mock_response.json = AsyncMock(return_value={
+    taf_payload = {
         "results": 1,
         "data": [{
             "icao": "KJFK",
@@ -229,11 +229,17 @@ async def test_get_taf_success(mock_session, checkwx_client):
             ],
             "raw_text": "TAF KJFK 221100Z 2212/2312 27015KT P6SM"
         }]
-    })
+    }
     
-    mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
-    
-    result = await checkwx_client.get_taf("KJFK", decoded=True)
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=200,
+            text=json.dumps(taf_payload),
+            reason="OK",
+            headers={},
+        )
+        
+        result = await checkwx_client.get_taf("KJFK", decoded=True)
     
     assert result is not None
     assert result["icao"] == "KJFK"
@@ -243,8 +249,7 @@ async def test_get_taf_success(mock_session, checkwx_client):
 
 
 @pytest.mark.asyncio
-@patch("aiohttp.ClientSession")
-async def test_get_station_info_success(mock_session, checkwx_client):
+async def test_get_station_info_success(checkwx_client):
     """Test station information retrieval.
     
     Setup:
@@ -258,9 +263,7 @@ async def test_get_station_info_success(mock_session, checkwx_client):
     Expected Result:
         Station dictionary with all geographic data
     """
-    mock_response = AsyncMock()
-    mock_response.status = 200
-    mock_response.json = AsyncMock(return_value={
+    station_payload = {
         "results": 1,
         "data": [{
             "icao": "KJFK",
@@ -273,11 +276,17 @@ async def test_get_station_info_success(mock_session, checkwx_client):
             "longitude": {"decimal": -73.779},
             "type": "Airport"
         }]
-    })
+    }
     
-    mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
-    
-    result = await checkwx_client.get_station_info("KJFK")
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=200,
+            text=json.dumps(station_payload),
+            reason="OK",
+            headers={},
+        )
+        
+        result = await checkwx_client.get_station_info("KJFK")
     
     assert result is not None
     assert result["icao"] == "KJFK"
@@ -309,12 +318,12 @@ async def test_memory_cache_hit(checkwx_client):
     checkwx_client._memory_cache[cache_key] = (cached_data, timestamp)
     
     # Fetch (should hit cache)
-    with patch("aiohttp.ClientSession") as mock_session:
+    with patch.object(checkwx_client._http_proxy, "request") as mock_request:
         result = await checkwx_client.get_metar("KJFK", decoded=True)
         
         assert result == cached_data
         assert checkwx_client._daily_requests == 0  # No API call
-        mock_session.assert_not_called()
+        mock_request.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -339,14 +348,16 @@ async def test_memory_cache_expired(checkwx_client):
     checkwx_client._memory_cache[cache_key] = ({"old": "data"}, old_timestamp)
     
     # Mock fresh API response
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "results": 1,
-            "data": [{"icao": "KJFK", "flight_category": "MVFR"}]
-        })
-        mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=200,
+            text=json.dumps({
+                "results": 1,
+                "data": [{"icao": "KJFK", "flight_category": "MVFR"}]
+            }),
+            reason="OK",
+            headers={},
+        )
         
         result = await checkwx_client.get_metar("KJFK", decoded=True)
         
@@ -404,11 +415,13 @@ async def test_rate_limit_warning(checkwx_client):
     """
     checkwx_client._daily_requests = 2699
     
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={"results": 1, "data": [{"icao": "KJFK"}]})
-        mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=200,
+            text=json.dumps({"results": 1, "data": [{"icao": "KJFK"}]}),
+            reason="OK",
+            headers={},
+        )
         
         with patch("custom_components.hangar_assistant.utils.checkwx_client._LOGGER") as mock_logger:
             await checkwx_client.get_metar("KJFK")
@@ -442,11 +455,11 @@ async def test_rate_limit_blocking(checkwx_client):
     old_timestamp = dt_util.utcnow() - timedelta(hours=2)
     checkwx_client._memory_cache[cache_key] = (cached_data, old_timestamp)
     
-    with patch("aiohttp.ClientSession") as mock_session:
+    with patch.object(checkwx_client._http_proxy, "request") as mock_request:
         result = await checkwx_client.get_metar("KJFK")
         
         # No API call
-        mock_session.assert_not_called()
+        mock_request.assert_not_called()
         
         # Stale cache returned
         assert result == cached_data
@@ -526,8 +539,7 @@ async def test_persistent_cache_write_read(checkwx_client, tmp_path):
 
 
 @pytest.mark.asyncio
-@patch("aiohttp.ClientSession")
-async def test_graceful_degradation_on_api_failure(mock_session, checkwx_client):
+async def test_graceful_degradation_on_api_failure(checkwx_client):
     """Test stale cache used when API fails.
     
     Setup:
@@ -549,10 +561,10 @@ async def test_graceful_degradation_on_api_failure(mock_session, checkwx_client)
     old_timestamp = dt_util.utcnow() - timedelta(hours=1)
     checkwx_client._memory_cache[cache_key] = (stale_data, old_timestamp)
     
-    # Mock API failure
-    mock_session.side_effect = asyncio.TimeoutError()
-    
-    result = await checkwx_client.get_metar("KJFK")
+    with patch.object(checkwx_client._http_proxy, "request") as mock_request:
+        mock_request.side_effect = asyncio.TimeoutError()
+        
+        result = await checkwx_client.get_metar("KJFK")
     
     # Stale cache returned
     assert result == stale_data
@@ -560,8 +572,7 @@ async def test_graceful_degradation_on_api_failure(mock_session, checkwx_client)
 
 
 @pytest.mark.asyncio
-@patch("aiohttp.ClientSession")
-async def test_api_error_401_unauthorized(mock_session, checkwx_client):
+async def test_api_error_401_unauthorized(checkwx_client):
     """Test handling of invalid API key (401 error).
     
     Setup:
@@ -575,20 +586,23 @@ async def test_api_error_401_unauthorized(mock_session, checkwx_client):
     Expected Result:
         Clear error message helps user diagnose API key issue
     """
-    mock_response = AsyncMock()
-    mock_response.status = 401
-    mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
-    
-    with patch("custom_components.hangar_assistant.utils.checkwx_client._LOGGER") as mock_logger:
-        result = await checkwx_client.get_metar("KJFK")
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=401,
+            text="",
+            reason="Unauthorized",
+            headers={},
+        )
         
-        assert result is None
-        assert any("Invalid API key" in str(call) for call in mock_logger.error.call_args_list)
+        with patch("custom_components.hangar_assistant.utils.checkwx_client._LOGGER") as mock_logger:
+            result = await checkwx_client.get_metar("KJFK")
+            
+            assert result is None
+            assert any("Invalid API key" in str(call) for call in mock_logger.error.call_args_list)
 
 
 @pytest.mark.asyncio
-@patch("aiohttp.ClientSession")
-async def test_api_error_404_not_found(mock_session, checkwx_client):
+async def test_api_error_404_not_found(checkwx_client):
     """Test handling of invalid ICAO code (404 error).
     
     Setup:
@@ -602,11 +616,15 @@ async def test_api_error_404_not_found(mock_session, checkwx_client):
     Expected Result:
         Graceful handling of non-existent ICAO codes
     """
-    mock_response = AsyncMock()
-    mock_response.status = 404
-    mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
-    
-    result = await checkwx_client.get_metar("XXXX")  # Non-existent ICAO
+    with patch.object(checkwx_client._http_proxy, "request", AsyncMock()) as mock_request:
+        mock_request.return_value = HttpProxyResponse(
+            status_code=404,
+            text="Not Found",
+            reason="Not Found",
+            headers={},
+        )
+        
+        result = await checkwx_client.get_metar("XXXX")  # Non-existent ICAO
     
     assert result is None
 

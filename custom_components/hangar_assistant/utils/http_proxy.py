@@ -54,6 +54,7 @@ class HttpRequestOptions:
     cache_key: Optional[str] = None
     cache_ttl: Optional[int] = None
     allow_stale: bool = True
+    auth: Optional[Tuple[str, str]] = None
 
 
 class CacheProvider:
@@ -201,6 +202,16 @@ class PersistentFileCache(CacheProvider):
             await self._write_file(cache_data)
 
 
+@dataclass
+class HttpProxyResponse:
+    """Lightweight HTTP response wrapper for proxy calls."""
+
+    status_code: int
+    text: str
+    reason: str
+    headers: Mapping[str, str]
+
+
 class HttpClientProxy:
     """HTTP client proxy for unified outbound calls with caching and retries.
 
@@ -269,12 +280,21 @@ class HttpClientProxy:
                     params=options.params,
                     headers=options.headers,
                     timeout=options.timeout,
+                    auth=options.auth,
                 ) as response:
+                    body = await response.text()
+
+                    proxy_response = HttpProxyResponse(
+                        status_code=response.status,
+                        text=body,
+                        reason=response.reason or "",
+                        headers=dict(response.headers),
+                    )
+
                     if response.status not in options.expected_status:
                         raise Exception(f"HTTP {response.status}")
 
-                    body = await response.text()
-                    await self.cache.set(cache_key, body, options.cache_ttl)
+                    await self.cache.set(cache_key, proxy_response, options.cache_ttl)
                     
                     _LOGGER.debug(
                         "External request %s %s -> %d",
@@ -283,7 +303,7 @@ class HttpClientProxy:
                         response.status,
                     )
                     
-                    return body
+                    return proxy_response
 
             except Exception as e:
                 last_error = e
@@ -312,7 +332,8 @@ class HttpClientProxy:
 
     async def get_json(self, options: HttpRequestOptions) -> Any:
         """Fetch and parse JSON response."""
-        body = await self.request(options)
+        response = await self.request(options)
+        body = response.text if isinstance(response, HttpProxyResponse) else response
         try:
             return json.loads(body) if isinstance(body, str) else json.loads(body.decode())
         except json.JSONDecodeError as e:
@@ -325,7 +346,8 @@ class HttpClientProxy:
 
     async def get_text(self, options: HttpRequestOptions) -> str:
         """Fetch as text response."""
-        body = await self.request(options)
+        response = await self.request(options)
+        body = response.text if isinstance(response, HttpProxyResponse) else response
         return body if isinstance(body, str) else body.decode()
 
 

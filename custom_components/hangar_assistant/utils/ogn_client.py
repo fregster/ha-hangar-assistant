@@ -79,16 +79,17 @@ Example:
 """
 
 import asyncio
+import json
 import logging
 import re
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
-import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .http_proxy import HttpClientProxy, HttpRequestOptions, NullCache
 from ..const import (
     ADSB_PRIORITY_OGN,
 )
@@ -195,6 +196,12 @@ class OGNClient(ADSBClientBase):
         self._ddb_cache: OrderedDict[str, Tuple[Dict, datetime]] = OrderedDict()
         self._ddb_cache_hours = config.get("ddb_cache_hours", 24)
         self._max_ddb_cache_entries = 1000
+
+        # HTTP proxy for DDB lookups (APRS feed handled by aprslib)
+        self.http_proxy = HttpClientProxy(
+            hass=hass,
+            cache=NullCache()
+        )
         
         # Geographic filter (set by get_aircraft_near_location)
         self._filter_latitude: Optional[float] = None
@@ -604,25 +611,36 @@ class OGNClient(ADSBClientBase):
             return  # Already cached
         
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    OGN_DDB_URL,
-                    params={"j": "1", "t": "1", "id": flarm_id},
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        devices = data.get("devices", [])
-                        if devices:
-                            device = devices[0]
-                            ddb_info = {
-                                "registration": device.get("registration"),
-                                "aircraft_type": device.get("aircraft_type"),
-                                "cn": device.get("cn")  # Competition number
-                            }
-                            self._set_ddb_cache(flarm_id, ddb_info)
-        
+            options = HttpRequestOptions(
+                service="ogn_ddb",
+                method="GET",
+                url=OGN_DDB_URL,
+                params={"j": "1", "t": "1", "id": flarm_id},
+                timeout=10
+            )
+
+            response = await self.http_proxy.request(options)
+
+            if response.status_code != 200:
+                _LOGGER.debug(
+                    "OGN: DDB query failed for %s: HTTP %s",
+                    flarm_id,
+                    response.status_code,
+                )
+                return
+
+            data = json.loads(response.text)
+
+            devices = data.get("devices", [])
+            if devices:
+                device = devices[0]
+                ddb_info = {
+                    "registration": device.get("registration"),
+                    "aircraft_type": device.get("aircraft_type"),
+                    "cn": device.get("cn")  # Competition number
+                }
+                self._set_ddb_cache(flarm_id, ddb_info)
+
         except Exception as e:
             _LOGGER.debug("OGN: DDB query failed for %s: %s", flarm_id, e)
     
@@ -673,19 +691,30 @@ class OGNClient(ADSBClientBase):
             FLARM ID if found, None otherwise
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    OGN_DDB_URL,
-                    params={"j": "1", "r": registration.upper()},
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        devices = data.get("devices", [])
-                        if devices:
-                            return devices[0].get("device_id")
-        
+            options = HttpRequestOptions(
+                service="ogn_ddb",
+                method="GET",
+                url=OGN_DDB_URL,
+                params={"j": "1", "r": registration.upper()},
+                timeout=10
+            )
+
+            response = await self.http_proxy.request(options)
+
+            if response.status_code != 200:
+                _LOGGER.debug(
+                    "OGN: DDB registration query failed for %s: HTTP %s",
+                    registration,
+                    response.status_code,
+                )
+                return None
+
+            data = json.loads(response.text)
+
+            devices = data.get("devices", [])
+            if devices:
+                return devices[0].get("device_id")
+
         except Exception as e:
             _LOGGER.debug("OGN: DDB registration query failed for %s: %s", registration, e)
         

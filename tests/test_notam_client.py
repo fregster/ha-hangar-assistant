@@ -512,25 +512,30 @@ class TestFetchNOTAMs:
 
     @pytest.mark.asyncio
     async def test_fetch_from_nats_on_cache_miss(self, notam_client, tmp_path):
-        """Test fetch calls NATS API when cache is missing."""
+        """Test fetch calls NATS API via HTTP proxy when cache is missing."""
         from pathlib import Path
+        from unittest.mock import AsyncMock as AsyncMockType
         notam_client.cache_dir = Path(str(tmp_path))
-
         notam_client.cache_file = Path(str(tmp_path / "notams.json"))
         
-        # Mock successful HTTP response via HA's aiohttp helper
-        mock_session = MagicMock()
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.text = AsyncMock(return_value=SAMPLE_PIB_XML)
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+        # Mock HTTP proxy response (which wraps the aiohttp response)
+        mock_http_response = MagicMock()
+        mock_http_response.status_code = 200
+        mock_http_response.text = SAMPLE_PIB_XML
         
-        with patch.object(notam_client.hass.helpers.aiohttp_client, "async_get_clientsession", return_value=mock_session):
-            notams, is_stale = await notam_client.fetch_notams()
-            
-            assert len(notams) == 3
-            assert is_stale is False
-            assert notams[0]["id"] == "A0001/25"
+        # Mock the HTTP proxy's request method
+        notam_client.http_proxy.request = AsyncMockType(return_value=mock_http_response)
+        
+        notams, is_stale = await notam_client.fetch_notams()
+        
+        assert len(notams) == 3
+        assert is_stale is False
+        assert notams[0]["id"] == "A0001/25"
+        
+        # Verify HTTP proxy was called with correct service
+        notam_client.http_proxy.request.assert_called_once()
+        call_args = notam_client.http_proxy.request.call_args
+        assert call_args[0][0].service == "notam"
 
     @pytest.mark.asyncio
     async def test_fetch_handles_network_error_gracefully(self, notam_client, mock_entry, tmp_path):

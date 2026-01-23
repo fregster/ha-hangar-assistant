@@ -41,6 +41,7 @@ from custom_components.hangar_assistant.utils.openweathermap import (
     OWM_API_BASE,
     DEFAULT_CACHE_TTL_MINUTES,
 )
+from custom_components.hangar_assistant.utils.http_proxy import HttpProxyResponse
 
 
 @pytest.fixture
@@ -49,7 +50,6 @@ def mock_hass():
     
     Provides:
         - Mock hass with config.path() for cache directory
-        - Mock aiohttp client session for HTTP requests
         - Mock async_add_executor_job for file I/O operations
     
     Used By:
@@ -64,9 +64,6 @@ def mock_hass():
     """
     hass = MagicMock()
     hass.config.path = MagicMock(return_value="/config/hangar_assistant_cache")
-    hass.helpers.aiohttp_client.async_get_clientsession = MagicMock(
-        return_value=AsyncMock()
-    )
     
     # Make async_add_executor_job async for testing
     async def mock_executor_job(func, *args):
@@ -335,23 +332,16 @@ class TestOpenWeatherMapClientAPI:
         self, owm_client, sample_owm_response, mock_hass
     ):
         """Test successful API fetch."""
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value=sample_owm_response)
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        with patch.object(owm_client, "_write_persistent_cache"):
-            result = await owm_client._fetch_from_api(51.2, -1.2)
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(sample_owm_response),
+                reason="OK",
+                headers={},
+            )
+            
+            with patch.object(owm_client, "_write_persistent_cache"):
+                result = await owm_client._fetch_from_api(51.2, -1.2)
         
         assert result == sample_owm_response
         assert owm_client._api_calls_today == 1
@@ -359,95 +349,77 @@ class TestOpenWeatherMapClientAPI:
     @pytest.mark.asyncio
     async def test_fetch_api_key_invalid(self, owm_client, mock_hass):
         """Test API fetch with invalid key."""
-        mock_response = AsyncMock()
-        mock_response.status = 401
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        result = await owm_client._fetch_from_api(51.2, -1.2)
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=401,
+                text="",
+                reason="Unauthorized",
+                headers={},
+            )
+            
+            result = await owm_client._fetch_from_api(51.2, -1.2)
         
         assert result is None
 
     @pytest.mark.asyncio
     async def test_fetch_rate_limit_exceeded(self, owm_client, mock_hass):
         """Test API fetch when rate limit exceeded."""
-        mock_response = AsyncMock()
-        mock_response.status = 429
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        result = await owm_client._fetch_from_api(51.2, -1.2)
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=429,
+                text="",
+                reason="Too Many Requests",
+                headers={},
+            )
+            result = await owm_client._fetch_from_api(51.2, -1.2)
         
         assert result is None
 
     @pytest.mark.asyncio
     async def test_fetch_timeout(self, owm_client, mock_hass):
         """Test API fetch timeout handling."""
-        mock_session = MagicMock()
-        mock_session.get = MagicMock(side_effect=asyncio.TimeoutError())
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        result = await owm_client._fetch_from_api(51.2, -1.2)
+        with patch.object(
+            owm_client.http_proxy,
+            "request",
+            AsyncMock(side_effect=asyncio.TimeoutError()),
+        ):
+            result = await owm_client._fetch_from_api(51.2, -1.2)
         
         assert result is None
 
     @pytest.mark.asyncio
     async def test_fetch_client_error(self, owm_client, mock_hass):
         """Test API fetch with client error."""
-        # Mock a generic client error (ConnectionError is a built-in)
-        mock_session = MagicMock()
-        mock_session.get = MagicMock(
-            side_effect=ConnectionError("Connection error")
-        )
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        result = await owm_client._fetch_from_api(51.2, -1.2)
+        with patch.object(
+            owm_client.http_proxy,
+            "request",
+            AsyncMock(side_effect=ConnectionError("Connection error")),
+        ):
+            result = await owm_client._fetch_from_api(51.2, -1.2)
         
         assert result is None
 
     @pytest.mark.asyncio
     async def test_api_call_tracking(self, owm_client, sample_owm_response, mock_hass):
         """Test API call tracking per day."""
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value=sample_owm_response)
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        with patch.object(owm_client, "_write_persistent_cache"):
-            await owm_client._fetch_from_api(51.2, -1.2)
-            await owm_client._fetch_from_api(51.3, -1.3)
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.side_effect = [
+                HttpProxyResponse(
+                    status_code=200,
+                    text=json.dumps(sample_owm_response),
+                    reason="OK",
+                    headers={},
+                ),
+                HttpProxyResponse(
+                    status_code=200,
+                    text=json.dumps(sample_owm_response),
+                    reason="OK",
+                    headers={},
+                ),
+            ]
+            with patch.object(owm_client, "_write_persistent_cache"):
+                await owm_client._fetch_from_api(51.2, -1.2)
+                await owm_client._fetch_from_api(51.3, -1.3)
         
         assert owm_client._api_calls_today == 2
 
@@ -539,24 +511,17 @@ class TestOpenWeatherMapClientMultiLevelCache:
         self, owm_client, sample_owm_response, mock_hass
     ):
         """Test API call when both caches miss."""
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value=sample_owm_response)
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        with patch.object(owm_client, "_read_persistent_cache", return_value=None):
-            with patch.object(owm_client, "_write_persistent_cache"):
-                result = await owm_client.get_weather_data(51.2, -1.2)
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(sample_owm_response),
+                reason="OK",
+                headers={},
+            )
+            
+            with patch.object(owm_client, "_read_persistent_cache", return_value=None):
+                with patch.object(owm_client, "_write_persistent_cache"):
+                    result = await owm_client.get_weather_data(51.2, -1.2)
         
         assert result == sample_owm_response
         assert owm_client._api_calls_today == 1
@@ -631,24 +596,15 @@ class TestOpenWeatherMapClientRateLimitProtection:
     ):
         """Test warning when approaching rate limit."""
         owm_client._api_calls_today = 950
-        
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value=sample_owm_response)
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        with patch.object(owm_client, "_write_persistent_cache"):
-            await owm_client._fetch_from_api(51.2, -1.2)
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(sample_owm_response),
+                reason="OK",
+                headers={},
+            )
+            with patch.object(owm_client, "_write_persistent_cache"):
+                await owm_client._fetch_from_api(51.2, -1.2)
         
         assert owm_client._api_calls_today == 951
         # Check warning was logged (in real test would check caplog)
@@ -693,28 +649,33 @@ class TestOpenWeatherMapClientEdgeCases:
         self, owm_client, sample_owm_response, mock_hass
     ):
         """Test concurrent API calls don't break tracking."""
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(return_value=sample_owm_response)
-        
-        # Create async context manager mock properly
-        mock_context_manager = AsyncMock()
-        mock_context_manager.__aenter__.return_value = mock_response
-        mock_context_manager.__aexit__.return_value = False
-        
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_context_manager
-        mock_hass.helpers.aiohttp_client.async_get_clientsession.return_value = (
-            mock_session
-        )
-        
-        with patch.object(owm_client, "_write_persistent_cache"):
-            # Simulate concurrent requests
-            tasks = [
-                owm_client._fetch_from_api(51.2, -1.2),
-                owm_client._fetch_from_api(51.3, -1.3),
-                owm_client._fetch_from_api(51.4, -1.4),
+        with patch.object(owm_client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.side_effect = [
+                HttpProxyResponse(
+                    status_code=200,
+                    text=json.dumps(sample_owm_response),
+                    reason="OK",
+                    headers={},
+                ),
+                HttpProxyResponse(
+                    status_code=200,
+                    text=json.dumps(sample_owm_response),
+                    reason="OK",
+                    headers={},
+                ),
+                HttpProxyResponse(
+                    status_code=200,
+                    text=json.dumps(sample_owm_response),
+                    reason="OK",
+                    headers={},
+                ),
             ]
-            await asyncio.gather(*tasks)
+            with patch.object(owm_client, "_write_persistent_cache"):
+                tasks = [
+                    owm_client._fetch_from_api(51.2, -1.2),
+                    owm_client._fetch_from_api(51.3, -1.3),
+                    owm_client._fetch_from_api(51.4, -1.4),
+                ]
+                await asyncio.gather(*tasks)
         
         assert owm_client._api_calls_today == 3

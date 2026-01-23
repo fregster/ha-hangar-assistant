@@ -35,6 +35,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from homeassistant.core import HomeAssistant
 
+from .http_proxy import HttpClientProxy, HttpRequestOptions, PersistentFileCache
+
 # Try to import defusedxml for secure XML parsing
 try:
     from defusedxml import ElementTree as DefusedET
@@ -89,6 +91,16 @@ class NOTAMClient:
 
         self.cache_dir = cache_root
         self.cache_file = self.cache_dir / "notams.json"
+        
+        # Initialize HTTP proxy with persistent caching for NOTAM feed
+        # NOTAM data is non-critical and cached for 24 hours
+        persistent_cache = PersistentFileCache(
+            cache_file=self.cache_file
+        )
+        self.http_proxy = HttpClientProxy(
+            hass=hass,
+            cache=persistent_cache
+        )
 
     def _helpers_available(self) -> bool:
         """Return True when Home Assistant aiohttp helpers are ready."""
@@ -189,21 +201,27 @@ class NOTAMClient:
     async def _fetch_from_nats(self) -> List[Dict[str, Any]]:
         """Download and parse NATS PIB XML.
 
+        Uses HTTP proxy for unified caching, retries, and logging.
+
         Returns:
             List of NOTAM dictionaries with parsed data
 
         Raises:
             Exception: On network or parsing errors
         """
-        helpers = getattr(self.hass, "helpers", None)
-        if helpers is None or not hasattr(helpers, "aiohttp_client"):
-            raise RuntimeError("helpers_missing")
-
-        session = helpers.aiohttp_client.async_get_clientsession()
-
-        async with session.get(NATS_PIB_URL, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
-            if response.status == 200:
-                xml_content = await response.text()
+        try:
+            # Use HTTP proxy which handles caching, retries, and logging
+            options = HttpRequestOptions(
+                service="notam",
+                url=NATS_PIB_URL,
+                method="GET",
+                timeout=DEFAULT_TIMEOUT_SECONDS
+            )
+            
+            response = await self.http_proxy.request(options)
+            
+            if response.status_code == 200:
+                xml_content = response.text
                 notams = self._parse_pib_xml(xml_content)
                 await self._write_cache(notams)
                 _LOGGER.info(
@@ -213,8 +231,12 @@ class NOTAMClient:
             else:
                 _LOGGER.error(
                     "NATS PIB fetch failed: HTTP %d",
-                    response.status)
-                raise Exception(f"HTTP {response.status}")
+                    response.status_code)
+                raise Exception(f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            _LOGGER.error("NOTAM fetch via HTTP proxy failed: %s", e)
+            raise
 
     def _parse_pib_xml(self, xml_content: str) -> List[Dict[str, Any]]:
         """Parse PIB XML into structured NOTAM data.

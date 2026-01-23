@@ -28,6 +28,7 @@ Coverage:
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -36,6 +37,7 @@ import pytest
 from homeassistant.util import dt as dt_util
 
 from custom_components.hangar_assistant.utils.opensky_client import OpenSkyClient
+from custom_components.hangar_assistant.utils.http_proxy import HttpProxyResponse
 from custom_components.hangar_assistant.utils.adsb_models import AircraftData
 
 
@@ -265,9 +267,10 @@ class TestOpenSkyClientInitialization:
         }
         assert client._username is None
         assert client._password is None
-        assert client._auth is not None
-        assert client._auth.login == "fregster-api-client"
-        assert client._auth.password == "K0EFSnHi9Z7kwgOgUEqqEbvmfMqqsz5g"
+        assert client._auth == (
+            "fregster-api-client",
+            "K0EFSnHi9Z7kwgOgUEqqEbvmfMqqsz5g",
+        )
         assert client._daily_limit == 4000
         assert client.priority == 2
 
@@ -302,20 +305,13 @@ class TestOpenSkyConnectionTesting:
         """
         client = OpenSkyClient(mock_hass, opensky_config_anonymous)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=opensky_sample_response)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
-            
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(opensky_sample_response),
+                reason="OK",
+                headers={},
+            )
             success, error = await client.test_connection()
             
             assert success is True
@@ -337,20 +333,13 @@ class TestOpenSkyConnectionTesting:
         """
         client = OpenSkyClient(mock_hass, opensky_config_authenticated)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 401
-            mock_response.reason = "Unauthorized"
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
-            
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=401,
+                text="",
+                reason="Unauthorized",
+                headers={},
+            )
             success, error = await client.test_connection()
             
             assert success is False
@@ -372,20 +361,13 @@ class TestOpenSkyConnectionTesting:
         """
         client = OpenSkyClient(mock_hass, opensky_config_anonymous)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 429
-            mock_response.reason = "Too Many Requests"
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
-            
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=429,
+                text="",
+                reason="Too Many Requests",
+                headers={},
+            )
             success, error = await client.test_connection()
             
             assert success is False
@@ -510,20 +492,14 @@ class TestOpenSkyAircraftFetching:
             "states": [opensky_sample_response["states"][0]]
         }
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=single_aircraft_response)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
-            
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(single_aircraft_response),
+                reason="OK",
+                headers={},
+            )
+
             aircraft = await client.get_aircraft_by_icao24("4ca1e3")
             
             assert aircraft is not None
@@ -551,21 +527,14 @@ class TestOpenSkyAircraftFetching:
         """
         client = OpenSkyClient(mock_hass, opensky_config_anonymous)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=opensky_sample_response)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
-            
-            # Query near Popham
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(opensky_sample_response),
+                reason="OK",
+                headers={},
+            )
+
             aircraft_list = await client.get_aircraft_near_location(51.4775, -0.4614, 25)
             
             # Should find at least one aircraft (BAW123 is very close)
@@ -674,20 +643,13 @@ class TestOpenSkyRateLimitHandling:
         """
         client = OpenSkyClient(mock_hass, opensky_config_anonymous)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 429
-            mock_response.headers = {"Retry-After": "3600"}  # 1 hour
-            mock_response.reason = "Too Many Requests"
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=429,
+                text="Too Many Requests",
+                reason="Too Many Requests",
+                headers={"Retry-After": "3600"},
+            )
             
             # First request triggers rate limit
             aircraft_list = await client.get_aircraft_near_location(51.5, -0.5, 10)
@@ -728,18 +690,8 @@ class TestOpenSkyErrorHandling:
         """
         client = OpenSkyClient(mock_hass, opensky_config_anonymous)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.json = AsyncMock(side_effect=aiohttp.ClientError("Connection refused"))
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request") as mock_request:
+            mock_request.side_effect = Exception("Connection refused")
             
             aircraft_list = await client.get_aircraft_near_location(51.5, -0.5, 10)
             

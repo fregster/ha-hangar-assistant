@@ -19,6 +19,8 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .http_proxy import HttpClientProxy, HttpRequestOptions, PersistentFileCache
+
 # Try to import orjson for 2-5x faster JSON operations
 try:
     import orjson
@@ -105,6 +107,16 @@ class OpenWeatherMapClient:
         # API call tracking (resets daily)
         self._api_calls_today = 0
         self._api_calls_date = datetime.now().date()
+
+        # Initialize HTTP proxy with persistent caching for OWM data
+        # OWM updates every 10 minutes, so cache is valid for 10 minutes
+        persistent_cache = PersistentFileCache(
+            cache_file=self.cache_dir / "openweathermap.json"
+        )
+        self.http_proxy = HttpClientProxy(
+            hass=hass,
+            cache=persistent_cache
+        )
 
         _LOGGER.info(
             "OWM client initialized (cache: %s, TTL: %d min)",
@@ -485,57 +497,62 @@ class OpenWeatherMapClient:
         )
 
         try:
-            # Use Home Assistant's aiohttp session
-            session = self.hass.helpers.aiohttp_client.async_get_clientsession()
+            # Use HTTP proxy which handles caching, retries, and logging
+            options = HttpRequestOptions(
+                service="openweathermap",
+                method="GET",
+                url=url,
+                timeout=DEFAULT_TIMEOUT_SECONDS
+            )
+            
+            response = await self.http_proxy.request(options)
 
-            async with session.get(url, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
-                if response.status == 200:
-                    data = await response.json()
+            if response.status_code == 200:
+                data = json.loads(response.text) if isinstance(response.text, str) else response.text
 
-                    # Update both caches (with LRU eviction)
-                    cache_key = f"{latitude}_{longitude}"
-                    self._memory_cache[cache_key] = (data, datetime.now())
-                    self._memory_cache.move_to_end(cache_key)  # Mark as most recently used
-                    
-                    # Evict oldest entries if cache exceeds limit
-                    while len(self._memory_cache) > self._max_memory_entries:
-                        evicted_key, _ = self._memory_cache.popitem(last=False)
-                        _LOGGER.debug("Evicted oldest cache entry: %s", evicted_key)
-                    
-                    await self.hass.async_add_executor_job(
-                        self._write_persistent_cache, latitude, longitude, data
-                    )
+                # Update both caches (with LRU eviction)
+                cache_key = f"{latitude}_{longitude}"
+                self._memory_cache[cache_key] = (data, datetime.now())
+                self._memory_cache.move_to_end(cache_key)  # Mark as most recently used
+                
+                # Evict oldest entries if cache exceeds limit
+                while len(self._memory_cache) > self._max_memory_entries:
+                    evicted_key, _ = self._memory_cache.popitem(last=False)
+                    _LOGGER.debug("Evicted oldest cache entry: %s", evicted_key)
+                
+                await self.hass.async_add_executor_job(
+                    self._write_persistent_cache, latitude, longitude, data
+                )
 
-                    _LOGGER.info(
-                        "Fetched OWM data for %s,%s (call %d today)",
-                        latitude,
-                        longitude,
-                        self._api_calls_today,
-                    )
-                    
-                    # Reset failure counter on success
-                    await self._reset_failure_counter()
-                    
-                    return data
+                _LOGGER.info(
+                    "Fetched OWM data for %s,%s (call %d today)",
+                    latitude,
+                    longitude,
+                    self._api_calls_today,
+                )
+                
+                # Reset failure counter on success
+                await self._reset_failure_counter()
+                
+                return data
 
-                elif response.status == 401:
-                    error_msg = "OWM API key invalid or expired"
-                    _LOGGER.error(error_msg)
-                    await self._increment_failure_counter(error_msg)
-                    return None
+            elif response.status_code == 401:
+                error_msg = "OWM API key invalid or expired"
+                _LOGGER.error(error_msg)
+                await self._increment_failure_counter(error_msg)
+                return None
 
-                elif response.status == 429:
-                    error_msg = f"OWM API rate limit exceeded ({self._api_calls_today} calls today)"
-                    _LOGGER.error(error_msg)
-                    await self._increment_failure_counter(error_msg)
-                    return None
+            elif response.status_code == 429:
+                error_msg = f"OWM API rate limit exceeded ({self._api_calls_today} calls today)"
+                _LOGGER.error(error_msg)
+                await self._increment_failure_counter(error_msg)
+                return None
 
-                else:
-                    error_text = await response.text()
-                    error_msg = f"OWM API error: HTTP {response.status} - {error_text}"
-                    _LOGGER.error(error_msg)
-                    await self._increment_failure_counter(error_msg)
-                    return None
+            else:
+                error_msg = f"OWM API error: HTTP {response.status_code}"
+                _LOGGER.error(error_msg)
+                await self._increment_failure_counter(error_msg)
+                return None
 
         except asyncio.TimeoutError:
             error_msg = "OWM API request timed out"

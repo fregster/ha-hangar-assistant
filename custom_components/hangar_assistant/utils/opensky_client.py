@@ -78,14 +78,15 @@ Example:
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
-import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .http_proxy import HttpClientProxy, HttpRequestOptions, NullCache
 from ..const import (
     ADSB_PRIORITY_OPENSKY,
     CONF_OPENSKY_CLIENT_ID,
@@ -206,10 +207,16 @@ class OpenSkyClient(ADSBClientBase):
         self._rate_limited = False
         self._rate_limit_reset_time = None
         
-        # Build authentication
-        self._auth = None
+        # Build authentication (tuple for basic auth)
+        self._auth: Optional[Tuple[str, str]] = None
         if self._is_authenticated and auth_username and auth_password:
-            self._auth = aiohttp.BasicAuth(auth_username, auth_password)
+            self._auth = (auth_username, auth_password)
+        
+        # Initialize HTTP proxy for API requests
+        self.http_proxy = HttpClientProxy(
+            hass=hass,
+            cache=NullCache()  # OpenSky caching handled in get_aircraft_* methods
+        )
         
         _LOGGER.debug(
             "Initialised OpenSky Network client: %s (priority=%d, limit=%d credits/day)",
@@ -316,48 +323,54 @@ class OpenSkyClient(ADSBClientBase):
                 "lomax": 0.0
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{OPENSKY_API_BASE_URL}{OPENSKY_STATES_ENDPOINT}",
-                    params=params,
-                    auth=self._auth,
-                    timeout=aiohttp.ClientTimeout(total=self._timeout)
-                ) as response:
-                    if response.status == 401:
-                        return False, "Authentication failed: invalid username or password"
-                    
-                    if response.status == 429:
-                        return False, "Rate limit exceeded: try again later or create free account"
-                    
-                    if response.status != 200:
-                        return False, f"HTTP {response.status}: {response.reason}"
-                    
-                    try:
-                        data = await response.json()
-                    except (asyncio.TimeoutError, TimeoutError):
-                        return False, f"Connection timeout after {self._timeout}s"
-                    
-                    # Validate response structure
-                    if "time" not in data or "states" not in data:
-                        return False, "Invalid OpenSky response: missing required keys"
-                    
-                    if data["states"] is None:
-                        # No aircraft in bbox (valid response, but no data)
-                        _LOGGER.info("OpenSky connection successful: no aircraft in test area")
-                        return True, None
-                    
-                    if not isinstance(data["states"], list):
-                        return False, "Invalid OpenSky response: 'states' must be array"
-                    
-                    aircraft_count = len(data["states"])
-                    _LOGGER.info(
-                        "OpenSky connection successful: %d aircraft visible (%s)",
-                        aircraft_count,
-                        "authenticated" if self._is_authenticated else "anonymous"
-                    )
-                    return True, None
+            url = f"{OPENSKY_API_BASE_URL}{OPENSKY_STATES_ENDPOINT}"
+            options = HttpRequestOptions(
+                service="opensky",
+                method="GET",
+                url=url,
+                params=params,
+                auth=self._auth,
+                timeout=self._timeout,
+                expected_status=(200, 401, 404, 429, 500)
+            )
+            
+            response = await self.http_proxy.request(options)
+            
+            if response.status_code == 401:
+                return False, "Authentication failed: invalid username or password"
+            
+            if response.status_code == 429:
+                return False, "Rate limit exceeded: try again later or create free account"
+            
+            if response.status_code != 200:
+                return False, f"HTTP {response.status_code}: {response.reason}"
+            
+            try:
+                data = json.loads(response.text)
+            except (asyncio.TimeoutError, TimeoutError):
+                return False, f"Connection timeout after {self._timeout}s"
+            
+            # Validate response structure
+            if "time" not in data or "states" not in data:
+                return False, "Invalid OpenSky response: missing required keys"
+            
+            if data["states"] is None:
+                # No aircraft in bbox (valid response, but no data)
+                _LOGGER.info("OpenSky connection successful: no aircraft in test area")
+                return True, None
+            
+            if not isinstance(data["states"], list):
+                return False, "Invalid OpenSky response: 'states' must be array"
+            
+            aircraft_count = len(data["states"])
+            _LOGGER.info(
+                "OpenSky connection successful: %d aircraft visible (%s)",
+                aircraft_count,
+                "authenticated" if self._is_authenticated else "anonymous"
+            )
+            return True, None
         
-        except aiohttp.ClientError as e:
+        except Exception as e:
             error_msg = f"Connection failed: {str(e)}"
             _LOGGER.warning("OpenSky connection test failed: %s", error_msg)
             return False, error_msg
@@ -417,36 +430,41 @@ class OpenSkyClient(ADSBClientBase):
         try:
             params = {"icao24": icao24.lower()}  # OpenSky uses lowercase
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{OPENSKY_API_BASE_URL}{OPENSKY_STATES_ENDPOINT}",
-                    params=params,
-                    auth=self._auth,
-                    timeout=aiohttp.ClientTimeout(total=self._timeout)
-                ) as response:
-                    self._increment_credits(1)  # Track credit usage
-                    
-                    if response.status == 429:
-                        self._handle_rate_limit_response(response)
-                        return None
-                    
-                    if response.status != 200:
-                        _LOGGER.warning("OpenSky returned HTTP %d", response.status)
-                        return None
-                    
-                    data = await response.json()
-                    
-                    if not data.get("states"):
-                        return None  # Aircraft not found
-                    
-                    # Parse first (and only) aircraft
-                    state = data["states"][0]
-                    aircraft = self._parse_state_vector(state, data["time"])
-                    
-                    if aircraft:
-                        self._cache_aircraft(aircraft)
-                    
-                    return aircraft
+            url = f"{OPENSKY_API_BASE_URL}{OPENSKY_STATES_ENDPOINT}"
+            options = HttpRequestOptions(
+                service="opensky",
+                method="GET",
+                url=url,
+                params=params,
+                auth=self._auth,
+                timeout=self._timeout,
+                expected_status=(200, 401, 404, 429, 500)
+            )
+            
+            response = await self.http_proxy.request(options)
+            self._increment_credits(1)  # Track credit usage
+            
+            if response.status_code == 429:
+                self._handle_rate_limit_response(response)
+                return None
+            
+            if response.status_code != 200:
+                _LOGGER.warning("OpenSky returned HTTP %d", response.status_code)
+                return None
+            
+            data = json.loads(response.text)
+            
+            if not data.get("states"):
+                return None  # Aircraft not found
+            
+            # Parse first (and only) aircraft
+            state = data["states"][0]
+            aircraft = self._parse_state_vector(state, data["time"])
+            
+            if aircraft:
+                self._cache_aircraft(aircraft)
+            
+            return aircraft
         
         except Exception as e:
             _LOGGER.debug("OpenSky query failed for %s: %s", icao24, str(e))
@@ -483,62 +501,67 @@ class OpenSkyClient(ADSBClientBase):
                 "lomax": lomax
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{OPENSKY_API_BASE_URL}{OPENSKY_STATES_ENDPOINT}",
-                    params=params,
-                    auth=self._auth,
-                    timeout=aiohttp.ClientTimeout(total=self._timeout)
-                ) as response:
-                    self._increment_credits(1)  # Track credit usage
-                    
-                    if response.status == 429:
-                        self._handle_rate_limit_response(response)
-                        return []
-                    
-                    if response.status != 200:
-                        _LOGGER.warning(
-                            "OpenSky returned HTTP %d: %s",
-                            response.status,
-                            response.reason
-                        )
-                        return []
-                    
-                    data = await response.json()
-                    
-                    if not data.get("states"):
-                        _LOGGER.debug("OpenSky: no aircraft in area")
-                        return []
-                    
-                    aircraft_list = []
-                    fetch_time = datetime.fromtimestamp(data["time"], tz=timezone.utc)
-                    
-                    for state in data["states"]:
-                        try:
-                            aircraft = self._parse_state_vector(state, data["time"])
-                            if aircraft:
-                                aircraft_list.append(aircraft)
-                                self._cache_aircraft(aircraft)
-                        except Exception as e:
-                            _LOGGER.debug(
-                                "Failed to parse OpenSky state: %s",
-                                str(e)
-                            )
-                            continue
-                    
+            url = f"{OPENSKY_API_BASE_URL}{OPENSKY_STATES_ENDPOINT}"
+            options = HttpRequestOptions(
+                service="opensky",
+                method="GET",
+                url=url,
+                params=params,
+                auth=self._auth,
+                timeout=self._timeout,
+                expected_status=(200, 401, 404, 429, 500)
+            )
+            
+            response = await self.http_proxy.request(options)
+            self._increment_credits(1)  # Track credit usage
+            
+            if response.status_code == 429:
+                self._handle_rate_limit_response(response)
+                return []
+            
+            if response.status_code != 200:
+                _LOGGER.warning(
+                    "OpenSky returned HTTP %d: %s",
+                    response.status_code,
+                    response.reason
+                )
+                return []
+            
+            data = json.loads(response.text)
+            
+            if not data.get("states"):
+                _LOGGER.debug("OpenSky: no aircraft in area")
+                return []
+            
+            aircraft_list = []
+            fetch_time = datetime.fromtimestamp(data["time"], tz=timezone.utc)
+            
+            for state in data["states"]:
+                try:
+                    aircraft = self._parse_state_vector(state, data["time"])
+                    if aircraft:
+                        aircraft_list.append(aircraft)
+                        self._cache_aircraft(aircraft)
+                except Exception as e:
                     _LOGGER.debug(
-                        "Fetched %d aircraft from OpenSky (%.2f, %.2f, %dnm) - %d credits used",
-                        len(aircraft_list),
-                        latitude,
-                        longitude,
-                        radius_nm,
-                        self._credits_used_today
+                        "Failed to parse OpenSky state: %s",
+                        str(e)
                     )
-                    
-                    # Filter by exact distance (bbox is approximate)
-                    return self.filter_aircraft_by_distance(
-                        aircraft_list, latitude, longitude, radius_nm
-                    )
+                    continue
+            
+            _LOGGER.debug(
+                "Fetched %d aircraft from OpenSky (%.2f, %.2f, %dnm) - %d credits used",
+                len(aircraft_list),
+                latitude,
+                longitude,
+                radius_nm,
+                self._credits_used_today
+            )
+            
+            # Filter by exact distance (bbox is approximate)
+            return self.filter_aircraft_by_distance(
+                aircraft_list, latitude, longitude, radius_nm
+            )
         
         except (asyncio.TimeoutError, TimeoutError):
             _LOGGER.warning("OpenSky request timeout after %ds", self._timeout)
@@ -548,11 +571,11 @@ class OpenSkyClient(ADSBClientBase):
             _LOGGER.error("OpenSky query failed: %s", str(e))
             return []
     
-    def _handle_rate_limit_response(self, response: aiohttp.ClientResponse) -> None:
+    def _handle_rate_limit_response(self, response) -> None:
         """Handle 429 rate limit response.
         
         Args:
-            response: HTTP response with status 429
+            response: HTTP response object with status 429
         """
         self._rate_limited = True
         

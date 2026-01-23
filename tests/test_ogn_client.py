@@ -14,7 +14,7 @@ Tests include:
 Test Strategy:
     - Mock aprslib library (optional dependency)
     - Provide realistic OGN APRS packets
-    - Test DDB HTTP requests with aiohttp mocks
+    - Test DDB HTTP requests via the HTTP proxy
     - Verify FLARM ID extraction and parsing
     - Ensure graceful degradation without aprslib
 
@@ -27,12 +27,14 @@ Coverage:
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from homeassistant.util import dt as dt_util
 
+from custom_components.hangar_assistant.utils.http_proxy import HttpProxyResponse
 from custom_components.hangar_assistant.utils.ogn_client import OGNClient
 from custom_components.hangar_assistant.utils.adsb_models import AircraftData
 
@@ -494,19 +496,13 @@ class TestOGNDDBQueries:
         """
         client = OGNClient(mock_hass, ogn_config_basic)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=ogn_ddb_response)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(ogn_ddb_response),
+                reason="OK",
+                headers={},
+            )
             
             await client._enrich_with_ddb("DD1234")
             
@@ -530,18 +526,13 @@ class TestOGNDDBQueries:
         """
         client = OGNClient(mock_hass, ogn_config_basic)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 500
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=500,
+                text="Server Error",
+                reason="Server Error",
+                headers={},
+            )
             
             await client._enrich_with_ddb("DD1234")
             

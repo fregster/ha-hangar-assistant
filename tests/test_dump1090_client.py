@@ -13,10 +13,10 @@ Tests include:
 - dump1090 JSON format parsing edge cases
 
 Test Strategy:
-    - Mock aiohttp.ClientSession for HTTP requests
+    - Mock HTTP proxy requests for outbound calls
     - Provide realistic dump1090 JSON responses
     - Test both success and failure paths
-    - Verify caching optimizes performance
+    - Verify caching optimises performance
     - Ensure graceful degradation on errors
 
 Coverage:
@@ -28,13 +28,14 @@ Coverage:
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiohttp
 import pytest
 from homeassistant.util import dt as dt_util
 
+from custom_components.hangar_assistant.utils.http_proxy import HttpProxyResponse
 from custom_components.hangar_assistant.utils.dump1090_client import Dump1090Client
 from custom_components.hangar_assistant.utils.adsb_models import AircraftData
 
@@ -204,19 +205,13 @@ class TestDump1090ConnectionTesting:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=dump1090_sample_data)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(dump1090_sample_data),
+                reason="OK",
+                headers={},
+            )
             
             success, error = await client.test_connection()
             
@@ -237,19 +232,13 @@ class TestDump1090ConnectionTesting:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 404
-            mock_response.reason = "Not Found"
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=404,
+                text="Not Found",
+                reason="Not Found",
+                headers={},
+            )
             
             success, error = await client.test_connection()
             
@@ -270,20 +259,8 @@ class TestDump1090ConnectionTesting:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200  # Set status explicitly
-            # Raise timeout when trying to get JSON
-            mock_response.json = AsyncMock(side_effect=asyncio.TimeoutError())
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request") as mock_request:
+            mock_request.side_effect = asyncio.TimeoutError("Connection timeout after 5s")
             
             success, error = await client.test_connection()
             
@@ -305,19 +282,13 @@ class TestDump1090ConnectionTesting:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value={"messages": 123})  # Missing 'aircraft'
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps({"messages": 123}),
+                reason="OK",
+                headers={},
+            )
             
             success, error = await client.test_connection()
             
@@ -354,19 +325,13 @@ class TestDump1090AircraftFetching:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=dump1090_sample_data)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(dump1090_sample_data),
+                reason="OK",
+                headers={},
+            )
             
             aircraft = await client.get_aircraft_by_registration("G-ABCD")
             
@@ -392,19 +357,13 @@ class TestDump1090AircraftFetching:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=dump1090_sample_data)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(dump1090_sample_data),
+                reason="OK",
+                headers={},
+            )
             
             aircraft = await client.get_aircraft_by_registration("ZZ-NONE")
             
@@ -426,19 +385,13 @@ class TestDump1090AircraftFetching:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=dump1090_sample_data)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(dump1090_sample_data),
+                reason="OK",
+                headers={},
+            )
             
             aircraft = await client.get_aircraft_by_icao24("4ca1e3")  # lowercase
             
@@ -462,19 +415,13 @@ class TestDump1090AircraftFetching:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=dump1090_sample_data)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(dump1090_sample_data),
+                reason="OK",
+                headers={},
+            )
             
             # Popham coordinates
             aircraft_list = await client.get_aircraft_near_location(51.4775, -0.4614, 10)
@@ -659,19 +606,13 @@ class TestDump1090Caching:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.json = AsyncMock(return_value=dump1090_sample_data)
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request", AsyncMock()) as mock_request:
+            mock_request.return_value = HttpProxyResponse(
+                status_code=200,
+                text=json.dumps(dump1090_sample_data),
+                reason="OK",
+                headers={},
+            )
             
             # First fetch - populates cache
             aircraft1 = await client.get_aircraft_by_registration("G-ABCD")
@@ -712,19 +653,8 @@ class TestDump1090ErrorHandling:
         """
         client = Dump1090Client(mock_hass, dump1090_config)
         
-        with patch("aiohttp.ClientSession") as mock_session_class:
-            mock_session = MagicMock()
-            mock_response = AsyncMock()
-            # Raise exception when trying to read response
-            mock_response.json = AsyncMock(side_effect=aiohttp.ClientError("Connection refused"))
-            
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock()
-            mock_session.get = MagicMock()
-            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-            mock_session.get.return_value.__aexit__ = AsyncMock()
-            
-            mock_session_class.return_value = mock_session
+        with patch.object(client.http_proxy, "request") as mock_request:
+            mock_request.side_effect = Exception("Connection refused")
             
             aircraft_list = await client._fetch_all_aircraft()
             

@@ -253,10 +253,10 @@ async def test_http_client_proxy_request_with_network_failure():
     """HttpClientProxy should raise on network failure with no cache."""
     hass = MagicMock()
     
-    # Mock session to fail
-    mock_session = AsyncMock()
-    mock_session.request.side_effect = Exception("Connection failed")
-    hass.helpers.aiohttp_client.async_get_clientsession = AsyncMock(
+    # Mock session to fail synchronously on request
+    mock_session = MagicMock()
+    mock_session.request = MagicMock(side_effect=Exception("Connection failed"))
+    hass.helpers.aiohttp_client.async_get_clientsession = MagicMock(
         return_value=mock_session
     )
     

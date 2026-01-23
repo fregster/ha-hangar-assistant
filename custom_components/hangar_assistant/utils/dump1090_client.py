@@ -67,14 +67,15 @@ Example:
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .http_proxy import HttpClientProxy, HttpRequestOptions, NullCache
 from ..const import (
     ADSB_PRIORITY_DUMP1090,
     DEFAULT_DUMP1090_URL,
@@ -130,6 +131,12 @@ class Dump1090Client(ADSBClientBase):
         self._url = config.get("url", DEFAULT_DUMP1090_URL)
         self._timeout = config.get("timeout", DEFAULT_DUMP1090_TIMEOUT)
         
+        # Initialize HTTP proxy for API requests
+        self.http_proxy = HttpClientProxy(
+            hass=hass,
+            cache=NullCache()  # Dump1090 caching handled in get_aircraft_* methods
+        )
+        
         _LOGGER.debug(
             "Initialised dump1090 client: %s (priority=%d)",
             self._url,
@@ -143,42 +150,42 @@ class Dump1090Client(ADSBClientBase):
             Tuple of (success: bool, error_message: Optional[str])
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self._url,
-                    timeout=aiohttp.ClientTimeout(total=self._timeout)
-                ) as response:
-                    if response.status != 200:
-                        return False, f"HTTP {response.status}: {response.reason}"
-                    
-                    try:
-                        data = await response.json()
-                    except (asyncio.TimeoutError, TimeoutError):
-                        error_msg = f"Connection timeout after {self._timeout}s"
-                        _LOGGER.warning("dump1090 connection test failed: %s", error_msg)
-                        return False, error_msg
-                    
-                    # Validate response structure
-                    if "aircraft" not in data:
-                        return False, "Invalid dump1090 response: missing 'aircraft' key"
-                    
-                    if not isinstance(data["aircraft"], list):
-                        return False, "Invalid dump1090 response: 'aircraft' must be array"
-                    
-                    aircraft_count = len(data["aircraft"])
-                    _LOGGER.info(
-                        "dump1090 connection successful: %d aircraft visible",
-                        aircraft_count
-                    )
-                    return True, None
+            options = HttpRequestOptions(
+                service="dump1090",
+                method="GET",
+                url=self._url,
+                timeout=self._timeout,
+                expected_status=(200, 404, 500)
+            )
+            
+            response = await self.http_proxy.request(options)
+            
+            if response.status_code != 200:
+                return False, f"HTTP {response.status_code}: {response.reason}"
+            
+            try:
+                data = json.loads(response.text)
+            except (asyncio.TimeoutError, TimeoutError):
+                error_msg = f"Connection timeout after {self._timeout}s"
+                _LOGGER.warning("dump1090 connection test failed: %s", error_msg)
+                return False, error_msg
+            
+            # Validate response structure
+            if "aircraft" not in data:
+                return False, "Invalid dump1090 response: missing 'aircraft' key"
+            
+            if not isinstance(data["aircraft"], list):
+                return False, "Invalid dump1090 response: 'aircraft' must be array"
+            
+            aircraft_count = len(data["aircraft"])
+            _LOGGER.info(
+                "dump1090 connection successful: %d aircraft visible",
+                aircraft_count
+            )
+            return True, None
         
-        except aiohttp.ClientError as e:
+        except Exception as e:
             error_msg = f"Connection failed: {str(e)}"
-            _LOGGER.warning("dump1090 connection test failed: %s", error_msg)
-            return False, error_msg
-        
-        except (asyncio.TimeoutError, TimeoutError):
-            error_msg = f"Connection timeout after {self._timeout}s"
             _LOGGER.warning("dump1090 connection test failed: %s", error_msg)
             return False, error_msg
         
@@ -272,60 +279,57 @@ class Dump1090Client(ADSBClientBase):
             ValueError: If JSON parsing fails
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self._url,
-                    timeout=aiohttp.ClientTimeout(total=self._timeout)
-                ) as response:
-                    if response.status != 200:
-                        _LOGGER.warning(
-                            "dump1090 returned HTTP %d: %s",
-                            response.status,
-                            response.reason
-                        )
-                        return []
-                    
-                    data = await response.json()
-                    
-                    if "aircraft" not in data:
-                        _LOGGER.warning("dump1090 response missing 'aircraft' key")
-                        return []
-                    
-                    aircraft_list = []
-                    now = dt_util.utcnow()
-                    
-                    for ac_json in data["aircraft"]:
-                        try:
-                            aircraft = self._parse_aircraft_json(ac_json, now)
-                            if aircraft:
-                                aircraft_list.append(aircraft)
-                                self._cache_aircraft(aircraft)
-                        except Exception as e:
-                            _LOGGER.debug(
-                                "Failed to parse aircraft JSON: %s - %s",
-                                ac_json.get("hex", "unknown"),
-                                str(e)
-                            )
-                            continue
-                    
+            options = HttpRequestOptions(
+                service="dump1090",
+                method="GET",
+                url=self._url,
+                timeout=self._timeout,
+                expected_status=(200, 404, 500)
+            )
+            
+            response = await self.http_proxy.request(options)
+            
+            if response.status_code != 200:
+                _LOGGER.warning(
+                    "dump1090 returned HTTP %d: %s",
+                    response.status_code,
+                    response.reason
+                )
+                return []
+            
+            data = json.loads(response.text)
+            
+            if "aircraft" not in data:
+                _LOGGER.warning("dump1090 response missing 'aircraft' key")
+                return []
+            
+            aircraft_list = []
+            now = dt_util.utcnow()
+            
+            for ac_json in data["aircraft"]:
+                try:
+                    aircraft = self._parse_aircraft_json(ac_json, now)
+                    if aircraft:
+                        aircraft_list.append(aircraft)
+                        self._cache_aircraft(aircraft)
+                except Exception as e:
                     _LOGGER.debug(
-                        "Fetched %d aircraft from dump1090 at %s",
-                        len(aircraft_list),
-                        self._url
+                        "Failed to parse aircraft JSON: %s - %s",
+                        ac_json.get("hex", "unknown"),
+                        str(e)
                     )
-                    
-                    return aircraft_list
-        
-        except aiohttp.ClientError as e:
-            _LOGGER.warning("dump1090 HTTP request failed: %s", str(e))
-            return []
-        
-        except (asyncio.TimeoutError, TimeoutError):
-            _LOGGER.warning("dump1090 request timeout after %ds", self._timeout)
-            return []
+                    continue
+            
+            _LOGGER.debug(
+                "Fetched %d aircraft from dump1090 at %s",
+                len(aircraft_list),
+                self._url
+            )
+            
+            return aircraft_list
         
         except Exception as e:
-            _LOGGER.error("Unexpected error fetching from dump1090: %s", str(e))
+            _LOGGER.error("dump1090 fetch failed: %s", str(e))
             return []
     
     def _parse_aircraft_json(

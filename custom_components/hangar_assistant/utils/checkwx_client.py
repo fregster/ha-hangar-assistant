@@ -30,10 +30,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-import aiohttp
-
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
+
+from .http_proxy import HttpClientProxy, HttpRequestOptions, PersistentFileCache
 
 try:
     import orjson
@@ -123,6 +123,15 @@ class CheckWXClient:
         # Failure tracking for graceful degradation
         self._consecutive_failures = 0
         self._max_consecutive_failures = 3
+        
+        # Initialize HTTP proxy with persistent caching for CheckWX data
+        persistent_cache = PersistentFileCache(
+            cache_file=self._cache_dir / "checkwx.json"
+        )
+        self._http_proxy = HttpClientProxy(
+            hass=hass,
+            cache=persistent_cache
+        )
         
         _LOGGER.debug("CheckWX client initialized (cache: %s)", cache_enabled)
     
@@ -362,7 +371,7 @@ class CheckWXClient:
             return await self._get_stale_cache(cache_key)
     
     async def _api_call(self, endpoint: str) -> Optional[Dict[str, Any]]:
-        """Execute HTTP request to CheckWX API.
+        """Execute HTTP request to CheckWX API via HTTP proxy.
         
         Args:
             endpoint: API endpoint path
@@ -374,89 +383,43 @@ class CheckWXClient:
         headers = {"X-API-Key": self._api_key}
         
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)) as session:
-                # Some mocks (AsyncMock/MagicMock) do not fully implement the async context manager protocol.
-                # Attempt standard usage first, then progressively relax to support unit test mocks.
-                response_ctx = session.get(url, headers=headers)
-
-                # If session.get() returned a coroutine (common with AsyncMock), await it and
-                # attempt to enter any provided async context manager on the resulting object.
-                if asyncio.iscoroutine(response_ctx):
-                    response_candidate = await response_ctx
-
-                    if hasattr(response_candidate, "__aenter__"):
-                        enter_result = response_candidate.__aenter__()
-                        response = (
-                            await enter_result
-                            if asyncio.iscoroutine(enter_result)
-                            else enter_result
-                        )
-                        return await self._process_response(response, endpoint)
-
-                    return await self._process_response(response_candidate, endpoint)
-
-                # Preferred path: behave like aiohttp and use the async context manager on the response.
-                try:
-                    async with response_ctx as response:
-                        # Some MagicMock responses surface the actual response on __aenter__.return_value
-                        alt_response = getattr(
-                            getattr(response_ctx, "__aenter__", None), "return_value", None
-                        )
-                        if alt_response is not None and alt_response is not response:
-                            return await self._process_response(alt_response, endpoint)
-
-                        return await self._process_response(response, endpoint)
-                except (TypeError, AttributeError):
-                    # Fallbacks for mocks that do not implement __aenter__/__aexit__ properly.
-
-                    # If __aenter__ exists, call it directly and await if needed.
-                    if hasattr(response_ctx, "__aenter__"):
-                        enter_result = response_ctx.__aenter__()
-                        response = (
-                            await enter_result
-                            if asyncio.iscoroutine(enter_result)
-                            else enter_result
-                        )
-                        return await self._process_response(response, endpoint)
-
-                    # Some MagicMock objects expose the response via __aenter__.return_value
-                    cached_response = getattr(
-                        getattr(response_ctx, "__aenter__", None), "return_value", None
-                    )
-                    if cached_response is not None:
-                        return await self._process_response(cached_response, endpoint)
-
-                    # Final fallback: if the response context is a coroutine, await it directly.
-                    if asyncio.iscoroutine(response_ctx):
-                        response = await response_ctx
-                        return await self._process_response(response, endpoint)
-
-                    _LOGGER.error(
-                        "CheckWX: Unsupported response object for %s (%s)",
-                        endpoint,
-                        type(response_ctx),
-                    )
-                    return None
+            # Use HTTP proxy which handles caching, retries, and logging
+            options = HttpRequestOptions(
+                service="checkwx",
+                method="GET",
+                url=url,
+                headers=headers,
+                timeout=DEFAULT_TIMEOUT
+            )
+            
+            response = await self._http_proxy.request(options)
+            return await self._process_response(response, endpoint)
         
         except asyncio.TimeoutError:
             _LOGGER.error("CheckWX: Request timeout for %s", endpoint)
             return None
         
-        except aiohttp.ClientError as e:
+        except Exception as e:
             _LOGGER.error("CheckWX: Network error for %s: %s", endpoint, e)
             return None
 
-    async def _process_response(self, response: aiohttp.ClientResponse, endpoint: str) -> Optional[Dict[str, Any]]:
-        """Process CheckWX HTTP response.
+    async def _process_response(self, response: Any, endpoint: str) -> Optional[Dict[str, Any]]:
+        """Process CheckWX HTTP response from proxy.
 
-        Split into helper to allow both context-managed and awaited response objects
-        (useful for unit tests that patch aiohttp.ClientSession with AsyncMock).
+        Args:
+            response: HttpResponseProxy object with status_code and text
+            endpoint: API endpoint for logging
+        
+        Returns:
+            Parsed JSON response or None on error
         """
         # Track request count
         self._daily_requests += 1
 
-        if response.status == 200:
-            data = await response.json()
+        if response.status_code == 200:
+            # Parse JSON response
+            json_text = response.text if isinstance(response.text, str) else response.text.decode('utf-8')
+            data = json.loads(json_text)
 
             # CheckWX wraps data in {"results": n, "data": [...]}
             if data.get("results", 0) > 0 and "data" in data:
@@ -466,19 +429,19 @@ class CheckWXClient:
             _LOGGER.warning("CheckWX: No results for %s", endpoint)
             return None
 
-        if response.status == 401:
+        if response.status_code == 401:
             _LOGGER.error("CheckWX: Invalid API key (401 Unauthorized)")
             return None
 
-        if response.status == 404:
+        if response.status_code == 404:
             _LOGGER.warning("CheckWX: Resource not found (404) - %s", endpoint)
             return None
 
-        if response.status == 429:
+        if response.status_code == 429:
             _LOGGER.error("CheckWX: Rate limit exceeded (429)")
             return None
 
-        _LOGGER.error("CheckWX: API error %d for %s", response.status, endpoint)
+        _LOGGER.error("CheckWX: API error %d for %s", response.status_code, endpoint)
         return None
     
     def _check_rate_limit(self) -> bool:
